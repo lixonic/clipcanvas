@@ -1,0 +1,80 @@
+name: Ubuntu checks and package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubuntu-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Test and build on Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GDK_BACKEND: x11
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PULSE_SINK: clipcanvas_ci
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install native application and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            python3 python3-gi python3-cairo python3-gi-cairo \
+            gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-libav gstreamer1.0-pulseaudio ffmpeg xvfb xauth dbus-x11 \
+            pulseaudio pulseaudio-utils desktop-file-utils
+
+      - name: Check Python and desktop launcher
+        run: |
+          /usr/bin/python3 -m compileall -q clipcanvas tests build_deb.py
+          desktop-file-validate packaging/clipcanvas.desktop
+
+      - name: Test rendering, WAV soundtracks, and native desktop workflow
+        # A null sink supplies an audio device without playing audible sound.
+        # The desktop test also sets playbin volume to zero; exported audio is tested separately.
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=clipcanvas_ci
+          dbus-run-session -- xvfb-run --auto-servernum \
+            --server-args="-screen 0 1600x1000x24" \
+            /usr/bin/python3 -m unittest discover -s tests -v
+
+      - name: Build Debian installer and source archive
+        run: /usr/bin/python3 build_deb.py --output-dir dist
+
+      - name: Inspect package and verify checksums
+        run: |
+          for package in dist/*.deb; do
+            dpkg-deb --info "$package"
+            dpkg-deb --contents "$package"
+          done
+          cd dist
+          sha256sum --check ./*-SHA256SUMS.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clipcanvas-ubuntu-${{ github.sha }}
+          path: |
+            dist/*.deb
+            dist/*-source.tar.gz
+            dist/*-SHA256SUMS.txt
+            dist/ClipCanvas-*-Quick-Start.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

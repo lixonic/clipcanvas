@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible problem with ClipCanvas.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ClipCanvas currently targets Ubuntu. Windows support is planned and is not yet available.
+        Please avoid attaching private media or including personal file paths in logs.
+  - type: input
+    id: version
+    attributes:
+      label: ClipCanvas version
+      placeholder: "For example: 0.1.1, installed from the Debian package"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      placeholder: "For example: Ubuntu 24.04, x86_64, Wayland"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Describe the shortest sequence that triggers the problem.
+      placeholder: |
+        1. Choose a portrait canvas.
+        2. Import two clips and a WAV soundtrack.
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include an error message or screenshot if useful.
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Media and project details
+      description: If relevant, list file formats, dimensions, frame rate, approximate duration, and export quality. A small public sample is helpful but optional.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove personal information before pasting logs.
+      render: text

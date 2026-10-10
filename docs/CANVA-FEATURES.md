@@ -1,0 +1,173 @@
+# Canva video feature inventory for ClipCanvas
+
+Research checked against official Canva pages on **10 October 2026**. This is a decision list of 60 useful capabilities, not an assertion that all appear in every account. Canva's native editor, premium tools, and marketplace apps have different entitlements. No feature below has been selected for implementation yet.
+
+Access labels: **Basic** = available as an ordinary/free editing capability; **Pro** = Canva explicitly identifies a paid capability (other eligible plans may include it); **Varies** = assets, AI allowance, account, region, or edition affect access, or the source does not establish a precise entitlement. These are Canva access labels, not intended ClipCanvas pricing.
+
+
+## How to select features
+
+Reply with feature IDs and **Now**, **Later**, or **Skip**, for example:
+`Now: C10, C21, C31. Later: C23, C37. Skip: C60.`
+The ClipCanvas column reflects source inspection and generated-media testing of
+version 0.1.1. **Existing** means an implemented basic workflow; **Basic** and
+**Partial** identify narrower controls than Canva's full feature. **New work**
+means it is not implemented. None of the new features are selected yet.
+
+## Canvas and composition
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C01 | Social-video canvas presets | Basic | Start landscape, portrait, or square projects. | Existing presets |
+| C02 | Resize an existing project | Pro | Adapt the composition to another size; current timeline has conversion restrictions. | Basic: change preset |
+| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Basic: numeric crop position |
+| C04 | Rotate and flip footage | Basic | Correct orientation or mirror the picture. | New work |
+| C05 | Multiple visual layers | Basic | Stack video, photos, graphics, and text for overlays. | New work |
+| C06 | Background versus overlay placement | Basic | Make footage fill the canvas or position it above other media. | Partial: fit/fill only |
+
+Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/video-resize/), [free cropping](https://www.canva.com/features/crop-videos/), [rotation and other operations](https://www.canva.com/features/speed-up-video/), [mirroring](https://www.canva.com/features/mirror-video/), [main and upper timeline tracks](https://www.canva.com/help/creating-and-editing-videos/).
+
+## Clip assembly and timeline
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Partial: video clips only |
+| C08 | Arrange clips in sequence | Basic | Drag clips into story order; the main track closes gaps. | Existing |
+| C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Basic: numeric trim |
+| C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | New work |
+| C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing |
+| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Basic: zoom/seek prepared preview |
+| C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | New work |
+| C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Basic: prepared preview |
+
+Sources: [Import requirements](https://www.canva.com/help/upload-formats-requirements-variantb/), [free trimming and joining](https://www.canva.com/features/video-trimmer/), [free splitting](https://www.canva.com/features/video-splitter/), [timeline operations](https://www.canva.com/help/creating-and-editing-videos/), [playback controls](https://www.canva.com/help/adjust-video-playback/).
+
+## Transitions and motion
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Basic: four effects |
+| C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Partial: duration only |
+| C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | New work |
+| C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | New work |
+| C19 | Custom motion paths | Basic | Record a visual element's route by dragging it. | New work |
+| C20 | Magic Animate | Pro | Automatically recommend/apply coordinated motion across a design. | New work |
+
+Sources: [Transitions](https://www.canva.com/features/video-transitions/), [element timing](https://www.canva.com/en_au/help/element-timing-video/), [motion effects and paths](https://www.canva.com/features/video-effects/), [Magic Animate](https://www.canva.com/pro/animator/). Not all animation presets expose the same speed or duration controls.
+
+## Titles and captions
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C21 | Text titles and labels | Basic / premium fonts vary | Add and format positioned text over video. | New work |
+| C22 | Text effects | Basic / effect or asset varies | Add outlines, shadows, backgrounds, and other styles. | New work |
+| C23 | Automatic speech captions | Varies | Generate captions from spoken video or audio. | New work |
+| C24 | Edit caption wording and timing | Varies | Correct recognition and move caption segments. | New work |
+| C25 | Styled and animated caption packs | Varies | Apply a consistent subtitle treatment, including motion. | New work |
+| C26 | Caption translation | Varies | Generate captions in another supported language. | New work |
+
+Sources: [Text and overlays](https://www.canva.com/video-editor/ai/), [text effects](https://www.canva.com/features/free-text-effects/), [caption generation, editing, styles, and translation](https://www.canva.com/help/generate-edit-captions-on-videos/). Caption entitlement was not unambiguously recoverable from the current Free/Pro comparison; do not casually call all captions Pro-only. The help page documents more than 20 style packs, with locale restrictions, and a dedicated timeline layer. Burned-in/editable captions are different from Canva's accessibility/view-only captions. Captions are included in MP4 exports; no verified claim here of SRT export.
+
+## Audio editing and mixing
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C27 | Import personal soundtracks, including WAV | Basic | Use WAV, MP3, M4A, OGG, or WebM audio. | Existing; WAV verified |
+| C28 | Layer music, speech, and sound effects | Basic | Position multiple audio clips in separate tracks. | Existing |
+| C29 | Visible audio waveforms | Basic | See timing and sound activity while aligning clips. | Existing |
+| C30 | Trim audio and choose the source section | Basic | Select the part of a recording or song to play. | Existing |
+| C31 | Split and rearrange audio | Basic | Separate a recording into independently editable parts. | New work |
+| C32 | Clip/track volume and mute | Basic | Balance individual clips and remove original sound when needed. | Existing |
+| C33 | Audio fade in/out | Basic | Smooth the beginnings and endings of audio, including video sound. | Basic: soundtrack fades |
+| C34 | Extract audio from video | Basic | Detach sound into a separate timeline track. | New work |
+| C35 | Record voice-over | Basic / availability varies | Narrate directly in the editor. | New work |
+| C36 | Beat markers with manual alignment | Basic | Display detected beats and place cuts to match them. | New work |
+| C37 | Automatic Beat Sync | Pro | Retiming clips to the music with one command. | New work |
+| C38 | Automatic volume balancing | Pro | Balance varying audio/video levels across the design. | New work |
+
+Sources: [Audio formats](https://www.canva.com/help/upload-formats-requirements-variantb/), [layered audio and waveforms](https://www.canva.com/help/creating-and-editing-videos/), [volume, fades, source selection, Balance all](https://www.canva.com/en_au/help/trim-audio-and-adjust-volume/), [extraction and splitting](https://www.canva.com/features/extract-audio/), [voice-over recording](https://www.canva.com/help/record-voiceover/), [manual versus automatic Beat Sync](https://www.canva.com/features/beat-sync/), [Pro label for automatic balancing](https://www.canva.com/video-editor/). Balance all is verified; arbitrary audio automation curves, EQ, compressor controls, and automatic dialogue ducking were not verified as standard native Canva features.
+
+## Picture and sound enhancement
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C39 | Video filter presets | Basic | Apply a look and adjust its strength. | New work |
+| C40 | Basic color and light adjustments | Basic | Tune brightness, contrast, saturation, temperature, tint, highlights, and shadows. | New work |
+| C41 | Blur and vignette effects | Basic / effect varies | Soften the picture or darken its edges. | New work |
+| C42 | AI video background removal | Pro | Isolate a subject and replace its background. | New work |
+| C43 | Enhance Voice | Pro | Reduce background noise around speech; usage allowance applies. | New work |
+
+Sources: [Video filters](https://www.canva.com/features/video-filters/), [adjustment controls](https://www.canva.com/features/video-enhancer/), [video background removal](https://www.canva.com/features/video-background-remover/), [Enhance Voice eligibility](https://www.canva.com/help/enhance-voice/). Enhance Voice is speech-focused; this is not a claim of general multitrack restoration.
+
+## AI creation and assisted editing
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C44 | Magic Video | Varies; limited free AI / expanded paid access | Assemble supplied clips/photos from a prompt with styling and music. | New work |
+| C45 | Highlights | Varies; marketed with Pro | Find promising excerpts in longer footage. | New work |
+| C46 | Text-to-video generation | Varies; AI tool and allowance | Generate new clips from a written description. | New work |
+| C47 | Image-to-video and AI scene effects | Varies; paid access/credits | Add generated motion or place images into predesigned scenes. | New work |
+| C48 | AI text-to-speech voice-over | Varies; AI tool and allowance | Produce narration in selected voices/languages. | New work |
+| C49 | AI music and sound-effect generation | Varies; plan, rollout, allowance | Create soundtrack material from a description. | New work |
+
+Sources: [Magic Video, Highlights, and generated video](https://www.canva.com/video-editor/ai/), [current video feature overview](https://www.canva.com/video-editor/), [AI audio generation](https://www.canva.com/help/generate-ai-music-sound-effects-and-voiceovers/), [voice generator](https://www.canva.com/features/ai-voice-generator/). The AI audio help page calls this premium but also says it is available to all with varying limits; label it Varies, not unlimited/free. Marketplace AI apps can have independent fees. Native generation and app-based alternatives should not be treated as one entitlement.
+
+## Templates, assets, branding, and capture
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C50 | Ready-made video templates | Basic + Pro libraries | Start from layouts with established timing and transitions. | New work |
+| C51 | Stock footage, photos, graphics, stickers | Basic + Pro assets | Fill visual gaps with a searchable media collection. | New work |
+| C52 | Music and sound-effect libraries | Basic + Pro assets; license limits | Find audio without importing your own. | New work |
+| C53 | Brand Kit and reusable brand styles | Pro for expanded kit | Keep logos, fonts, colors, and templates consistent. | New work |
+| C54 | Webcam and screen capture | Basic; screen capture desktop-only | Record source material directly into the Canva workflow. | New work |
+
+Sources: [Customizable video templates](https://www.canva.com/video-editor/templates/slideshow/), [premium assets and tools](https://www.canva.com/pro/), [sound effects](https://www.canva.com/features/sound-effects/), [Brand Kit](https://www.canva.com/pro/brand-kit/), [limited free color palette](https://www.canva.com/help/color-palettes/), [webcam capture](https://www.canva.com/features/online-video-recorder/), [desktop screen recorder](https://www.canva.com/help/screen-recorder/). The latter needs the Mac/Windows desktop app and internet; current maximum is 25 minutes/1 GB. A ClipCanvas asset library needs independently licensed material, not copied Canva assets.
+
+## Export, publishing, and collaboration
+
+| ID | Feature | Canva access | What it does | ClipCanvas 0.1.1 |
+|---|---|---|---|---|
+| C55 | MP4 download | Basic; content-license conditions | Export a finished video; watermark-free with eligible own/free content. | Existing |
+| C56 | Animated GIF download | Basic; duration limits vary | Export a short silent animation. | New work |
+| C57 | Alternate export resolutions, including 4K | Pro / eligible plans | Choose sizes beyond Free's default 1080p; see quality caveat below. | Basic: 1080p and 4K presets |
+| C58 | Download pages as separate videos | Pro / eligible plans and design type | Export separate files from suitable multipage designs. | New work |
+| C59 | Shared editing, comments, and review links | Basic / team controls vary | Collaborate and collect feedback online. | New work |
+| C60 | Direct social publishing and scheduled posts | Varies; scheduling is paid/eligible plans | Deliver from Canva to connected social accounts. | New work |
+
+Sources: [Video export types and watermark rules](https://www.canva.com/video-editor/), [resolution, duration, and separate-file limits](https://www.canva.com/help/download-video-as-separate-files/), [collaboration](https://www.canva.com/features/video-effects/), [Content Planner](https://www.canva.com/help/content-planner/). Publishing support is account/platform-dependent; do not promise every video format can be directly scheduled to every network.
+
+## Qualifications that matter to this project
+
+1. **Source quality:** Canva's upload-help page explicitly states that uploaded 4K footage is stored at 1080p, even if later exported at 4K. This supports keeping original media for final ClipCanvas renders; it does not establish that all possible Canva workflows always behave identically. [Exact official source, “Upload video files”](https://www.canva.com/help/upload-formats-requirements-variantb/).
+2. **Changing editor:** Canva's help page says the updated timeline is standard for new video projects, while retaining some beta/gradual-rollout wording. It reports Auto-trim temporarily unavailable, limitations converting video and static design types, and preserved older project structures. Therefore this inventory records capabilities, not guaranteed identical UI for every account. [Official editor guidance](https://www.canva.com/help/creating-and-editing-videos/).
+3. **Not verified as native Canva features:** general-purpose keyframe curves, speed ramps, optical-flow slow motion, motion tracking, professional masks, LUT workflows, HDR/10-bit mastering controls, arbitrary audio automation, multicamera editing, and lossless MP4 compositing. These can be separate CapCut-inspired ClipCanvas candidates, not falsely attributed Canva parity requirements.
+4. **Apps versus built-ins:** reverse playback, voice changing, dubbing, vocal removal, and upscaling appear in Canva's wider ecosystem, but may be marketplace integrations with distinct limits. For example, [Video Reverser](https://www.canva.com/apps/AAGZP_QLmew/video-reverser) identifies Funkersoft as the app provider. [Voice Changer](https://www.canva.com/features/voice-changer/) describes app credits. They are intentionally outside this first 60-item core decision list.
+5. **Export quality target:** proposed ClipCanvas policy (our recommendation, not a Canva fact): preserve originals, use temporary lower-resolution previews only for responsiveness, render from originals, expose resolution/frame rate/quality, and clearly distinguish high-quality compression from true lossless output.
+
+## Suggested initial selections for discussion
+
+All decisions are pending. This is a recommendation to discuss: C01–C14 for a dependable canvas/timeline; C15–C16 for transitions; C27–C38 for soundtrack work; C55 and C57 for controlled final export. C21–C25 can follow for social titles/captions. Cloud publishing, licensed asset catalogs, and generative AI should be separate optional phases because the user's priority is fast local creation with original-media quality.
+
+## Additional desktop and CapCut-inspired candidates
+
+These are proposed ClipCanvas capabilities, not assertions that they are native
+Canva features. Their exact scope and cost need selection and design.
+
+| ID | Candidate | Why it matters | Current status |
+|---|---|---|---|
+| X01 | Direct timeline handles, snapping, ripple edits | Faster precise clip assembly | New workflow; numeric trim exists |
+| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | New work |
+| X03 | Keyframes and easing | Animate position, scale, opacity and audio levels | New work |
+| X04 | Reverse, freeze frames and speed ramps | Control pacing within a clip | New work |
+| X05 | Dialogue ducking, audio envelopes, meters and EQ | Mix music, voice and effects predictably | New work |
+| X06 | Chroma key, masks and optional motion tracking | Composite and follow subjects | New work |
+| X07 | LUT/color tools and explicit HDR handling | Make picture treatment and color conversion deliberate | New work |
+| X08 | Export codec/bitrate choices, queue and optional hardware encoding | Control quality, size and processing time | Basic H.264 quality presets exist |
+| X09 | Autosave recovery, missing-media relink and collect-media projects | Resume work safely and move it between computers | Save/open exists; additions are new |
+| X10 | Native Windows installer and Ubuntu release checks | Deliver the same core workflow on both platforms | Ubuntu .deb exists; Windows planned |
+
+Suggested practical foundation: **C10 + X01 + X02 + X09**, followed by the chosen
+soundtrack improvements and **C21** titles. Windows feasibility should be checked
+before committing to an interface rewrite. See the
+[development plan](DEVELOPMENT-PLAN.md).

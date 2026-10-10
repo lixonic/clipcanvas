@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ClipCanvas
+GenericName=Video Creator
+Comment=Create social videos from local clips and soundtracks
+Exec=clipcanvas
+Icon=clipcanvas
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+Keywords=video;clips;social;reels;music;offline;
+StartupNotify=true
+StartupWMClass=ClipCanvas

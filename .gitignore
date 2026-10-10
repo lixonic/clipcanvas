@@ -1,0 +1,45 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build outputs and generated media; test sources remain tracked.
+/dist/
+/build/
+/outputs/
+/generated/
+/test-media/
+*.egg-info/
+*.deb
+!/installers/ubuntu/clipcanvas_0.1.1_all.deb
+*.clipcanvas
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.wav
+*.WAV
+*.mp3
+*.flac
+*.ogg
+*.m4a
+
+# Editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example

@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+"""Launch the installed ClipCanvas application."""
+import sys
+
+sys.path.insert(0, "/usr/share/clipcanvas")
+from clipcanvas.app import main
+
+raise SystemExit(main())

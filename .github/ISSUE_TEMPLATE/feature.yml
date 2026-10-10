@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest an improvement to the local video creation workflow.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the workflow and what currently gets in your way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested improvement
+      description: Explain how you would like ClipCanvas to behave.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Relevant platform
+      options:
+        - Ubuntu
+        - Windows (planned)
+        - Both
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or examples
+      description: Optional screenshots, examples, or workarounds. Only share media you are comfortable making public.
