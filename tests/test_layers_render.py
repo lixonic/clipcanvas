@@ -139,6 +139,53 @@ class VisualRenderTests(unittest.TestCase):
         raw = self.pixels(output, .7)
         self.assertGreater(sum(min(raw[i:i+3]) > 150 for i in range(0, len(raw), 3)), 150)
 
+    def test_four_text_presets_export_like_native_canvas_and_remain_editable(self):
+        from clipcanvas import text_styles
+        import hashlib
+        p=self.project();p['caption_style'].update(font_size=24,height=.3,y=.77)
+        # The same preset mechanism is used for a title and the global captions.
+        fingerprints=[]
+        for key,_,_ in text_styles.PRESETS:
+            with self.subTest(preset=key):
+                layer=model.new_text('Editable title',0,2)
+                layer.update(font_size=28,y=.3,width=.9,height=.35)
+                p['layers']=[text_styles.apply_preset(layer,key)]
+                p['caption_style']=text_styles.apply_preset(p['caption_style'],key)
+                p['captions']=[model.new_caption('Corrected caption',.2,1.8)]
+                output=self.root/f'preset-{key}.mp4';engine.render(p,output,quality='master')
+                raw=self.pixels(output,.7)
+                surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,320,180)
+                cr=cairo.Context(surface);cr.set_source_rgb(0,0,1);cr.paint()
+                visuals.draw(cr,p,.7,(0,0,320,180))
+                pixels=memoryview(surface.get_data())
+                expected=bytes(channel for offset in range(0,len(pixels),4)
+                               for channel in (pixels[offset+2],pixels[offset+1],pixels[offset]))
+                self.assertLess(sum(abs(a-b) for a,b in zip(raw,expected))/len(raw),8)
+                fingerprints.append(hashlib.sha256(expected).hexdigest())
+                self.assertEqual(p['layers'][0]['text'],'Editable title')
+                self.assertEqual(p['captions'][0]['text'],'Corrected caption')
+                if key=='highlight':
+                    yellow=sum(raw[i]>190 and raw[i+1]>130 and raw[i+2]<110 for i in range(0,len(raw),3))
+                    self.assertGreater(yellow,500)
+                    # The background follows the wording instead of filling
+                    # the entire 90%-width text box.
+                    self.assertGreater(self.pixel(raw,320,20,138)[2],220)
+        self.assertEqual(len(set(fingerprints)),4)
+
+    def test_logo_opacity_multiplies_existing_alpha_both_aspect_ratios(self):
+        for width,height in ((320,180),(180,320)):
+            with self.subTest(canvas=(width,height)):
+                p=self.project(width,height)
+                logo=model.new_visual(self.root/'red.png',start=.2,end=1.6)
+                logo.update(width=.4,height=.4,fit='fill',opacity=.4)
+                p['layers']=[logo];output=self.root/f'logo-opacity-{width}.mp4'
+                engine.render(p,output,quality='master')
+                pixel=self.pixel(self.pixels(output,.7),width,width//2,height//2)
+                # PNG alpha .5 times layer opacity .4 gives 20% red on blue.
+                self.assertAlmostEqual(pixel[0],51,delta=8)
+                self.assertAlmostEqual(pixel[2],204,delta=8)
+                self.assertGreater(self.pixel(self.pixels(output,1.8),width,width//2,height//2)[2],220)
+
     def test_speech_audio_restores_muted_video_and_protects_all_media(self):
         p = self.project();p['clips'][0]['volume'] = 0
         # The audio-only path does not decode visual assets or rasterize titles.

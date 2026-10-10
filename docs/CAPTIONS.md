@@ -1,4 +1,4 @@
-# Local captions in ClipCanvas 0.4
+# Local captions in ClipCanvas 0.5
 
 Use **Captions → Generate captions from speech**. Choose original video speech
 or the full mix, Tiny or Small, and a language code or automatic detection.
@@ -12,6 +12,15 @@ start/end. Timeline dragging changes placement/duration. Changes support undo.
 Caption style applies to all cues. MP4 exports burn in the appearance; SRT
 import/export stores words and millisecond timing only. Replacing a caption
 collection asks first and is undoable; failure/cancellation retains existing cues.
+
+The cue's Text tab and **Caption style** offer the same four presets as titles:
+**Clean**, **Outline**, **Shadow**, and **Highlight**. Choose a preset, optionally
+adjust fonts/colors/effects, then apply. Words and timing remain editable;
+appearance changes apply to every cue. Rounded line-following backgrounds and
+shadow offsets/softness are editable under **Background and shadow adjustments**.
+**Caption style** also controls shared vertical position and width. Select a cue
+and use timeline **Up / Down** to move the entire Captions row; this does not
+change its timing. The row layout is saved in the project.
 
 ## One-time setup
 
@@ -84,7 +93,7 @@ English fixture. Review the result before sharing.
 - **Long text is clipped:** reduce font size/expand layer height. The text-layer
   Picture controls expose width and height; captions share a bounded box.
 
-Animated word highlighting, translation, caption packs, and cloud/provider/MCP
+Animated word highlighting, translation, animated caption packs, and cloud/provider/MCP
 connections are not part of this release. Uninstalling the app leaves private
 speech downloads and saved projects in your user data. Remove the transcription
 folder separately if you no longer want those downloads.

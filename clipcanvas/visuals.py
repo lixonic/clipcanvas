@@ -55,30 +55,81 @@ def _layout(cr, project, item, width):
     return layout
 
 
+def _rounded_box(cr, x, y, width, height, radius):
+    radius = max(0, min(radius, width/2, height/2))
+    if not radius:
+        cr.rectangle(x, y, width, height)
+        return
+    cr.new_sub_path()
+    for cx, cy, angle in ((x+width-radius, y+radius, -math.pi/2),
+                          (x+width-radius, y+height-radius, 0),
+                          (x+radius, y+height-radius, math.pi/2),
+                          (x+radius, y+radius, math.pi)):
+        cr.arc(cx, cy, radius, angle, angle+math.pi/2)
+    cr.close_path()
+
+
 def _text(cr, project, item, width, height):
     outline = float(item.get('outline_width', 2))
-    padding = max(4, outline + 2)
+    background = rgba(item.get('background', '#00000000'), '#00000000')
+    shadow = rgba(item.get('shadow_color', '#00000000'), '#00000000')
+    tight = item.get('background_mode', 'box') == 'text'
+    background_padding = float(item.get('background_padding', 8))
+    padding = max(4, outline+2, background_padding if tight and background[3] else 0)
+    if shadow[3]:
+        padding = max(padding, abs(float(item.get('shadow_x', 3)))+float(item.get('shadow_blur', 0)))
     layout = _layout(cr, project, item, max(1, width-padding*2))
     _, extents = layout.get_pixel_extents()
     tx = padding
-    ty = (height - extents.height)/2 - extents.y
-    background = rgba(item.get('background', '#00000000'), '#00000000')
+    ty = (height-extents.height)/2-extents.y
     if background[3]:
         cr.set_source_rgba(*background)
-        cr.rectangle(0, 0, width, height)
+        radius = float(item.get('background_radius', 0))
+        if tight:
+            iterator = layout.get_iter()
+            while True:
+                ink, _ = iterator.get_line_extents()
+                if ink.width > 0:
+                    _rounded_box(cr, tx+ink.x/Pango.SCALE-background_padding,
+                                 ty+ink.y/Pango.SCALE-background_padding,
+                                 ink.width/Pango.SCALE+2*background_padding,
+                                 ink.height/Pango.SCALE+2*background_padding, radius)
+                if not iterator.next_line():
+                    break
+        else:
+            _rounded_box(cr, 0, 0, width, height, radius)
         cr.fill()
-    cr.move_to(tx, ty)
-    if outline > 0:
+    if shadow[3] or outline:
+        cr.move_to(tx, ty)
         PangoCairo.layout_path(cr, layout)
-        cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        cr.set_line_width(outline*2)
-        cr.set_source_rgba(*rgba(item.get('outline_color', '#000000')))
-        cr.stroke_preserve()
-        cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
-        cr.fill()
-    else:
-        cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
-        PangoCairo.show_layout(cr, layout)
+        path = cr.copy_path()
+        cr.new_path()
+        if shadow[3]:
+            blur = float(item.get('shadow_blur', 0))
+            samples = ((0, 0, 1),) if not blur else tuple(
+                (x*blur, y*blur, weight_x*weight_y/16)
+                for x, weight_x in ((-1, 1), (0, 2), (1, 1))
+                for y, weight_y in ((-1, 1), (0, 2), (1, 1)))
+            for dx, dy, weight in samples:
+                cr.save()
+                cr.translate(float(item.get('shadow_x', 3))+dx,
+                             float(item.get('shadow_y', 3))+dy)
+                cr.append_path(path)
+                cr.set_source_rgba(*shadow[:3], shadow[3]*weight)
+                cr.fill()
+                cr.restore()
+        if outline:
+            cr.append_path(path)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            cr.set_line_width(outline*2)
+            cr.set_source_rgba(*rgba(item.get('outline_color', '#000000')))
+            cr.stroke_preserve()
+            cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
+            cr.fill()
+            return
+    cr.move_to(tx, ty)
+    cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
+    PangoCairo.show_layout(cr, layout)
 
 
 @lru_cache(maxsize=64)

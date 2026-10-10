@@ -28,10 +28,27 @@ class LayerTools:
     def make_layers_panel(self):
         panel=row_box();panel.set_border_width(12)
         add=action('Add text',self.add_text);add.get_style_context().add_class('suggested-action');panel.pack_start(add,False,False,0)
-        imports=row_box(False);imports.pack_start(action('Add image',lambda:self.import_visual('image')),True,True,0)
+        imports=row_box(False);imports.pack_start(action('Image / logo',lambda:self.import_visual('image')),True,True,0)
         imports.pack_start(action('Overlay video',lambda:self.import_visual('video')),True,True,0);panel.pack_start(imports,False,False,0)
         hint=caption('Drag a layer on the canvas to position it. Drag its timeline edges to set when it appears.')
         hint.get_style_context().add_class('dim-label');panel.pack_start(hint,False,False,0)
+        self.overlay_controls=row_box()
+        self.overlay_controls.set_no_show_all(True)
+        self.overlay_controls.pack_start(caption('Selected overlay opacity'),False,False,0)
+        self.opacity=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
+        self.opacity.set_digits(0);self.opacity.set_value_pos(Gtk.PositionType.RIGHT)
+        self.opacity.connect('format-value',lambda _,value:f'{value:.0f}%')
+        self.opacity.get_accessible().set_name('Selected overlay opacity')
+        self.opacity_dragging=False;self.opacity_checkpointed=False;self.syncing_opacity=False
+        self.opacity.connect('button-press-event',self.opacity_begin)
+        self.opacity.connect('button-release-event',self.opacity_end)
+        self.opacity.connect('value-changed',self.opacity_changed)
+        self.overlay_controls.pack_start(self.opacity,False,False,0)
+        quick=row_box(False)
+        quick.pack_start(action('Full video',self.overlay_full_video),True,True,0)
+        quick.pack_start(action('Size / position',lambda:self.owner.open_properties('Picture')),True,True,0)
+        self.overlay_controls.pack_start(quick,False,False,0)
+        panel.pack_start(self.overlay_controls,False,False,0)
         self.layers_list=Gtk.ListBox();self.layers_list.set_selection_mode(Gtk.SelectionMode.NONE)
         scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC);scroll.add(self.layers_list)
         panel.pack_start(scroll,True,True,0);return panel
@@ -62,6 +79,41 @@ class LayerTools:
                 widget.connect('clicked',lambda _,k=kind,i=index:self.select(k,i,edit=True))
                 listing.add(widget)
             listing.show_all()
+        self.update_overlay_controls()
+
+    def update_overlay_controls(self):
+        w=self.owner
+        item=w.selected_item()
+        visible=bool(w.selected and w.selected[0]=='layers' and item and item.get('kind') in ('image','video'))
+        if visible:
+            self.syncing_opacity=True;self.opacity.set_value(item.get('opacity',1)*100);self.syncing_opacity=False
+            for child in self.overlay_controls.get_children():child.show_all()
+            self.overlay_controls.show()
+        else:self.overlay_controls.hide()
+
+    def opacity_begin(self,*_):
+        self.opacity_dragging=True;self.opacity_checkpointed=False;return False
+
+    def opacity_end(self,*_):
+        self.opacity_dragging=False;self.opacity_checkpointed=False;return False
+
+    def opacity_changed(self,widget):
+        w=self.owner
+        if self.syncing_opacity or w.busy:return
+        item=w.selected_item()
+        if not item or not w.selected or w.selected[0]!='layers' or item.get('kind') not in ('image','video'):return
+        value=widget.get_value()/100
+        if abs(value-item.get('opacity',1))<.0001:return
+        if not self.opacity_dragging or not self.opacity_checkpointed:
+            w.checkpoint();self.opacity_checkpointed=True
+        at=w.playhead;item['opacity']=value;w.changed();w.seek(at)
+
+    def overlay_full_video(self):
+        w=self.owner;item=w.selected_item();duration=model.project_duration(w.project)
+        if w.busy or not duration or not item or not w.selected or w.selected[0]!='layers' or item.get('kind') not in ('image','video'):return
+        if item['start']==0 and item['end']==duration:return
+        at=w.playhead;w.checkpoint();item['start']=0;item['end']=duration;w.changed();w.seek(at)
+        w.set_status('Overlay now covers the full video. Use the opacity slider to make it more subtle.')
 
     def interval(self):
         duration=model.project_duration(self.owner.project);start=min(self.owner.playhead,max(0,duration-.04))
@@ -71,13 +123,13 @@ class LayerTools:
         w=self.owner;w.select(kind,index,seek=False);w.media_stack.set_visible_child_name('Layers' if kind=='layers' else 'Captions')
         item=w.project[kind][index]
         if not item['start']<=w.playhead<item['end']:w.seek(item['start'])
-        if edit:w.open_properties('Timing')
+        if edit:w.open_properties('Text' if kind=='captions' or item.get('kind')=='text' else 'Picture')
 
     def append(self,kind,item):
         w=self.owner;w.checkpoint();w.project[kind].append(item);w.selected=(kind,len(w.project[kind])-1)
         w.changed();w.seek(item['start']);w.media_stack.set_visible_child_name('Layers' if kind=='layers' else 'Captions')
         w.reveal_timeline_selection()
-        w.open_properties('Timing')
+        w.open_properties('Text' if kind=='captions' or item.get('kind')=='text' else 'Picture')
 
     def add_text(self):
         if self.owner.busy:return
@@ -150,8 +202,10 @@ class LayerTools:
         if kind=='captions' or item['kind']=='text':
             text_page=page('Text');self.text=Gtk.TextView();self.text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR);self.text.get_buffer().set_text(item['text'])
             scroll=Gtk.ScrolledWindow();scroll.set_size_request(320,110);scroll.add(self.text);text_page.pack_start(scroll,False,False,0)
-            if kind=='layers':self.style_controls(text_page,item)
-            else:text_page.pack_start(caption('Caption appearance is shared. Use Caption style in the sidebar.'),False,False,0)
+            editor=self.style_controls(text_page,item if kind=='layers' else w.project['caption_style'])
+            editor.set_sample(item['text'])
+            self.text.get_buffer().connect('changed',lambda buffer:editor.set_sample(buffer.get_text(buffer.get_start_iter(),buffer.get_end_iter(),True)))
+            if kind=='captions':text_page.pack_start(caption('Appearance applies to all captions. Words and timing change only for this caption.'),False,False,0)
         if kind=='layers':
             picture=page('Picture')
             if item['kind'] in ('image','video'):
@@ -167,29 +221,15 @@ class LayerTools:
         line.pack_end(spin,False,False,0);parent.pack_start(line,False,False,0);self.owner.fields[key]=(spin,mult);return spin
 
     def style_controls(self,parent,style):
-        from .visuals import rgba
-        self.font=Gtk.FontButton();self.font.set_font_name(f'{style.get("font_family","Sans")} {style.get("font_size",48)}');parent.pack_start(self.font,False,False,0)
-        self.bold=Gtk.CheckButton(label='Bold');self.bold.set_active(style.get('bold',False));self.italic=Gtk.CheckButton(label='Italic');self.italic.set_active(style.get('italic',False))
-        row=row_box(False);row.pack_start(self.bold,True,True,0);row.pack_start(self.italic,True,True,0);parent.pack_start(row,False,False,0)
-        self.colors={}
-        for key,title,default in [('color','Text color','#ffffff'),('background','Background','#00000000'),('outline_color','Outline','#000000')]:
-            line=row_box(False);line.pack_start(Gtk.Label(label=title,xalign=0),True,True,0)
-            # GTK 3 does not parse #RRGGBBAA. Decode explicitly to retain alpha
-            # when reopening/applying colors saved by the previous edit.
-            color=Gdk.RGBA(*rgba(style.get(key,default)))
-            picker=Gtk.ColorButton.new_with_rgba(color);picker.set_use_alpha(True);line.pack_end(picker,False,False,0);parent.pack_start(line,False,False,0);self.colors[key]=picker
-        self.outline=Gtk.SpinButton.new_with_range(0,20,1);self.outline.set_value(style.get('outline_width',2))
-        line=row_box(False);line.pack_start(Gtk.Label(label='Outline thickness',xalign=0),True,True,0);line.pack_end(self.outline,False,False,0);parent.pack_start(line,False,False,0)
-        self.align=Gtk.ComboBoxText()
-        for value in ('left','center','right'):self.align.append(value,value.capitalize())
-        self.align.set_active_id(style.get('align','center'));parent.pack_start(self.align,False,False,0)
+        from .text_style_ui import TextStyleEditor
+        self.style_editor=TextStyleEditor(parent,style)
+        # Keep these aliases for the existing editor controls and native checks.
+        for key in ('font','bold','italic','colors','outline','align'):
+            setattr(self,key,getattr(self.style_editor,key))
+        return self.style_editor
 
     def read_style(self,item):
-        desc=Pango.FontDescription(self.font.get_font_name());item['font_family']=desc.get_family();item['font_size']=desc.get_size()/Pango.SCALE
-        item['bold']=self.bold.get_active();item['italic']=self.italic.get_active();item['align']=self.align.get_active_id();item['outline_width']=self.outline.get_value()
-        for key,widget in self.colors.items():
-            rgba=widget.get_rgba();values=[round(v*255) for v in (rgba.red,rgba.green,rgba.blue,rgba.alpha)]
-            item[key]='#'+''.join(f'{v:02x}' for v in values)
+        return self.style_editor.read_into(item)
 
     def apply(self):
         w=self.owner;kind,index=w.selected;item=copy.deepcopy(w.project[kind][index])
@@ -199,6 +239,7 @@ class LayerTools:
             buffer=self.text.get_buffer();item['text']=buffer.get_text(buffer.get_start_iter(),buffer.get_end_iter(),True)
             if kind=='layers':self.read_style(item)
         candidate=copy.deepcopy(w.project);candidate[kind][index]=item
+        if kind=='captions':self.read_style(candidate['caption_style'])
         try:model.validate_project(candidate,check_files=False)
         except ValueError as e:w.error(str(e));return
         w.checkpoint();w.project=candidate;w.properties_popover.popdown()
@@ -218,12 +259,16 @@ class LayerTools:
         saved_fields=w.fields;dialog=Gtk.Dialog(title='Caption appearance',transient_for=w,modal=True)
         dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Apply',Gtk.ResponseType.OK)
         content=dialog.get_content_area();content.set_border_width(16);content.set_spacing(8)
-        style=copy.deepcopy(w.project['caption_style']);self.style_controls(content,style)
-        self.spin(content,'y','Vertical position (%)',style['y']*100,0,100,1,100)
-        self.spin(content,'width','Caption width (%)',style['width']*100,5,100,1,100)
+        scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC)
+        scroll.set_max_content_height(460);scroll.set_propagate_natural_height(True)
+        content.pack_start(scroll,True,True,0);body=row_box();body.set_border_width(6);scroll.add(body)
+        style=copy.deepcopy(w.project['caption_style']);editor=self.style_controls(body,style)
+        if w.project.get('captions'):editor.set_sample(w.project['captions'][0]['text'])
+        self.spin(body,'y','Vertical position (%)',style['y']*100,0,100,1,100)
+        self.spin(body,'width','Caption width (%)',style['width']*100,5,100,1,100)
         dialog.show_all();response=dialog.run()
         if response==Gtk.ResponseType.OK:
-            self.read_style(style)
+            editor.read_into(style)
             for key in ('y','width'):spin,mult=w.fields[key];style[key]=spin.get_value()/mult
             candidate=copy.deepcopy(w.project);candidate['caption_style']=style
             try:model.validate_project(candidate,check_files=False);w.checkpoint();w.project=candidate;w.changed()

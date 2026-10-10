@@ -17,6 +17,9 @@ import re
 import tempfile
 import uuid
 
+from .text_styles import effect_defaults
+from . import track_layout
+
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
 PROJECT_VERSION = 3
@@ -26,7 +29,7 @@ MAX_TIMELINE_SECONDS = 86400 * 7
 
 def text_style():
     """Return independent style defaults for a title or caption."""
-    return {"x": 0.5, "y": 0.5, "width": 0.7, "height": 0.18,
+    return {**effect_defaults(), "x": 0.5, "y": 0.5, "width": 0.7, "height": 0.18,
             "rotation": 0.0, "opacity": 1.0, "font_family": "Sans",
             "font_size": 64.0, "bold": False, "italic": False,
             "color": "#ffffff", "background": "#00000000",
@@ -44,7 +47,7 @@ def caption_style():
 def new_project(width=1920, height=1080):
     return {"version": PROJECT_VERSION, "name": "Untitled video", "width": int(width),
             "height": int(height), "fps": 30, "clips": [], "audio": [],
-            "layers": [], "captions": [], "caption_style": caption_style()}
+            "layers": [], "captions": [], "caption_style": caption_style(), "timeline_order": []}
 
 
 def new_text(text="Your title", start=0.0, end=3.0):
@@ -196,6 +199,16 @@ def _text_style(item, label):
         value = item.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?", value):
             raise ValueError(f"{label} {key.replace('_', ' ')} must be a hex RGB or RGBA color.")
+    shadow = item.get("shadow_color", "#00000000")
+    if not isinstance(shadow, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?", shadow):
+        raise ValueError(f"{label} shadow color must be a hex RGB or RGBA color.")
+    for key in ("shadow_x", "shadow_y"):
+        _number(item.get(key, 3), f"{label} shadow offset", -256, 256)
+    _number(item.get("shadow_blur", 0), f"{label} shadow softness", 0, 64)
+    _number(item.get("background_radius", 0), f"{label} background roundness", 0, 256)
+    _number(item.get("background_padding", 8), f"{label} background padding", 0, 128)
+    if item.get("background_mode", "box") not in ("box", "text"):
+        raise ValueError(f"{label} background must cover the layer or follow the text.")
     if item.get("align") not in ("left", "center", "right"):
         raise ValueError(f"{label} alignment must be left, center or right.")
 
@@ -221,6 +234,7 @@ def validate_project(project, check_files=True, require_clips=False):
             raise ValueError("Canvas dimensions must be even whole numbers.")
     _number(project.get("fps", 30), "Frame rate", 1, 120)
     _text(project.get("name", ""), "The project name", 1000)
+    track_layout.validate_order(project.get('timeline_order', []))
     for group in ("clips", "audio"):
         items = project.get(group)
         if not isinstance(items, list):
@@ -354,6 +368,7 @@ def load_project(path):
         project.setdefault("audio", [])
         project.setdefault("layers", [])
         project.setdefault("captions", [])
+        project.setdefault("timeline_order", [])
         project.setdefault("caption_style", caption_style())
         if isinstance(project.get("caption_style"), dict):
             for key, value in caption_style().items():

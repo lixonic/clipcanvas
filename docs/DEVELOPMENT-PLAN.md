@@ -4,7 +4,8 @@ Updated 10 October 2026. The user selected all C01–C60 and X01–X10, then def
 C44–C49 and AI/API/MCP integration. Work proceeds in usable, tested increments.
 Selected features are not necessarily implemented. Ubuntu 0.2.0 established the
 first foundation increment; 0.3.0 adds native UI and audio workflows; 0.4.0 adds
-text/visual layers and local editable captions. Windows
+text/visual layers and local editable captions; 0.5.0 adds shared text presets,
+quick logo opacity and user-arranged timeline rows. Windows
 remains an intended, unvalidated platform.
 
 ## Product direction
@@ -77,9 +78,23 @@ Format 3 preserves these edits; migrations, recovery, collection and relinking
 include visual sources. See [caption setup](CAPTIONS.md) and
 [release validation](LAYERS-CAPTIONS-VALIDATION.md).
 
-Static text/background/outline styling covers part of C22/C25. Animation presets,
-motion paths, shadows, animated caption packs, translation and image-only
-slideshow assembly remain pending.
+## Text styles and timeline arrangement: 0.5.0
+
+C22/C25 now include four original static presets shared by every title and
+manual/imported/generated caption: Clean, Outline, Shadow and Highlight. Words,
+font family/size, placement, timing and opacity stay editable. Shadows, outlines
+and rounded line-following backgrounds use the same renderer for native preview
+and MP4 export. Caption appearance applies across cues; words/timing are per cue.
+
+The Layers sidebar exposes image/video opacity, Full video visibility and
+Size / position controls. Up/Down arrows arrange the selected Video, overlay,
+soundtrack or shared Captions row, independently of clip sequence and visual
+stacking. Layout is saved in optional format 3 fields and supports undo/redo.
+Prepared previews remain usable after a display-only row move. See
+[release validation](TEXT-STYLES-VALIDATION.md).
+
+Animation presets, motion paths, animated caption packs, translation and
+image-only slideshow assembly remain pending.
 
 ## Remaining staged work
 
@@ -98,11 +113,11 @@ slideshow assembly remain pending.
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external provider/API integration is included in the 0.4.0 package. Local
+no external provider/API integration is included in the 0.5.0 package. Local
 speech recognition is included because the user explicitly requested it.
 
 Next selected work remains animation/effects, richer timeline/audio tools and
-caption refinements. Choose the next usable increment after reviewing 0.4.0;
+caption refinements. Choose the next usable increment after reviewing 0.5.0;
 keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering

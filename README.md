@@ -1,11 +1,11 @@
-# ClipCanvas 0.4.0
+# ClipCanvas 0.5.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.4.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.5.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -15,31 +15,32 @@ platform; a Windows app and installer have not been implemented yet.
 - [Changelog](CHANGELOG.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
-AI/API/MCP connections are deferred. Version 0.4.0 adds positioned text,
-image/logo and video layers, plus local speech-generated captions that you can
-correct, style, and export as SRT. The inventory records what is still pending.
+AI/API/MCP connections are deferred. Version 0.5.0 adds four shared editable
+text/caption styles, quick logo opacity controls, and Up/Down arrows to arrange
+timeline rows. Positioned text, image/video overlays and local speech captions
+are included. The inventory records what is still pending.
 
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
 
-![ClipCanvas native editor with titles, layers and captions](docs/images/editor-0.4.0.png)
+![ClipCanvas native editor with logo opacity and editable captions](docs/images/editor-0.5.0.png)
 
 ## Install and open
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.4.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.5.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.4.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.5.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.4.0_all.deb
+   sudo apt install ./clipcanvas_0.5.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -106,14 +107,31 @@ separate application and does not change VLC.
 
 ## Add titles, logos, and visual layers
 
-Open **Layers** in the sidebar and choose **Add text**, **Add image**, or
-**Overlay video**. Images can also be dropped into the window. Text supports
-Unicode, installed fonts, font size, bold/italic, alignment, color, background,
-and outline. Select the layer and click **Edit → Text**, then **Apply changes**.
+Open **Layers** in the sidebar and choose **Add text**, **Image / logo**, or
+**Overlay video**. Images can also be dropped into the window. Adding/selecting
+text opens its editable words and shared style controls. Choose **Clean**,
+**Outline**, **Shadow**, or **Highlight**, then **Apply changes**. Presets keep
+your words, font family/size, timing, position and overall opacity. You can still
+edit fonts, bold/italic, alignment, colors and outline thickness; expand
+**Background and shadow adjustments** for line-following backgrounds, padding,
+roundness, shadow offsets and softness. Unicode and installed fonts are supported.
+
+For a logo, choose **Image / logo**, select the imported image, and use the
+sidebar's **Selected overlay opacity** slider. Transparent PNGs retain their
+existing alpha; the slider adjusts overall opacity. **Full video** sets its
+visibility from the beginning through the current video end. **Size / position**
+opens its geometry controls. Drag the logo on the canvas to place it.
 
 Drag the selected layer on the canvas to position it. Use **Picture** for width,
 height, rotation, opacity, fit/fill, and **Bring forward / Send backward**.
 Layer sizes and positions follow the canvas when switching aspect ratio.
+
+Select any timeline video, audio, overlay or caption, then use **Up / Down**
+above the timeline to arrange its row. All base clips share the Video row and
+all caption cues share the Captions row; each soundtrack/overlay has its own row.
+Row order is saved with the project and supports undo/redo. It changes display
+order only: playback timing, clip sequence and visual stacking stay unchanged.
+Use **Bring forward / Send backward** separately to change visual stacking.
 
 Each visual layer has its own timeline row. Drag its body to move it in time,
 or its edges to trim its visibility. **Edit → Timing** also accepts exact start
@@ -139,8 +157,12 @@ extract an audio track when you want their sound.
 5. Select a caption, open the **Text** tab, correct its words, and apply. Change
    its start/end in **Timing**, or drag its timeline body/edges. **Add caption**
    lets you fill a gap. Undo/redo applies to caption changes.
-6. **Caption style** changes the shared font, size, color, background, outline,
-   alignment, width, and vertical position. Captions appear in preview and are
+6. Choose **Clean**, **Outline**, **Shadow**, or **Highlight** in the cue's Text
+   tab or **Caption style**. The same editable controls used for titles apply
+   to generated, imported and manually entered captions. Appearance changes
+   apply to all cues; words/timing change only for the selected cue.
+   **Caption style** also exposes shared width and vertical position.
+   Captions appear in preview and are
    burned into exported MP4s. **Import SRT / Export SRT** exchanges editable
    subtitle files; SRT stores words and timing, not styling.
 
@@ -174,10 +196,11 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.3.x and adds default layer/caption
-fields on load. It saves project format 3. Projects saved by 0.4.x need 0.4.x
-or newer; older apps cannot read the new layers and captions. Portable copies
-and recovery include the new media references, text, captions, and styles.
+This version reads projects from 0.1.x–0.4.x and adds missing defaults on load.
+It saves project format 3. Use 0.5.x or newer to retain shadows, rounded
+highlights and custom row order; 0.4.x may ignore these optional additions.
+Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
+include the media references, editable text, captions, styles and row layout.
 
 The exported MP4 is a standalone video that you can share or upload.
 

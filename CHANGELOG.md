@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0 — 2026-10-10
+
+- Added four original shared text/caption presets: Clean, Outline, Shadow and
+  Highlight. Words, font family/size, geometry, timing and opacity stay editable.
+  Titles and generated/imported/manual captions use the same native controls.
+- Added editable drop shadows and rounded backgrounds following each text line,
+  with colors, padding, roundness, offsets and softness. Native preview and MP4
+  export share the renderer. Existing format 3 projects keep their prior look.
+- Added visible logo/image/video opacity controls in the Layers sidebar, a
+  Full video action and direct Size / position access. One slider drag is one
+  undoable edit; PNG alpha is multiplied by overall layer opacity.
+- Added Up/Down arrows to arrange selected timeline rows, including Video,
+  individual overlays/soundtracks and the shared Captions row. Save/reopen and
+  undo/redo retain the order; row placement does not change timing, visual
+  stacking or invalidate a prepared preview.
+- Text and caption editing opens directly on words and style choices.
+- Styles are static; animated/karaoke captions, Windows packaging and deferred
+  provider/API/MCP integration remain pending.
+
 ## 0.4.0 — 2026-10-10
 
 - Added timed text layers with Unicode shaping, installed fonts, bold/italic,

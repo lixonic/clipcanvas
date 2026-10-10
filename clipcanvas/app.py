@@ -19,7 +19,7 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 import cairo
 
-from . import model, engine, storage
+from . import model, engine, storage, track_layout
 from . import __version__
 from .player import VideoCanvas
 
@@ -155,7 +155,8 @@ class Timeline(Gtk.DrawingArea):
         duration=max([model.project_duration(self.owner.project)]+[a['start']+model.clip_duration(a) for a in self.owner.project['audio']])
         visuals=self.owner.project.get('layers',[]);captions=self.owner.project.get('captions',[])
         duration=max([duration]+[i['end'] for i in visuals+captions])
-        self.set_size_request(max(800,int(duration*self.scale+170)),max(220,145+len(self.owner.project['audio'])*54+len(visuals)*44+(44 if captions else 0)))
+        height=max(y+h+18 for _,_,_,y,h in track_layout.rows(self.owner.project))
+        self.set_size_request(max(800,int(duration*self.scale+170)),max(220,height))
         self.queue_draw()
 
     def draw(self, widget, cr):
@@ -163,18 +164,20 @@ class Timeline(Gtk.DrawingArea):
         colors=ui_theme.palette(self)
         rgb(cr,colors['background']); cr.paint()
         duration=model.project_duration(p)
+        positions={(kind,index):(y,h) for _,kind,index,y,h in track_layout.rows(p)}
+        video_y,video_h=positions[('clips',None)]
         step=1 if self.scale>65 else 5 if self.scale>15 else 10
         for sec in range(0, int(max(duration,(a.width-100)/self.scale))+step,step):
             x=100+sec*self.scale
             rgb(cr,colors['border']); cr.set_line_width(1); cr.move_to(x,30);cr.line_to(x,a.height);cr.stroke()
             draw_text(cr,f'{sec}s',x+3,21,colors['muted'],size=10)
-        draw_text(cr,'VIDEO',12,68,colors['muted'],size=10,bold=True)
+        draw_text(cr,'VIDEO',12,video_y+28,colors['muted'],size=10,bold=True)
         if not p['clips']:
-            rounded(cr,105,42,max(300,a.width-130),75); rgb(cr,colors['surface']);cr.fill()
-            draw_text(cr,'Import clips to start your story',128,85,colors['muted'],14)
+            rounded(cr,105,video_y+2,max(300,a.width-130),75); rgb(cr,colors['surface']);cr.fill()
+            draw_text(cr,'Import clips to start your story',128,video_y+45,colors['muted'],14)
         timings=model.timeline(p)
         for i,(clip,timing) in enumerate(zip(p['clips'],timings)):
-            x=100+timing['start']*self.scale; y=40; w=max(12,timing['duration']*self.scale-3);h=79
+            x=100+timing['start']*self.scale; y=video_y; w=max(12,timing['duration']*self.scale-3);h=video_h
             cr.save(); rounded(cr,x,y,w,h);cr.clip()
             pix=self.owner.thumbs.get(clip['path'])
             if pix:
@@ -193,7 +196,7 @@ class Timeline(Gtk.DrawingArea):
                 for edge in (x+3,x+w-5):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+25,2,27);cr.fill()
         for i,audio in enumerate(p['audio']):
-            y=139+i*54;x=100+audio['start']*self.scale
+            y,_=positions[('audio',i)];x=100+audio['start']*self.scale
             visible=model.clip_duration(audio)
             w=max(12,visible*self.scale)
             draw_text(cr,f'AUDIO {i+1}',12,y+26,colors['muted'],size=10,bold=True)
@@ -231,10 +234,9 @@ class Timeline(Gtk.DrawingArea):
             if self.owner.selected==('audio',i) and w >= 24:
                 for edge in (x+3,x+w-5):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+10,2,22);cr.fill()
-        base=139+len(p['audio'])*54
         for group,items in [('layers',p.get('layers',[])),('captions',p.get('captions',[]))]:
             for index,item in enumerate(items):
-                y=base+(index*44 if group=='layers' else 0);x=100+item['start']*self.scale;w=max(12,(item['end']-item['start'])*self.scale);h=34
+                y,h=positions[(group,index if group=='layers' else None)];x=100+item['start']*self.scale;w=max(12,(item['end']-item['start'])*self.scale)
                 if group=='layers' or index==0:draw_text(cr,f'LAYER {index+1}' if group=='layers' else 'CAPTIONS',12,y+22,colors['muted'],10,True)
                 cr.save();rounded(cr,x,y,w,h,6);cr.clip();rgb(cr,'#267aab' if group=='layers' else '#33864b');cr.paint()
                 title=item.get('text') or Path(item.get('path','')).name
@@ -244,11 +246,10 @@ class Timeline(Gtk.DrawingArea):
                     if w>=24:
                         for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
                 self.hit.append((group,index,x,y,w,h))
-            if group=='layers':base+=len(items)*44
         # Paint joins after every thumbnail so their hit targets remain visible
         # even when transition overlaps make the clip rectangles overlap.
         for i,row in enumerate(timings[:-1]):
-            cx=100+(row['start']+row['duration']-row['overlap']/2)*self.scale;cy=80
+            cx=100+(row['start']+row['duration']-row['overlap']/2)*self.scale;cy=video_y+40
             cr.arc(cx,cy,14,0,math.tau);rgb(cr,colors['surface']);cr.fill_preserve()
             rgb(cr,colors['accent'] if p['clips'][i]['transition']!='none' else colors['border']);cr.set_line_width(1.5);cr.stroke()
             rgb(cr,colors['text']);cr.set_line_width(1.4)
@@ -259,7 +260,7 @@ class Timeline(Gtk.DrawingArea):
             end=100+duration*self.scale
             rgb(cr,colors['border']);cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
             draw_text(cr,'Video ends',end+6,36,colors['muted'],10)
-            x=end+12;y=55;size=44
+            x=end+12;y=video_y+15;size=44
             rounded(cr,x,y,size,size,9);rgb(cr,colors['surface']);cr.fill_preserve();rgb(cr,colors['border']);cr.set_line_width(1);cr.stroke()
             rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(x+12,y+22);cr.line_to(x+32,y+22);cr.move_to(x+22,y+12);cr.line_to(x+22,y+32);cr.stroke()
             self.add_hit=(x,y,size,size)
@@ -577,8 +578,11 @@ class ClipCanvasWindow(Gtk.Window):
         self.duplicate_button=ui_theme.icon_button('edit-copy-symbolic',self.duplicate,'Duplicate selected item')
         self.remove_button=ui_theme.icon_button('edit-delete-symbolic',self.remove,'Remove selected item')
         for item in (self.duplicate_button,self.remove_button):tlbar.pack_start(item,False,False,0)
+        self.row_up_button=ui_theme.icon_button('go-up-symbolic',lambda:self.move_timeline_row(-1),'Move selected timeline row up',label='Up')
+        self.row_down_button=ui_theme.icon_button('go-down-symbolic',lambda:self.move_timeline_row(1),'Move selected timeline row down',label='Down')
+        for item in (self.row_up_button,self.row_down_button):tlbar.pack_start(item,False,False,0)
         self.snap_check=Gtk.CheckButton(label='Snap');self.snap_check.set_active(True);tlbar.pack_start(self.snap_check,False,False,8)
-        self.timeline_hint=label('Right-click clips for more actions','dim-label');tlbar.pack_start(self.timeline_hint,True,True,8)
+        self.timeline_hint=label('Right-click clips for more actions','dim-label');self.timeline_hint.set_ellipsize(Pango.EllipsizeMode.END);tlbar.pack_start(self.timeline_hint,True,True,8)
         self.zoom_control=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,6,140,1)
         self.zoom_control.set_value(28);self.zoom_control.set_draw_value(False);self.zoom_control.set_size_request(120,-1)
         self.zoom_control.connect('value-changed',lambda s:self.zoom(s.get_value()))
@@ -654,6 +658,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.canvas.queue_draw()
         self.clock_label.set_text(f'{time_text(self.playhead)} / {time_text(model.project_duration(self.project))}')
         self.undo_button.set_sensitive(bool(self.history));self.redo_button.set_sensitive(bool(self.future))
+        self.update_row_buttons()
 
     def update_title(self):
         dirty=json.dumps(self.project,sort_keys=True)!=self.saved
@@ -692,6 +697,9 @@ class ClipCanvasWindow(Gtk.Window):
 
     def select(self,kind,index,seek=True):
         self.selected=(kind,index);self.show_inspector();self.timeline.queue_draw();self.canvas.queue_draw()
+        self.layer_tools.update_overlay_controls()
+        self.update_row_buttons()
+        if kind in ('layers','captions'):self.media_stack.set_visible_child_name('Layers' if kind=='layers' else 'Captions')
         self.reveal_timeline_selection()
         if kind in ('layers','captions') and seek:self.seek(self.project[kind][index]['start'])
         if kind=='clips' and seek:
@@ -701,14 +709,33 @@ class ClipCanvasWindow(Gtk.Window):
                 self.cancel_scrub();self.playhead=model.timeline(self.project)[index]['start'];self.show_selected_still()
                 self.clock_label.set_text(f'{time_text(self.playhead)} / {time_text(model.project_duration(self.project))}')
 
+    def selected_row_key(self):
+        item=self.selected_item()
+        return track_layout.key_for(self.selected[0],item) if item and self.selected else None
+
+    def update_row_buttons(self):
+        key=self.selected_row_key()
+        for direction,button in ((-1,self.row_up_button),(1,self.row_down_button)):
+            button.set_sensitive(not self.busy and track_layout.moved_order(self.project,key,direction) is not None)
+
+    def move_timeline_row(self,direction):
+        if self.busy:return
+        order=track_layout.moved_order(self.project,self.selected_row_key(),direction)
+        if order is None:return
+        self.checkpoint();self.project['timeline_order']=order
+        self.refresh();self.reveal_timeline_selection()
+        self.set_status('Timeline row moved. Playback timing and visual stacking are unchanged.')
+
     def reveal_timeline_selection(self):
         selected=self.selected
         def reveal():
             if self.closed or self.selected!=selected:return False
+            row=next((r for r in track_layout.rows(self.project) if r[0]==self.selected_row_key()),None)
+            if row:
+                vertical=self.timeline_scroll.get_vadjustment();vertical.clamp_page(row[3]-5,row[3]+row[4]+5)
             hit=next((h for h in self.timeline.hit if h[:2]==selected),None)
             if hit:
                 _,_,x,y,width,height=hit
-                vertical=self.timeline_scroll.get_vadjustment();vertical.clamp_page(y-5,y+height+5)
                 horizontal=self.timeline_scroll.get_hadjustment()
                 horizontal.clamp_page(x-5,x+min(width,horizontal.get_page_size()-10)+5)
             return False
@@ -1110,7 +1137,8 @@ class ClipCanvasWindow(Gtk.Window):
 
     def preview(self):
         if not self.project['clips'] or self.busy:return
-        key=hashlib.sha256(json.dumps(self.project,sort_keys=True).encode()).hexdigest()
+        render_project={k:v for k,v in self.project.items() if k!='timeline_order'}
+        key=hashlib.sha256(json.dumps(render_project,sort_keys=True).encode()).hexdigest()
         target=self.temp/(key+'.mp4')
         if target.exists():self.preview_done(str(target),key);return
         self.render_job(str(target),True,lambda path:self.preview_done(path,key))
@@ -1348,7 +1376,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def help(self):
         dialog=Gtk.MessageDialog(transient_for=self,modal=True,message_type=Gtk.MessageType.INFO,buttons=Gtk.ButtonsType.CLOSE,text='A simple way to make your video')
-        dialog.format_secondary_text('1. Choose your canvas, add videos and drag to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles.\n6. In Layers, add titles, images/logos, or overlay video. Drag on the canvas to position; use Picture for size/style.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
+        dialog.format_secondary_text('1. Choose your canvas, add videos and drag to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles.\n6. In Layers, add text, images/logos, or overlay video. Text has four editable style presets. Select a logo for opacity and Full video; drag on the canvas to position.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Select a timeline item and use Up / Down to arrange its row.\n9. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
         dialog.run();dialog.destroy()
 
     def keypress(self,w,event):

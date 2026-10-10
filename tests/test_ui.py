@@ -287,6 +287,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.pump(lambda:not w.busy and bool(w.thumbs) and w.canvas.canvas_rect is not None)
             w.layer_tools.add_text()
             self.assertEqual(w.selected,('layers',0))
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Text')
             w.layer_tools.text.get_buffer().set_text('Café — title')
             w.layer_tools.font.set_font_name('Sans 24');w.layer_tools.bold.set_active(True)
             w.fields['end'][0].set_value(1.2);w.fields['height'][0].set_value(35);w.apply_fields()
@@ -312,6 +313,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(len(w.project['layers']),2)
             w.layer_tools.replace_captions(captions.parse_srt('1\n00:00:00,100 --> 00:00:01,000\nRecognized words\n'))
             w.layer_tools.select('captions',0,edit=True)
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Text')
             w.layer_tools.text.get_buffer().set_text('Corrected words')
             w.fields['end'][0].set_value(1.3);w.apply_fields()
             self.assertEqual(w.project['captions'][0]['text'],'Corrected words')
@@ -367,6 +369,101 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertAlmostEqual(engine.probe(output)['duration'],model.project_duration(w.project),delta=.1)
             srt=self.fixtures.root/'speech-edited.srt';captions.save_srt(w.project,srt)
             self.assertEqual(captions.load_srt(srt)[0]['text'],'Welcome to ClipCanvas.')
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+
+    def test_shared_text_presets_and_logo_opacity_workflow(self):
+        from clipcanvas import text_styles
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'presets-ui-recovery')
+        errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
+        try:
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            self.pump(lambda:not w.busy and bool(w.thumbs))
+            w.layer_tools.add_text();w.layer_tools.text.get_buffer().set_text('Keep my words')
+            w.layer_tools.font.set_font_name('Sans 24');w.fields['height'][0].set_value(35)
+            w.layer_tools.style_editor.preset_buttons['highlight'].clicked();w.apply_fields()
+            self.assertEqual(w.project['layers'][0]['text'],'Keep my words')
+            self.assertEqual(w.project['layers'][0]['background_mode'],'text')
+            self.assertEqual(w.project['layers'][0]['font_size'],24)
+            for key,_,_ in text_styles.PRESETS:
+                w.select('layers',0,seek=False);w.layer_tools.style_editor.preset_buttons[key].clicked()
+                w.layer_tools.text.get_buffer().set_text('Still editable');w.apply_fields()
+                self.assertEqual(w.project['layers'][0]['text'],'Still editable')
+            w.project['captions']=[model.new_caption('First cue',0,.6),model.new_caption('Second cue',.7,1.4)]
+            w.changed();w.layer_tools.select('captions',0,edit=True)
+            w.layer_tools.style_editor.preset_buttons['shadow'].clicked()
+            w.layer_tools.text.get_buffer().set_text('Corrected first cue');w.apply_fields()
+            self.assertEqual(w.project['captions'][0]['text'],'Corrected first cue')
+            self.assertEqual(w.project['captions'][1]['text'],'Second cue')
+            self.assertEqual(w.project['caption_style']['shadow_color'],'#000000d9')
+            w.undo();self.assertEqual(w.project['captions'][0]['text'],'First cue');w.redo()
+            logo=self.fixtures.root/'preset-logo.png'
+            surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,40,40);cr=cairo.Context(surface)
+            cr.set_source_rgba(1,0,0,.5);cr.paint();surface.write_to_png(str(logo))
+            w.import_paths([str(logo)]);self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
+            w.select('layers',1,seek=False)
+            self.assertTrue(w.layer_tools.overlay_controls.get_visible())
+            w.project['layers'][1].update(start=.2,end=.8);w.layer_tools.overlay_full_video()
+            self.assertEqual(w.project['layers'][1]['start'],0)
+            self.assertEqual(w.project['layers'][1]['end'],model.project_duration(w.project))
+            w.seek(.7);history=len(w.history)
+            w.layer_tools.opacity_begin();w.layer_tools.opacity.set_value(50);w.layer_tools.opacity.set_value(35);w.layer_tools.opacity_end()
+            self.assertEqual(len(w.history),history+1)
+            self.assertAlmostEqual(w.project['layers'][1]['opacity'],.35)
+            self.assertAlmostEqual(w.playhead,.7)
+            w.undo();self.assertEqual(w.project['layers'][1]['opacity'],1);w.redo()
+            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+
+    def test_timeline_row_arrows_move_tracks_without_retiming(self):
+        from clipcanvas import track_layout
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'row-layout-recovery')
+        errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.waves))
+            w.project['clips'][0].update(transition='fade',transition_duration=.2)
+            w.layer_tools.add_text();w.layer_tools.font.set_font_name('Sans 24');w.apply_fields()
+            w.project['captions']=[model.new_caption('Editable words',0,.7),model.new_caption('Second',.8,1.2)]
+            w.changed();w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.canvas.pause();w.seek(.5);key=w.preview_key
+            before=copy.deepcopy(w.project);w.select('captions',0,seek=False)
+            for _ in range(3):w.row_up_button.clicked()
+            self.assertEqual(track_layout.rows(w.project)[0][0],'captions')
+            self.assertFalse(w.row_up_button.get_sensitive())
+            self.assertTrue(w.row_down_button.get_sensitive())
+            self.assertEqual(w.preview_key,key);self.assertAlmostEqual(w.playhead,.5)
+            for field in before:
+                if field!='timeline_order':self.assertEqual(w.project[field],before[field])
+            w.select('clips',0,seek=False)
+            w.row_down_button.clicked();w.row_down_button.clicked()
+            self.assertFalse(w.row_down_button.get_sensitive())
+            self.pump(lambda:bool(w.timeline.join_hits) and w.timeline.join_hits[0][2]>100)
+            video_y=next(row[3] for row in track_layout.rows(w.project) if row[0]=='video')
+            self.assertEqual(w.timeline.join_hits[0][2],video_y+40)
+            self.assertEqual(w.timeline.add_hit[1],video_y+15)
+            _,cx,cy,_=w.timeline.join_hits[0]
+            w.timeline.press(None,SimpleNamespace(button=1,x=cx,y=cy))
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Transition')
+            w.properties_popover.popdown()
+            w.select('audio',0,seek=False)
+            self.pump(lambda:len(w.timeline.fade_hits)==2)
+            audio_y=next(row[3] for row in track_layout.rows(w.project) if row[1]=='audio')
+            self.assertTrue(all(hit[3]==audio_y+4 for hit in w.timeline.fade_hits))
+            saved=copy.deepcopy(w.project)
+            w.project_path=str(self.fixtures.root/'row-order.clipcanvas');self.assertTrue(w.save())
+            w.open_project(w.project_path);self.assertEqual(w.project,saved)
+            w.select('captions',0,seek=False);w.row_down_button.clicked()
+            moved=copy.deepcopy(w.project);w.undo();self.assertEqual(w.project,saved)
+            w.redo();self.assertEqual(w.project,moved)
+            self.assertFalse(errors)
         finally:
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
