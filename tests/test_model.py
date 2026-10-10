@@ -99,7 +99,7 @@ class ProjectEditingTests(unittest.TestCase):
         for key in ('speed', 'rotation', 'flip_x', 'flip_y'):old['clips'][0].pop(key)
         path.write_text(json.dumps(old))
         migrated = model.load_project(path)
-        self.assertEqual(migrated['version'], 2)
+        self.assertEqual(migrated['version'], model.PROJECT_VERSION)
         self.assertEqual(migrated['clips'][0]['speed'], 1)
         for invalid in (0, float('nan'), True, 5):
             migrated['clips'][0]['speed'] = invalid

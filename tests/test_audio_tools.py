@@ -217,7 +217,7 @@ class AudioToolsTests(unittest.TestCase):
         target = self.root / "existing-v2.clipcanvas"
         target.write_text(json.dumps(project), encoding="utf-8")
         migrated = model.load_project(target)
-        self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["version"], model.PROJECT_VERSION)
         self.assertEqual(migrated["audio"][0]["speed"], 1)
         for key in ("fade_in", "fade_out", "video_fade_in", "video_fade_out"):
             self.assertEqual(migrated["clips"][0][key], 0)

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0 — 2026-10-10
+
+- Added timed text layers with Unicode shaping, installed fonts, bold/italic,
+  alignment, text/background/outline colors, and shared native/export rendering.
+- Added transparent images/logos and silent video overlays with position, size,
+  rotation, opacity, fit/fill, source start, playback speed, and layer ordering.
+  Drag on the canvas to position; drag timeline bodies/edges for timing.
+- Added editable captions generated locally from original clip speech or the
+  full mix. First setup downloads a private CPU runtime and a Tiny/Small model;
+  later recognition is offline. Language detection, explicit language, progress,
+  cancellation, and undoable replacement are supported.
+- Added manual caption entry, word/timing correction, shared caption styling,
+  burned-in MP4 captions, and Unicode SRT import/export.
+- Added format 3 projects, migration from formats 1/2, and layer-aware media
+  collection, recovery, relinking, and original-file protection.
+- Pinned faster-whisper 1.2.1, Hugging Face Hub 0.36.0, and PyAV 16.1.0 in the
+  isolated runtime after actual recognition exposed a PyAV 19 incompatibility.
+- Animated titles/caption packs, translation, image-only slideshows, Windows
+  packaging, and the previously deferred provider/API/MCP scope remain pending.
+
 ## 0.3.0 — 2026-10-10
 
 - Rebuilt the editor around Ubuntu's GTK theme, system fonts, symbolic icons,

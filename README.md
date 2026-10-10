@@ -1,11 +1,11 @@
-# ClipCanvas 0.3.0
+# ClipCanvas 0.4.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.3.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.4.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -15,35 +15,38 @@ platform; a Windows app and installer have not been implemented yet.
 - [Changelog](CHANGELOG.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
-AI/API/MCP connections are deferred. Version 0.3.0 adds a native desktop UI
-overhaul, contextual timeline tools, audio extraction, and separate picture/audio
-fades. The inventory records what is still pending.
+AI/API/MCP connections are deferred. Version 0.4.0 adds positioned text,
+image/logo and video layers, plus local speech-generated captions that you can
+correct, style, and export as SRT. The inventory records what is still pending.
 
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
+
+![ClipCanvas native editor with titles, layers and captions](docs/images/editor-0.4.0.png)
 
 ## Install and open
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.3.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.4.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.3.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.4.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.3.0_all.deb
+   sudo apt install ./clipcanvas_0.4.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
 
 The first installation may need an internet connection to fetch Ubuntu's
-supporting packages. Video creation itself works offline. The installer adds a
+supporting packages. Video creation works offline. Automatic captions require a one-time model and
+library download; recognition then runs offline on your computer. The installer adds a
 separate application and does not change VLC.
 
 ## Make your first video
@@ -101,6 +104,50 @@ separate application and does not change VLC.
     Choose **High quality** for most projects or **Maximum quality** when a
     larger file is acceptable. Keep the app open until export finishes.
 
+## Add titles, logos, and visual layers
+
+Open **Layers** in the sidebar and choose **Add text**, **Add image**, or
+**Overlay video**. Images can also be dropped into the window. Text supports
+Unicode, installed fonts, font size, bold/italic, alignment, color, background,
+and outline. Select the layer and click **Edit → Text**, then **Apply changes**.
+
+Drag the selected layer on the canvas to position it. Use **Picture** for width,
+height, rotation, opacity, fit/fill, and **Bring forward / Send backward**.
+Layer sizes and positions follow the canvas when switching aspect ratio.
+
+Each visual layer has its own timeline row. Drag its body to move it in time,
+or its edges to trim its visibility. **Edit → Timing** also accepts exact start
+and end times. Layers can be split, duplicated, removed, and undone. Video
+layers have source start and speed controls; their last frame holds when their
+visibility exceeds the source duration. Overlay videos are silent; add or
+extract an audio track when you want their sound.
+
+## Generate and edit captions
+
+1. Open **Captions → Generate captions from speech**.
+2. Choose speech from the original video clips, or the full mix including
+   soundtracks. Original-video mode recognizes clip speech even if its volume
+   is muted in your mix. Both modes follow the current sequence, trims, speed,
+   and transition timing.
+3. Choose **Tiny** for a quick draft or **Small** for better accuracy. The first
+   use downloads about 75 MB or 490 MB of model data, plus supporting libraries,
+   into a private environment in your user data folder. Leave the language blank
+   for detection, or enter a language code such as `en`, `hi`, `ml`, or `ta`.
+4. Click **Generate**. Progress and cancellation are available. No footage or
+   audio is uploaded. Subsequent recognition with an installed model works
+   offline.
+5. Select a caption, open the **Text** tab, correct its words, and apply. Change
+   its start/end in **Timing**, or drag its timeline body/edges. **Add caption**
+   lets you fill a gap. Undo/redo applies to caption changes.
+6. **Caption style** changes the shared font, size, color, background, outline,
+   alignment, width, and vertical position. Captions appear in preview and are
+   burned into exported MP4s. **Import SRT / Export SRT** exchanges editable
+   subtitle files; SRT stores words and timing, not styling.
+
+Recognition accuracy varies with language, music, accents, and model size.
+Review the words and timings. This release does not translate captions or animate
+individual words. See [local caption setup and troubleshooting](docs/CAPTIONS.md).
+
 Use **Ctrl+Z** to undo an edit and **Ctrl+Shift+Z** to redo it. **Ctrl+S** saves the
 project, and **Ctrl+O** opens a saved project. Undo/redo controls also appear above
 the story strip. Project actions live in the header's menu.
@@ -127,9 +174,10 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x and 0.2.x and fills in the new fade/audio
-fields on load. It continues using project format 2. Projects saved by 0.2.x or
-0.3.x cannot be opened in 0.1.x; use 0.3.x to retain the new audio and fade behavior.
+This version reads projects from 0.1.x–0.3.x and adds default layer/caption
+fields on load. It saves project format 3. Projects saved by 0.4.x need 0.4.x
+or newer; older apps cannot read the new layers and captions. Portable copies
+and recovery include the new media references, text, captions, and styles.
 
 The exported MP4 is a standalone video that you can share or upload.
 
@@ -147,13 +195,16 @@ platforms may compress the finished MP4 again after upload.
 
 ## Practical limits of this build
 
-- One sequence of video clips, with additional audio layers.
+- One base video sequence, with additional audio, text, image, and video layers.
+  A base video clip is required for preview/export; image-only slideshows are
+  not implemented. Overlay/caption timing stays absolute when base clips move
+  or change length; check it after rearranging the story.
 - Clip transitions and audio mixing require rendering; this is not a real-time
   effects editor.
 - Preview and export need temporary disk space. Long or high-resolution projects
   take more time and storage.
-- This build does not include text overlays, stickers, automatic captions, or
-  animated design templates.
+- No animated title/caption presets, motion paths, template/stock library, or
+  caption translation yet. Imported animated GIFs are not supported as moving layers.
 - Keep backups of valuable source media and project files.
 
 ## Remove the app
@@ -180,6 +231,7 @@ To create a new installer and source archive without administrator privileges:
 ```
 
 Package-building requires `dpkg-deb`. No network access is used during building.
+The small installer does not bundle speech models or their optional runtime.
 The software is released under the MIT license in `packaging/copyright`.
 
 ## Installer targets

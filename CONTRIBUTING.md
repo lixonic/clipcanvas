@@ -7,8 +7,8 @@ GTK 3, GStreamer and FFmpeg. Windows is a planned target; see
 ## Dependencies
 
 ```sh
-sudo apt install python3 python3-gi python3-cairo python3-gi-cairo \
-  gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
+sudo apt install python3 python3-venv python3-gi python3-cairo python3-gi-cairo \
+  gir1.2-gtk-3.0 gir1.2-pango-1.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good gstreamer1.0-libav ffmpeg
 ```
 
@@ -27,6 +27,11 @@ The UI test skips when no display is present. CI runs it under Xvfb. For an
 equivalent local headless run, install `xvfb` and `xauth`, then use
 `xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -v`.
 
+Speech checks run only when `CLIPCANVAS_TEST_SPEECH_RUNTIME` and
+`CLIPCANVAS_TEST_SPEECH_AUDIO` point to a provisioned Tiny runtime and a generated
+English speech WAV. Ordinary CI does not download models. See
+[caption setup](docs/CAPTIONS.md) and [0.4 validation](docs/LAYERS-CAPTIONS-VALIDATION.md).
+
 The package builder produces a `.deb`, source archive, guide and checksums.
 Generated artifacts go in `dist/` and are ignored by Git. The small committed
 Ubuntu installers in `installers/ubuntu/` is a convenience download;
@@ -42,7 +47,9 @@ Do not implement the entire inventory at once.
 Rendering and media probes belong in `clipcanvas/engine.py`; project validation
 and timing belong in `clipcanvas/model.py`; GTK controls belong in
 `clipcanvas/app.py`; playback belongs in `clipcanvas/player.py`. Recovery and
-portable collection belong in `clipcanvas/storage.py`. Media operations
+portable collection belong in `clipcanvas/storage.py`. Layer/caption controls
+belong in `clipcanvas/layer_ui.py`; shared Pango/Cairo layout belongs in
+`clipcanvas/visuals.py`; speech and SRT workers belong in `clipcanvas/captions.py`. Media operations
 must not block GTK's main thread. FFmpeg calls use argument lists, never shell
 interpolation.
 

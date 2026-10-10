@@ -1,6 +1,9 @@
 """Native desktop integration test; skipped when no display is available."""
 import copy
 import json
+import os
+from pathlib import Path
+import subprocess
 import time
 import unittest
 from types import SimpleNamespace
@@ -270,6 +273,101 @@ class DesktopWorkflowTests(unittest.TestCase):
         finally:
             if getattr(w, 'active_context_menu', None) is not None:
                 w.active_context_menu.popdown()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+
+    def test_text_image_layers_caption_edit_drag_trim_and_reopen(self):
+        from clipcanvas import captions
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'layers-ui-recovery')
+        errors=[];w.error=errors.append
+        w.canvas._pipeline.set_property('volume',0)
+        try:
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            self.pump(lambda:not w.busy and bool(w.thumbs) and w.canvas.canvas_rect is not None)
+            w.layer_tools.add_text()
+            self.assertEqual(w.selected,('layers',0))
+            w.layer_tools.text.get_buffer().set_text('Café — title')
+            w.layer_tools.font.set_font_name('Sans 24');w.layer_tools.bold.set_active(True)
+            w.fields['end'][0].set_value(1.2);w.fields['height'][0].set_value(35);w.apply_fields()
+            self.assertEqual(w.project['layers'][0]['text'],'Café — title')
+            self.assertTrue(w.project['layers'][0]['bold'])
+            self.assertEqual(w.project['layers'][0]['background'],'#00000000')
+            # Applying an already saved RGBA style must preserve transparency.
+            w.select('layers',0,seek=False);w.apply_fields()
+            self.assertEqual(w.project['layers'][0]['background'],'#00000000')
+            self.pump(lambda:not w.scrub_timer and 'Scrub frame' in w.preview_label.get_text())
+            x,y,width,height=w.canvas.canvas_rect
+            w.layer_tools.canvas_press(SimpleNamespace(button=1,x=x+width*.5,y=y+height*.5))
+            w.layer_tools.canvas_motion(SimpleNamespace(x=x+width*.6,y=y+height*.6))
+            w.layer_tools.canvas_release(SimpleNamespace(button=1))
+            self.assertAlmostEqual(w.project['layers'][0]['x'],.6,places=2)
+            w.undo();self.assertAlmostEqual(w.project['layers'][0]['x'],.5)
+            w.redo();self.assertAlmostEqual(w.project['layers'][0]['x'],.6,places=2)
+            logo=self.fixtures.root/'ui-logo.png'
+            surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,50,50);cr=cairo.Context(surface)
+            cr.set_source_rgba(1,0,0,.7);cr.paint();surface.write_to_png(str(logo))
+            w.import_paths([str(logo)])
+            self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
+            self.assertEqual(len(w.project['layers']),2)
+            w.layer_tools.replace_captions(captions.parse_srt('1\n00:00:00,100 --> 00:00:01,000\nRecognized words\n'))
+            w.layer_tools.select('captions',0,edit=True)
+            w.layer_tools.text.get_buffer().set_text('Corrected words')
+            w.fields['end'][0].set_value(1.3);w.apply_fields()
+            self.assertEqual(w.project['captions'][0]['text'],'Corrected words')
+            w.zoom(100);w.snap_check.set_active(False)
+            self.pump(lambda:any(h[:2]==('layers',0) for h in w.timeline.hit))
+            _,_,x,y,width,height=next(h for h in w.timeline.hit if h[:2]==('layers',0))
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+width-2,y=y+height/2))
+            w.timeline.release(None,SimpleNamespace(x=x+width-2-.2*w.timeline.scale))
+            self.assertAlmostEqual(w.project['layers'][0]['end'],1,delta=1/30)
+            w.undo();self.assertAlmostEqual(w.project['layers'][0]['end'],1.2)
+            w.project_path=str(self.fixtures.root/'layers-desktop.clipcanvas');self.assertTrue(w.save())
+            saved=copy.deepcopy(w.project)
+            srt=self.fixtures.root/'edited.srt';captions.save_srt(saved,srt)
+            self.assertEqual(captions.load_srt(srt)[0]['text'],'Corrected words')
+            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            self.assertTrue(w.canvas.composited)
+            w.canvas.pause();w.open_project(w.project_path)
+            self.assertEqual(w.project,saved);self.assertFalse(w.canvas.composited)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    @unittest.skipUnless(os.environ.get('CLIPCANVAS_TEST_SPEECH_RUNTIME') and os.environ.get('CLIPCANVAS_TEST_SPEECH_AUDIO'),
+                         'A provisioned local speech runtime is required')
+    def test_generate_from_speech_then_edit_and_export_desktop(self):
+        from clipcanvas import captions
+        source=self.fixtures.root/'spoken.mp4'
+        subprocess.run([self.fixtures.ffmpeg,'-v','error','-y','-f','lavfi','-i',
+                        'color=c=navy:s=320x180:r=30','-i',os.environ['CLIPCANVAS_TEST_SPEECH_AUDIO'],
+                        '-shortest','-c:v','libx264','-preset','ultrafast','-threads','1','-c:a','aac',str(source)],
+                        env=self.fixtures.env,check=True)
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'speech-ui-recovery');errors=[];w.error=errors.append
+        w.canvas._pipeline.set_property('volume',0)
+        try:
+            w.start_project(320,180);w.import_paths([str(source)])
+            self.pump(lambda:not w.busy and bool(w.thumbs))
+            # This is the same background job used by the Generate dialog:
+            # private runtime -> timeline-aware audio -> real offline ASR -> editable cues.
+            w.layer_tools.generate_job(runtime_dir=os.environ['CLIPCANVAS_TEST_SPEECH_RUNTIME'])
+            self.pump(lambda:not w.busy,timeout=60)
+            self.assertFalse(errors);self.assertGreaterEqual(len(w.project['captions']),2)
+            self.assertIn('computer',' '.join(c['text'].lower() for c in w.project['captions']))
+            w.layer_tools.select('captions',0,edit=True)
+            w.layer_tools.text.get_buffer().set_text('Welcome to ClipCanvas.');w.apply_fields()
+            w.project['caption_style'].update(font_size=18,height=.25)
+            w.layer_tools.add_text();w.layer_tools.text.get_buffer().set_text('Local video')
+            w.layer_tools.font.set_font_name('Sans 26');w.apply_fields()
+            output=self.fixtures.root/'speech-captioned.mp4'
+            w.render_job(str(output),False,lambda path:w.set_status('Export test finished'))
+            self.pump(lambda:not w.busy,timeout=60)
+            self.assertFalse(errors);self.assertTrue(output.is_file())
+            self.assertAlmostEqual(engine.probe(output)['duration'],model.project_duration(w.project),delta=.1)
+            srt=self.fixtures.root/'speech-edited.srt';captions.save_srt(w.project,srt)
+            self.assertEqual(captions.load_srt(srt)[0]['text'],'Welcome to ClipCanvas.')
+        finally:
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 

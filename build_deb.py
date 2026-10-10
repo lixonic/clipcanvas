@@ -15,7 +15,7 @@ from clipcanvas import __version__ as VERSION
 NAME = "clipcanvas"
 DEPENDENCIES = [
     "python3 (>= 3.10)", "python3-gi", "python3-cairo", "python3-gi-cairo",
-    "gir1.2-gtk-3.0", "gir1.2-gstreamer-1.0", "gstreamer1.0-plugins-base",
+    "gir1.2-gtk-3.0", "gir1.2-pango-1.0", "python3-venv | python3.12-venv", "gir1.2-gstreamer-1.0", "gstreamer1.0-plugins-base",
     "gstreamer1.0-plugins-good", "gstreamer1.0-libav", "ffmpeg",
 ]
 
@@ -42,10 +42,14 @@ def build_package(output: Path) -> Path:
             relative = source.relative_to(PROJECT)
             copy_file(source, staging / "usr/share/clipcanvas" / relative)
         copy_file(PROJECT / "packaging/clipcanvas", staging / "usr/bin/clipcanvas", executable=True)
+        copy_file(PROJECT / "tools/setup_transcription.py", staging / "usr/share/clipcanvas/tools/setup_transcription.py")
         copy_file(PROJECT / "packaging/clipcanvas.desktop", staging / "usr/share/applications/clipcanvas.desktop")
         copy_file(PROJECT / "packaging/clipcanvas.svg", staging / "usr/share/icons/hicolor/scalable/apps/clipcanvas.svg")
         copy_file(PROJECT / "packaging/copyright", staging / "usr/share/doc/clipcanvas/copyright")
         copy_file(PROJECT / "README.md", staging / "usr/share/doc/clipcanvas/README.md")
+        for source in sorted((PROJECT / "docs").rglob("*")):
+            if source.is_file() and source.suffix in (".md", ".png"):
+                copy_file(source, staging / "usr/share/doc/clipcanvas/docs" / source.relative_to(PROJECT / "docs"))
         files = sorted(path for path in staging.rglob("*") if path.is_file())
         size_kib = sum((path.stat().st_size + 1023) // 1024 for path in files)
         control = staging / "DEBIAN"
@@ -57,7 +61,7 @@ def build_package(output: Path) -> Path:
             f"Installed-Size: {size_kib}\nDepends: {', '.join(DEPENDENCIES)}\n"
             "Description: Simple offline video creator for Ubuntu\n"
             " Create landscape, portrait and square videos from local clips.\n"
-            " Arrange and trim clips, add transitions, layer soundtracks,\n"
+            " Arrange clips, add transitions, titles, visual layers and captions,\n"
             " and export an MP4 from a native GTK desktop application.\n",
             encoding="utf-8",
         )
@@ -81,7 +85,7 @@ def build_package(output: Path) -> Path:
 def build_source(output: Path) -> Path:
     archive_path = output / f"{NAME}-{VERSION}-source.tar.gz"
     excluded = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
-    source_names = ["clipcanvas", "tests", "packaging", "docs", "README.md",
+    source_names = ["clipcanvas", "tools", "tests", "packaging", "docs", "README.md",
                     "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md", "build_deb.py"]
     with tarfile.open(archive_path, "w:gz") as archive:
         for name in source_names:

@@ -46,6 +46,10 @@ class VideoCanvas(Gtk.DrawingArea):
         self.on_position = None
         self.on_error = None
         self.on_end = None
+        self.on_overlay_draw = None
+        self.canvas_rect = None
+        self.composited = False
+        self.hide_placeholder = False
         self._loaded = False
         self._destroyed = False
         self._generation = 0
@@ -86,6 +90,7 @@ class VideoCanvas(Gtk.DrawingArea):
 
     def set_still(self, pixbuf, fit="fill", position_x=0.5, position_y=0.5):
         self.stop()
+        self.composited = False
         self._loaded = False
         self.frame = pixbuf
         self.fit = "fit" if fit == "fit" else "fill"
@@ -270,6 +275,7 @@ class VideoCanvas(Gtk.DrawingArea):
                     max(1, height - padding * 2) / self.aspect_height)
         cw, ch = self.aspect_width * scale, self.aspect_height * scale
         cx, cy = (width - cw) / 2, (height - ch) / 2
+        self.canvas_rect = (cx, cy, cw, ch)
         for spread in range(9, 0, -1):
             cr.set_source_rgba(0.12, 0.10, 0.23, 0.008)
             cr.rectangle(cx - spread, cy - spread / 2 + 3, cw + spread * 2, ch + spread)
@@ -280,6 +286,7 @@ class VideoCanvas(Gtk.DrawingArea):
         cr.set_source_rgb(0.015, 0.015, 0.02) if self.frame else cr.set_source_rgb(1, 1, 1)
         cr.paint()
         if self.frame is not None:
+            cr.save()
             fw, fh = self.frame.get_width(), self.frame.get_height()
             factor = (min if self.fit == "fit" else max)(cw / fw, ch / fh)
             align_x, align_y = (0.5, 0.5) if self.fit == "fit" else (self.position_x, self.position_y)
@@ -290,7 +297,8 @@ class VideoCanvas(Gtk.DrawingArea):
             Gdk.cairo_set_source_pixbuf(cr, self.frame, 0, 0)
             cr.get_source().set_filter(cairo.FILTER_BILINEAR)
             cr.paint()
-        else:
+            cr.restore()
+        elif not self.hide_placeholder:
             icon_size = min(54, cw * 0.18, ch * 0.25)
             center_x, center_y = cx + cw / 2, cy + ch / 2 - 35
             cr.set_source_rgb(0.943, 0.914, 1.0)
@@ -308,6 +316,8 @@ class VideoCanvas(Gtk.DrawingArea):
             self._text(cr, "Import clips to bring your canvas to life", cx + 20,
                        center_y + icon_size * 0.9 + text_size + 13,
                        cw - 40, min(13, max(10, cw / 29)), (0.49, 0.46, 0.56))
+        if self.on_overlay_draw:
+            self.on_overlay_draw(cr, self.canvas_rect)
         cr.restore()
         return False
 

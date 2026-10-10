@@ -1,7 +1,9 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Version 1 projects migrate on load.
+possible. Saving never changes the media. Version 1 and 2 projects migrate on
+load. Visual layers use canvas-relative centers and sizes, so their placement
+survives a canvas resize; text sizes are expressed in canvas pixels.
 """
 
 from __future__ import annotations
@@ -11,18 +13,80 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import tempfile
 import uuid
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
-PROJECT_VERSION = 2
+PROJECT_VERSION = 3
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
+MAX_TIMELINE_SECONDS = 86400 * 7
+
+
+def text_style():
+    """Return independent style defaults for a title or caption."""
+    return {"x": 0.5, "y": 0.5, "width": 0.7, "height": 0.18,
+            "rotation": 0.0, "opacity": 1.0, "font_family": "Sans",
+            "font_size": 64.0, "bold": False, "italic": False,
+            "color": "#ffffff", "background": "#00000000",
+            "outline_color": "#000000", "outline_width": 2.0,
+            "align": "center"}
+
+
+def caption_style():
+    """Captions share a style; each cue stores only its text and timing."""
+    result = text_style()
+    result.update({"font_size": 48.0, "width": 0.9, "height": 0.15, "y": 0.88})
+    return result
 
 
 def new_project(width=1920, height=1080):
     return {"version": PROJECT_VERSION, "name": "Untitled video", "width": int(width),
-            "height": int(height), "fps": 30, "clips": [], "audio": []}
+            "height": int(height), "fps": 30, "clips": [], "audio": [],
+            "layers": [], "captions": [], "caption_style": caption_style()}
+
+
+def new_text(text="Your title", start=0.0, end=3.0):
+    result = {"id": uuid.uuid4().hex, "kind": "text", "start": start,
+              "end": end, "text": text}
+    result.update(text_style())
+    return result
+
+
+def new_visual(path, kind="image", start=0.0, end=3.0, metadata=None):
+    """Create a local image or video overlay without altering its source.
+
+    Still images have no source duration and need no media probe. Video
+    metadata is read lazily when omitted, as it is for a main video clip.
+    """
+    if kind not in ("image", "video"):
+        raise ValueError("Choose an image or video for a visual layer.")
+    result = {"id": uuid.uuid4().hex, "kind": kind,
+              "path": str(Path(path).expanduser().resolve()),
+              "start": start, "end": end, "x": 0.5, "y": 0.5,
+              "width": 0.4, "height": 0.3, "rotation": 0.0,
+              "opacity": 1.0, "fit": "fit", "in": 0.0, "speed": 1.0}
+    if kind == "video":
+        metadata = _metadata(path, metadata)
+        if not metadata.get("has_video", True):
+            raise ValueError("This file has no video to use as a visual layer.")
+        result["duration"] = float(metadata["duration"])
+    return result
+
+
+def new_caption(text="", start=0.0, end=3.0):
+    return {"id": uuid.uuid4().hex, "start": start, "end": end, "text": text}
+
+
+def media_items(project):
+    """Return references to every file-backed item, including visual layers.
+
+    Do not deduplicate items here: callers must update each path when saving
+    or relinking. Collection deduplicates the source files separately.
+    """
+    return list(project.get("clips", [])) + list(project.get("audio", [])) + [
+        item for item in project.get("layers", []) if item.get("kind") in ("image", "video")]
 
 
 def _metadata(path, metadata):
@@ -96,18 +160,67 @@ def _number(value, name, lower, upper):
     return float(value)
 
 
+def _text(value, name, maximum, allow_empty=True):
+    if not isinstance(value, str) or "\x00" in value or len(value) > maximum or (not allow_empty and not value.strip()):
+        raise ValueError(f"{name} must be valid text with no more than {maximum} characters.")
+
+
+def _media_path(item, label, check_files):
+    path = item.get("path")
+    if not isinstance(path, str) or not path or "\x00" in path:
+        raise ValueError(f"{label} has no valid file path.")
+    if not Path(path).is_absolute():
+        raise ValueError(f"{label} needs an absolute local file path.")
+    if check_files and not Path(path).is_file():
+        raise ValueError(f"Missing media: {path}\nRestore the file to its original location, or replace this item.")
+
+
+def _geometry(item, label):
+    for key in ("x", "y"):
+        _number(item.get(key), f"{label} {key} position", 0, 1)
+    for key in ("width", "height"):
+        _number(item.get(key), f"{label} {key}", 0.001, 2)
+    _number(item.get("rotation", 0), f"{label} rotation", -360, 360)
+    _number(item.get("opacity", 1), f"{label} opacity", 0, 1)
+
+
+def _text_style(item, label):
+    _geometry(item, label)
+    _text(item.get("font_family"), f"{label} font family", 128, allow_empty=False)
+    _number(item.get("font_size"), f"{label} font size", 1, 2048)
+    _number(item.get("outline_width", 0), f"{label} outline width", 0, 64)
+    for key in ("bold", "italic"):
+        if not isinstance(item.get(key, False), bool):
+            raise ValueError(f"{label} {key} must be on or off.")
+    for key in ("color", "background", "outline_color"):
+        value = item.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?", value):
+            raise ValueError(f"{label} {key.replace('_', ' ')} must be a hex RGB or RGBA color.")
+    if item.get("align") not in ("left", "center", "right"):
+        raise ValueError(f"{label} alignment must be left, center or right.")
+
+
+def _timed_item(item, label):
+    if not isinstance(item, dict):
+        raise ValueError(f"{label} is invalid.")
+    _text(item.get("id"), f"{label} identifier", 128, allow_empty=False)
+    start = _number(item.get("start"), f"{label} start", 0, MAX_TIMELINE_SECONDS)
+    end = _number(item.get("end"), f"{label} end", 0, MAX_TIMELINE_SECONDS)
+    if end <= start:
+        raise ValueError(f"{label} end must be later than its start.")
+
+
 def validate_project(project, check_files=True, require_clips=False):
     """Raise ValueError with a readable explanation; return True on success."""
     if not isinstance(project, dict) or project.get("version") != PROJECT_VERSION:
-        raise ValueError("This is not a supported ClipCanvas project (version 2).")
+        raise ValueError(f"This is not a supported ClipCanvas project (version {PROJECT_VERSION}).")
     for key in ("width", "height"):
         value = project.get(key)
         _number(value, f"Canvas {key}", 64, 8192)
         if int(value) != value or value % 2:
             raise ValueError("Canvas dimensions must be even whole numbers.")
     _number(project.get("fps", 30), "Frame rate", 1, 120)
-    if not isinstance(project.get("name", ""), str):
-        raise ValueError("The project name must be text.")
+    _text(project.get("name", ""), "The project name", 1000)
     for group in ("clips", "audio"):
         items = project.get(group)
         if not isinstance(items, list):
@@ -118,13 +231,7 @@ def validate_project(project, check_files=True, require_clips=False):
             label = f"{'Clip' if group == 'clips' else 'Soundtrack'} {index + 1}"
             if not isinstance(item, dict):
                 raise ValueError(f"{label} is invalid.")
-            path = item.get("path")
-            if not isinstance(path, str) or not path or "\x00" in path:
-                raise ValueError(f"{label} has no valid file path.")
-            if not Path(path).is_absolute():
-                raise ValueError(f"{label} needs an absolute local file path.")
-            if check_files and not Path(path).is_file():
-                raise ValueError(f"Missing media: {path}\nRestore the file to its original location, or replace this item.")
+            _media_path(item, label, check_files)
             duration = _number(item.get("duration"), f"{label} source duration", 0.001, 86400 * 7)
             begin = _number(item.get("in", 0), f"{label} trim start", 0, duration)
             end = _number(item.get("out"), f"{label} trim end", 0, duration + 0.05)
@@ -156,6 +263,41 @@ def validate_project(project, check_files=True, require_clips=False):
                 source_clip_id = item.get("source_clip_id")
                 if source_clip_id is not None and (not isinstance(source_clip_id, str) or not source_clip_id):
                     raise ValueError(f"{label} has an invalid source clip reference.")
+    layers = project.get("layers")
+    if not isinstance(layers, list) or len(layers) > 500:
+        raise ValueError("Use a valid list of no more than 500 visual layers.")
+    for index, item in enumerate(layers):
+        label = f"Layer {index + 1}"
+        _timed_item(item, label)
+        if item.get("kind") == "text":
+            _text(item.get("text"), f"{label} text", 10000)
+            _text_style(item, label)
+        elif item.get("kind") in ("image", "video"):
+            _media_path(item, label, check_files)
+            _geometry(item, label)
+            if item.get("fit", "fit") not in ("fit", "fill"):
+                raise ValueError(f"{label} has an unsupported framing option.")
+            _number(item.get("speed", 1), f"{label} playback speed", 0.25, 4)
+            if item["kind"] == "video":
+                duration = _number(item.get("duration"), f"{label} source duration", 0.001, MAX_TIMELINE_SECONDS)
+                begin = _number(item.get("in", 0), f"{label} source start", 0, duration)
+                if begin >= duration:
+                    raise ValueError(f"{label} source start must be before the video end.")
+            else:
+                _number(item.get("in", 0), f"{label} source start", 0, MAX_TIMELINE_SECONDS)
+        else:
+            raise ValueError(f"{label} must be text, an image or a video.")
+    captions = project.get("captions")
+    if not isinstance(captions, list) or len(captions) > 5000:
+        raise ValueError("Use a valid list of no more than 5000 captions.")
+    for index, item in enumerate(captions):
+        label = f"Caption {index + 1}"
+        _timed_item(item, label)
+        _text(item.get("text"), f"{label} text", 2000)
+    style = project.get("caption_style")
+    if not isinstance(style, dict):
+        raise ValueError("The caption style is missing or invalid.")
+    _text_style(style, "Caption")
     if require_clips and not project["clips"]:
         raise ValueError("Add at least one video clip before creating a preview or export.")
     return True
@@ -165,13 +307,13 @@ def save_project(project, path):
     """Save atomically, including empty projects; leave source files untouched."""
     validate_project(project, check_files=False)
     target = Path(path).expanduser().resolve()
-    for item in project["clips"] + project["audio"]:
+    for item in media_items(project):
         if Path(item["path"]).resolve() == target:
             raise ValueError("Choose a project filename different from your original media.")
     target.parent.mkdir(parents=True, exist_ok=True)
     data = copy.deepcopy(project)
     data.pop("_project_path", None)
-    for item in data["clips"] + data["audio"]:
+    for item in media_items(data):
         try:
             item["path"] = Path(os.path.relpath(item["path"], target.parent)).as_posix()
         except ValueError:  # Different Windows drives cannot use relative paths.
@@ -199,17 +341,23 @@ def load_project(path):
             project = json.load(stream)
     except (json.JSONDecodeError, UnicodeError) as error:
         raise ValueError("This file is not a readable ClipCanvas project.") from error
-    # Version 1's optional fields may be absent in hand-written/older projects.
+    # Optional fields may be absent in hand-written/older projects.
     # Normalize them before presenting the data to the UI, which uses direct
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, PROJECT_VERSION):
+        if old_version not in (1, 2, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
         project.setdefault("fps", 30)
         project.setdefault("audio", [])
+        project.setdefault("layers", [])
+        project.setdefault("captions", [])
+        project.setdefault("caption_style", caption_style())
+        if isinstance(project.get("caption_style"), dict):
+            for key, value in caption_style().items():
+                project["caption_style"].setdefault(key, value)
         for group in ("clips", "audio"):
             items = project.get(group)
             if not isinstance(items, list):
@@ -218,7 +366,7 @@ def load_project(path):
                 if not isinstance(item, dict):
                     continue
                 media_path = item.get("path")
-                if old_version == 2 and isinstance(media_path, str) and media_path:
+                if old_version >= 2 and isinstance(media_path, str) and media_path:
                     item["path"] = str((target.parent / media_path).resolve())
                 defaults = {"id": uuid.uuid4().hex, "in": 0.0,
                             "out": item.get("duration"), "volume": 1.0,
@@ -235,6 +383,29 @@ def load_project(path):
                                      "transition_fade_out": 0.0})
                 for key, value in defaults.items():
                     item.setdefault(key, value)
+        layers = project.get("layers")
+        if isinstance(layers, list):
+            for item in layers:
+                if not isinstance(item, dict):
+                    continue
+                item.setdefault("id", uuid.uuid4().hex)
+                if item.get("kind") == "text":
+                    for key, value in text_style().items():
+                        item.setdefault(key, value)
+                elif item.get("kind") in ("image", "video"):
+                    media_path = item.get("path")
+                    if old_version >= 2 and isinstance(media_path, str) and media_path:
+                        item["path"] = str((target.parent / media_path).resolve())
+                    for key, value in {"x": 0.5, "y": 0.5, "width": 0.4,
+                                       "height": 0.3, "rotation": 0.0,
+                                       "opacity": 1.0, "fit": "fit", "in": 0.0,
+                                       "speed": 1.0}.items():
+                        item.setdefault(key, value)
+        captions = project.get("captions")
+        if isinstance(captions, list):
+            for item in captions:
+                if isinstance(item, dict):
+                    item.setdefault("id", uuid.uuid4().hex)
     validate_project(project, check_files=False)
     return project
 

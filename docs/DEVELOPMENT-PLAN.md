@@ -3,7 +3,8 @@
 Updated 10 October 2026. The user selected all C01–C60 and X01–X10, then deferred
 C44–C49 and AI/API/MCP integration. Work proceeds in usable, tested increments.
 Selected features are not necessarily implemented. Ubuntu 0.2.0 established the
-first foundation increment; 0.3.0 adds native UI and audio workflows. Windows
+first foundation increment; 0.3.0 adds native UI and audio workflows; 0.4.0 adds
+text/visual layers and local editable captions. Windows
 remains an intended, unvalidated platform.
 
 ## Product direction
@@ -60,13 +61,33 @@ local input format. See the [UI study and acceptance criteria](UI-STUDY.md) for
 the evidence behind these changes. Release validation records completed checks
 separately from the study's design targets.
 
+## Layers and captions increment: 0.4.0
+
+C05/C18/C21 now cover ordered text, still-image/logo and silent video layers,
+with independent timing, position, size, rotation, opacity and fit/fill. Canvas
+dragging places layers; timeline bodies/edges move and trim visibility. Pango/Cairo
+layout is shared by native still preview and export. Prepared preview includes
+moving overlay video; source scrubbing also refreshes active overlay frames.
+
+C23/C24 now generate short captions locally from original clip speech or the full
+mix, with Tiny/Small model choice, language detection, editable wording/timing,
+shared appearance, manual entry and SRT import/export. Setup downloads a private
+runtime and model once; recognition is then offline. MP4 captions are burned in.
+Format 3 preserves these edits; migrations, recovery, collection and relinking
+include visual sources. See [caption setup](CAPTIONS.md) and
+[release validation](LAYERS-CAPTIONS-VALIDATION.md).
+
+Static text/background/outline styling covers part of C22/C25. Animation presets,
+motion paths, shadows, animated caption packs, translation and image-only
+slideshow assembly remain pending.
+
 ## Remaining staged work
 
 | Increment | Feature groups | Acceptance checks |
 |---|---|---|
-| Canvas layers and titles | C01–C07 refinements, C17–C22, X03 | Timed text, photos, logos, overlay video and transforms agree in preview/export at 16:9 and 9:16; original templates animate reproducibly |
+| Canvas layers and titles | C01–C07 refinements, C17/C19/C20/C22, X03 | Image-only assembly, effects, original animation presets, motion paths and keyframes; retain preview/export agreement at both aspect ratios |
 | Complete local timeline | C08–C16 refinements, X01–X04 | Trim/split/linking, reverse/freeze, speed ramps, preview caching and keyframes keep timing consistent; preview stays responsive on ordinary social projects |
-| Captions | C23–C26 | Correctable timed captions, styles, SRT import/export and optional local recognition/translation; model downloads are separate from offline editing |
+| Captions | C23–C26 refinements | Animated style packs, translation, richer language/accuracy validation, speaker and word-level workflows |
 | Sound and recording | C27–C38, C43, C54, X05 | WAV and other sources, extraction, voice-over/capture, beat markers/sync, balancing, ducking, meters and EQ tested against exported sound |
 | Picture finishing | C39–C42, X06–X07 | Color/filter controls, blur/vignette, chroma/masks, optional tracking/background models, LUT handling and deliberate HDR conversion have reproducible output checks |
 | Templates and media | C50–C53 | Editable original templates, local asset collections, reusable brand styles and clearly licensed optional stock catalogs |
@@ -77,11 +98,12 @@ separately from the study's design targets.
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external model/provider integration is included in the 0.3.0 package.
+no external provider/API integration is included in the 0.4.0 package. Local
+speech recognition is included because the user explicitly requested it.
 
-Next implementation target: **C21 timed text and C05/C18 visual layers**, followed
-by captions and the remaining soundtrack controls. Detailed designs will keep
-simple defaults and put advanced controls behind the main workflow.
+Next selected work remains animation/effects, richer timeline/audio tools and
+caption refinements. Choose the next usable increment after reviewing 0.4.0;
+keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering
 

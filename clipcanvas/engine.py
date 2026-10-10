@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import threading
 
-from .model import clip_duration, project_duration, timeline, validate_project
+from .model import clip_duration, media_items, project_duration, timeline, validate_project
 
 
 class RenderError(RuntimeError):
@@ -223,7 +223,127 @@ def _execute(arguments, seconds, progress, cancel, log_path):
             process.stdout.close()
 
 
-def _graph(project, preview=False):
+def _caption_stream(project, scratch, width, height, total, cancel=None):
+    """Make one variable-duration PNG stream for all captions, including gaps.
+
+    Only one decoder is used even for thousands of cues. PNG sprites share the
+    caption box and are reused when the visible wording repeats. Overlapping cues
+    follow list order, just as they do in the native preview.
+    """
+    from . import visuals
+    import cairo
+    cues = [c for c in project.get('captions', []) if c['start'] < total and c['end'] > 0]
+    if not cues:
+        return None
+    item = visuals.caption_item(project, '')
+    left, top, sw, sh = visuals.sprite_geometry(project, item, (width, height))
+    events = {}
+    for index, cue in enumerate(cues):
+        for key, entering in (('start', True), ('end', False)):
+            boundary = max(0.0, min(total, float(cue[key])))
+            events.setdefault(boundary, []).append((index, entering))
+    boundaries = sorted({0.0, total} | set(events))
+    active = set()
+    cached = {}
+    sequence = ['ffconcat version 1.0']
+    last_path = None
+    for begin, end in zip(boundaries, boundaries[1:]):
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled('Export cancelled.')
+        if end <= begin:
+            continue
+        for index, entering in events.get(begin, []):
+            if entering:
+                active.add(index)
+            else:
+                active.discard(index)
+        text = tuple(cues[index]['text'] for index in sorted(active))
+        if text not in cached:
+            path = Path(scratch)/f'caption-{len(cached)}.png'
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
+            cr = cairo.Context(surface)
+            cr.translate(-left, -top)
+            for wording in text:
+                visuals._paint(cr, project, visuals.caption_item(project, wording), (0, 0, width, height))
+            surface.write_to_png(str(path))
+            cached[text] = path
+        last_path = cached[text]
+        # The image demuxer's fine timebase retains sub-frame cue boundaries;
+        # the main canvas frame rate decides which frame displays each cue.
+        sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(end-begin)}']
+    sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000']
+    sequence_path = Path(scratch)/'captions.ffconcat'
+    sequence_path.write_text('\n'.join(sequence)+'\n', encoding='utf-8')
+    return sequence_path, left, top
+
+
+def _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel=None):
+    """Append ordered transparent layers without interpreting user text as code."""
+    layers = [item for item in project.get('layers', []) if item['start'] < total and item['end'] > 0]
+    if not layers and not project.get('captions'):
+        return video
+    if scratch is None:
+        raise RenderError('Visual rendering needs a temporary working folder.')
+    from . import visuals
+    next_input = len(project['clips']) + len(project.get('audio', []))
+    for number, item in enumerate(layers):
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled('Export cancelled.')
+        start, end = max(0.0, float(item['start'])), min(total, float(item['end']))
+        length = end-start
+        if item['kind'] in ('text', 'image'):
+            path = Path(scratch)/f'layer-{number}.png'
+            try:
+                x, y = visuals.rasterize(project, item, path, (width, height))
+            except Exception as error:
+                raise RenderError(f"Could not read or draw visual layer {number+1}: {error}") from error
+            args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(length), '-i', str(path)]
+            filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[visual{number}]')
+            placement = f'x={x}:y={y}'
+        else:
+            metadata = probe(item['path'])
+            if not metadata['has_video']:
+                raise RenderError(f"{Path(item['path']).name} has no video to use as an overlay.")
+            available = min(metadata['duration']-item.get('in', 0), length*item.get('speed', 1))
+            args += ['-threads', '1', '-ss', _fmt(item.get('in', 0)), '-t', _fmt(available), '-i', item['path']]
+            bw = max(1, round(width*item['width']));bh = max(1, round(height*item['height']))
+            fit = 'decrease' if item.get('fit', 'fit') == 'fit' else 'increase'
+            framing = f'scale=trunc(iw*sar/2)*2:ih,setsar=1,format=rgba,scale={bw}:{bh}:force_original_aspect_ratio={fit}'
+            if fit == 'decrease':
+                framing += f',pad={bw}:{bh}:(ow-iw)/2:(oh-ih)/2:color=0x00000000'
+            else:
+                framing += f',crop={bw}:{bh}:(iw-ow)/2:(ih-oh)/2'
+            parts = [f'[{next_input}:{metadata["video_index"]}]{framing}',
+                     f'setpts=(PTS-STARTPTS)/{_fmt(item.get("speed", 1))}', f'fps={_fmt(fps)}',
+                     f'tpad=stop_mode=clone:stop_duration={_fmt(length)}', f'trim=duration={_fmt(length)}']
+            angle = math.radians(item.get('rotation', 0))
+            if angle:
+                a = _fmt(angle)
+                parts.append(f'rotate={a}:ow=rotw({a}):oh=roth({a}):c=0x00000000')
+            parts += [f'colorchannelmixer=aa={_fmt(item.get("opacity", 1))}', 'settb=AVTB',
+                      f'setpts=PTS-STARTPTS+{_fmt(start)}/TB']
+            filters.append(','.join(parts)+f'[visual{number}]')
+            placement = f'x={_fmt(width*item["x"])}-overlay_w/2:y={_fmt(height*item["y"])}-overlay_h/2'
+        label = f'composite{number}'
+        filters.append(f"[{video}][visual{number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto:enable='gte(t,{_fmt(start)})*lt(t,{_fmt(end)})'[{label}]")
+        video = label
+        next_input += 1
+    try:
+        captions = _caption_stream(project, scratch, width, height, total, cancel)
+    except RenderCancelled:
+        raise
+    except Exception as error:
+        raise RenderError(f'Could not draw captions: {error}') from error
+    if captions:
+        sequence, x, y = captions
+        args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(sequence)]
+        filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS[captionpicture]')
+        filters.append(f'[{video}][captionpicture]overlay=x={x}:y={y}:eof_action=pass:repeatlast=0:format=auto[captioned]')
+        video = 'captioned'
+    return video
+
+
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
     width, height = int(project["width"]), int(project["height"])
     if preview:
         scale = min(1.0, 640 / max(width, height))
@@ -268,7 +388,8 @@ def _graph(project, preview=False):
             picture.append(f"fade=t=in:st=0:d={_fmt(picture_fade_in)}")
         if picture_fade_out > 0:
             picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
-        filters.append(",".join(picture) + f"[v{index}]")
+        if not audio_only:
+            filters.append(",".join(picture) + f"[v{index}]")
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
             parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
                      "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
@@ -284,10 +405,12 @@ def _graph(project, preview=False):
         overlap = rows[index - 1]["overlap"]
         if overlap:
             transition = clips[index - 1].get("transition", "fade")
-            filters.append(f"[{video}][v{index}]xfade=transition={transition}:duration={_fmt(overlap)}:offset={_fmt(running_duration - overlap)},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
+            if not audio_only:
+                filters.append(f"[{video}][v{index}]xfade=transition={transition}:duration={_fmt(overlap)}:offset={_fmt(running_duration - overlap)},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
             filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
         else:
-            filters.append(f"[{video}][v{index}]concat=n=2:v=1:a=0,fps={_fmt(fps)},settb=AVTB[joinv{index}]")
+            if not audio_only:
+                filters.append(f"[{video}][v{index}]concat=n=2:v=1:a=0,fps={_fmt(fps)},settb=AVTB[joinv{index}]")
             filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
         video, audio = f"joinv{index}", f"joina{index}"
         running_duration += rows[index]["duration"] - overlap
@@ -314,7 +437,9 @@ def _graph(project, preview=False):
         filters.append(",".join(parts) + f"[music{offset}]")
         mix_labels.append(f"music{offset}")
     filters.append("".join(f"[{label}]" for label in mix_labels) + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)}[outaudio]")
-    filters.append(f"[{video}]format=yuv420p[outvideo]")
+    if not audio_only:
+        video = _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel)
+        filters.append(f"[{video}]format=yuv420p[outvideo]")
     return args, ";\n".join(filters), total
 
 
@@ -333,7 +458,7 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
     if quality not in ("high", "smaller", "master"):
         raise RenderError("Choose high, smaller, or master export quality.")
     output = Path(output).expanduser().resolve()
-    for item in project["clips"] + project["audio"]:
+    for item in media_items(project):
         source = Path(item["path"]).resolve()
         if source == output or (output.exists() and os.path.samefile(source, output)):
             raise RenderError("Choose a different export filename. Your original media will never be overwritten.")
@@ -347,11 +472,11 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         raise RenderCancelled("Export cancelled.")
     if progress:
         progress(0.0, "Preparing your video…")
-    input_args, graph, seconds = _graph(project, preview)
     handle, temporary = tempfile.mkstemp(prefix=".clipcanvas-", suffix=".mp4", dir=str(output.parent))
     os.close(handle)
     try:
         with tempfile.TemporaryDirectory(prefix="clipcanvas-render-") as scratch:
+            input_args, graph, seconds = _graph(project, preview, scratch=scratch, cancel=cancel)
             graph_path = Path(scratch) / "filters.txt"
             graph_path.write_text(graph, encoding="utf-8")
             crf = "28" if preview else {"high": "18", "smaller": "23", "master": "14"}[quality]
@@ -374,6 +499,65 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         return str(output)
     except OSError as error:
         raise RenderError(f"Could not save the video: {error}") from error
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def render_audio(project, output, source='mix', progress=None, cancel=None):
+    """Write composed speech-recognition audio as a local 16 kHz mono WAV.
+
+    ``video`` includes the trimmed/speed-adjusted main clips with original audio
+    restored even when a clip was muted after extraction. ``mix`` follows the
+    audible project including its independent soundtracks. Visual layers carry
+    no audio, and this operation never rasterizes or encodes a picture.
+    """
+    if source not in ('mix', 'video'):
+        raise RenderError('Choose original video speech or the full audio mix.')
+    project = copy.deepcopy(project)
+    protected_media = media_items(project)
+    if source == 'video':
+        project['audio'] = []
+        for clip in project.get('clips', []):
+            clip['volume'] = 1.0
+    try:
+        validate_project(project, check_files=True, require_clips=True)
+    except ValueError as error:
+        raise RenderError(str(error)) from error
+    output = Path(output).expanduser().resolve()
+    for item in protected_media:
+        source_path = Path(item['path']).resolve()
+        if source_path == output or (output.exists() and os.path.samefile(source_path, output)):
+            raise RenderError('Choose a different audio filename. Your original media will never be overwritten.')
+    if project.get('_project_path') and output == Path(project['_project_path']).resolve():
+        raise RenderError('Choose an audio filename different from the project file.')
+    if not output.parent.is_dir() or output.is_dir():
+        raise RenderError('Choose an audio filename in an existing folder.')
+    if cancel is not None and cancel.is_set():
+        raise RenderCancelled('Caption generation cancelled.')
+    if progress:
+        progress(0.0, 'Preparing speech audio…')
+    handle, temporary = tempfile.mkstemp(prefix='.clipcanvas-', suffix='.wav', dir=str(output.parent))
+    os.close(handle)
+    try:
+        with tempfile.TemporaryDirectory(prefix='clipcanvas-speech-') as scratch:
+            inputs, graph, seconds = _graph(project, audio_only=True)
+            graph_path = Path(scratch)/'audio-filters.txt'
+            graph_path.write_text(graph, encoding='utf-8')
+            arguments = ['-nostdin', '-hide_banner', '-loglevel', 'warning', '-y', '-filter_complex_threads', '1'] + inputs + [
+                '-filter_complex_script', str(graph_path), '-map', '[outaudio]', '-vn', '-c:a', 'pcm_s16le',
+                '-ar', '16000', '-ac', '1', '-t', _fmt(seconds), '-progress', 'pipe:1', '-stats_period', '0.2', temporary]
+            _execute(arguments, seconds, progress, cancel, Path(scratch)/'ffmpeg.log')
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled('Caption generation cancelled.')
+        os.replace(temporary, output)
+        if progress:
+            progress(1.0, 'Speech audio ready.')
+        return str(output)
+    except OSError as error:
+        raise RenderError(f'Could not prepare speech audio: {error}') from error
     finally:
         try:
             os.unlink(temporary)

@@ -1,33 +1,28 @@
 # Ubuntu installers
 
-`clipcanvas_0.3.0_all.deb` is the current Ubuntu 24.04 prototype. It adds the
-native editor UI, contextual clip controls, clickable transition joins,
-right-click audio extraction, and separate picture/audio fades. Versions 0.1.1
-and 0.2.0 are retained as historical installers.
+`clipcanvas_0.4.0_all.deb` is the current Ubuntu 24.04 prototype. It adds text,
+image/logo and silent video layers, plus speech-generated, editable captions,
+shared caption styling and SRT import/export. Earlier installers are retained
+for historical reference.
 
-Download the current `.deb` and `SHA256SUMS.txt` from this directory. On GitHub,
-open the file and use **Download raw file**.
+Download the current `.deb` and `SHA256SUMS.txt`. On GitHub, open the file and use
+**Download raw file**.
 
 ```sh
 sha256sum --check SHA256SUMS.txt
-sudo apt install ./clipcanvas_0.3.0_all.deb
+sudo apt install ./clipcanvas_0.4.0_all.deb
 ```
 
-The installer uses Ubuntu packages for GTK, GStreamer and FFmpeg. Installation
-may download dependencies; editing and rendering operate on local files.
-Open **ClipCanvas** from the applications menu after installation. Save your
-project and reopen the app if upgrading an already-running session.
+Installation may fetch Ubuntu dependencies. The first automatic-caption use
+separately downloads a private runtime and Tiny/Small speech model. After setup,
+recognition runs offline; audio/video is not uploaded. See [caption setup](../../docs/CAPTIONS.md).
+Open **ClipCanvas** from Applications. Save and reopen an already-running session
+after upgrading.
 
-27 generated-media, project and native desktop checks passed locally; see
-[0.3.0 UI validation](../../docs/UI-VALIDATION.md). Older results remain in
-[0.2.0 validation](../../docs/OVERHAUL-VALIDATION.md) and
-[baseline validation](../../docs/BASELINE-VALIDATION.md).
+48 local checks passed, including real speech generation/correction/export and
+native desktop workflows; see [0.4.0 validation](../../docs/LAYERS-CAPTIONS-VALIDATION.md).
+Build with `/usr/bin/python3 build_deb.py --output-dir dist`. GitHub Actions also
+provides temporary build artifacts. Windows and provider/API/MCP work remain pending.
 
-Build with `/usr/bin/python3 build_deb.py --output-dir dist` from the repository
-root. Successful GitHub Actions builds also provide temporary artifacts.
-Windows runtime/installer development and AI/MCP integration are not included
-in this package. See the [development plan](../../docs/DEVELOPMENT-PLAN.md).
-
-Version 0.3.0 reads 0.1.x and 0.2.x projects using project format 2. Projects
-saved by 0.2.x/0.3.x cannot be opened in 0.1.x. Use 0.3.x to retain the new audio
-speed and fade behavior.
+Version 0.4.0 reads projects from 0.1.x–0.3.x and saves project format 3.
+Use 0.4.x or newer to reopen projects containing layers and captions.

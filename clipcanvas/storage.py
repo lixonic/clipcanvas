@@ -74,7 +74,7 @@ def collect_project(project, destination):
         data = copy.deepcopy(project)
         data.pop("_recovery_project_path", None)
         copied = {}
-        for item in data["clips"] + data["audio"]:
+        for item in model.media_items(data):
             source = Path(item["path"]).resolve()
             if source not in copied:
                 # Prefix every filename, so collisions also work on case-insensitive disks.
