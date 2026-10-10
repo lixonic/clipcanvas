@@ -17,6 +17,7 @@ import uuid
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
 PROJECT_VERSION = 2
+AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 
 
 def new_project(width=1920, height=1080):
@@ -40,7 +41,9 @@ def new_clip(path, metadata=None):
             "duration": duration, "in": 0.0, "out": duration, "fit": "fill",
             "volume": 1.0, "transition": "none", "transition_duration": 0.5,
             "position_x": 0.5, "position_y": 0.5, "speed": 1.0,
-            "rotation": 0, "flip_x": False, "flip_y": False}
+            "rotation": 0, "flip_x": False, "flip_y": False,
+            "fade_in": 0.0, "fade_out": 0.0,
+            "video_fade_in": 0.0, "video_fade_out": 0.0}
 
 
 def new_audio(path, metadata=None):
@@ -50,7 +53,8 @@ def new_audio(path, metadata=None):
     duration = float(metadata["duration"])
     return {"id": uuid.uuid4().hex, "path": str(Path(path).expanduser().resolve()),
             "duration": duration, "in": 0.0, "out": duration, "start": 0.0,
-            "volume": 1.0, "fade_in": 0.0, "fade_out": 0.0}
+            "volume": 1.0, "speed": 1.0, "fade_in": 0.0, "fade_out": 0.0,
+            "transition_fade_in": 0.0, "transition_fade_out": 0.0}
 
 
 def clip_duration(clip):
@@ -127,8 +131,14 @@ def validate_project(project, check_files=True, require_clips=False):
             if end - begin < 0.04:
                 raise ValueError(f"{label} must be at least 0.04 seconds long.")
             _number(item.get("volume", 1), f"{label} volume", 0, 2)
+            speed = _number(item.get("speed", 1), f"{label} playback speed", 0.25, 4)
+            for key in AUDIO_FADES:
+                # Fades use seconds on the timeline, after changing speed. An
+                # overlong fade is clamped to the audible segment when rendered.
+                _number(item.get(key, 0), f"{label} fade", 0, max(duration, duration / speed))
             if group == "clips":
-                _number(item.get("speed", 1), f"{label} playback speed", 0.25, 4)
+                for key in ("video_fade_in", "video_fade_out"):
+                    _number(item.get(key, 0), f"{label} picture fade", 0, max(duration, duration / speed))
                 if isinstance(item.get("rotation", 0), bool) or item.get("rotation", 0) not in (0, 90, 180, 270):
                     raise ValueError(f"{label} rotation must be 0, 90, 180 or 270 degrees.")
                 for key in ("flip_x", "flip_y"):
@@ -143,8 +153,9 @@ def validate_project(project, check_files=True, require_clips=False):
                     _number(item.get(key, 0.5), f"{label} crop position", 0, 1)
             else:
                 _number(item.get("start", 0), f"{label} timeline start", 0, 86400 * 7)
-                for key in ("fade_in", "fade_out"):
-                    _number(item.get(key, 0), f"{label} fade", 0, duration)
+                source_clip_id = item.get("source_clip_id")
+                if source_clip_id is not None and (not isinstance(source_clip_id, str) or not source_clip_id):
+                    raise ValueError(f"{label} has an invalid source clip reference.")
     if require_clips and not project["clips"]:
         raise ValueError("Add at least one video clip before creating a preview or export.")
     return True
@@ -210,19 +221,62 @@ def load_project(path):
                 if old_version == 2 and isinstance(media_path, str) and media_path:
                     item["path"] = str((target.parent / media_path).resolve())
                 defaults = {"id": uuid.uuid4().hex, "in": 0.0,
-                            "out": item.get("duration"), "volume": 1.0}
+                            "out": item.get("duration"), "volume": 1.0,
+                            "speed": 1.0, "fade_in": 0.0, "fade_out": 0.0}
                 if group == "clips":
                     defaults.update({"fit": "fill", "transition": "none",
                                      "transition_duration": 0.5,
                                      "position_x": 0.5, "position_y": 0.5,
-                                     "speed": 1.0, "rotation": 0,
-                                     "flip_x": False, "flip_y": False})
+                                     "rotation": 0,
+                                     "flip_x": False, "flip_y": False,
+                                     "video_fade_in": 0.0, "video_fade_out": 0.0})
                 else:
-                    defaults.update({"start": 0.0, "fade_in": 0.0, "fade_out": 0.0})
+                    defaults.update({"start": 0.0, "transition_fade_in": 0.0,
+                                     "transition_fade_out": 0.0})
                 for key, value in defaults.items():
                     item.setdefault(key, value)
     validate_project(project, check_files=False)
     return project
+
+
+def detach_audio(project, clip_index):
+    """Extract a clip's soundtrack without creating or modifying a media file.
+
+    Return an edited copy with the independent track appended and the original
+    clip muted. Source trims and pitch-preserving speed are retained. Existing
+    transition envelopes are copied as additional fades, so extraction itself
+    does not change the mix. The new track then moves independently of the clip.
+    Repeated extraction is rejected while any part of its track remains.
+    """
+    validate_project(project, check_files=True)
+    if isinstance(clip_index, bool) or not isinstance(clip_index, int) or not 0 <= clip_index < len(project["clips"]):
+        raise ValueError("Select a video clip to extract its audio.")
+    clip = project["clips"][clip_index]
+    source_clip_id = clip.get("id") or uuid.uuid4().hex
+    if any(track.get("source_clip_id") == source_clip_id for track in project["audio"]):
+        raise ValueError("Audio has already been extracted from this clip. Select its soundtrack in the timeline.")
+    # Import lazily, as with new_audio, to keep project calculations independent
+    # of the renderer and to avoid an engine/model import cycle.
+    from .engine import RenderError, probe
+    try:
+        metadata = probe(clip["path"])
+    except RenderError as error:
+        raise ValueError(str(error)) from error
+    if not metadata["has_audio"]:
+        raise ValueError("This clip has no audio track to extract.")
+    rows = timeline(project)
+    track = new_audio(clip["path"], metadata)
+    for key in ("duration", "in", "out", "volume", "speed", "fade_in", "fade_out"):
+        track[key] = clip.get(key, track[key])
+    track.update({"start": rows[clip_index]["start"], "source_clip_id": source_clip_id,
+                  "transition_fade_in": rows[clip_index - 1]["overlap"] if clip_index else 0.0,
+                  "transition_fade_out": rows[clip_index]["overlap"]})
+    result = copy.deepcopy(project)
+    result["clips"][clip_index]["id"] = source_clip_id
+    result["clips"][clip_index]["volume"] = 0.0
+    result["audio"].append(track)
+    validate_project(result, check_files=True)
+    return result
 
 
 def split_item(project, kind, index, at):
@@ -243,10 +297,14 @@ def split_item(project, kind, index, at):
         outgoing = rows[index]["overlap"]
         if offset < 2 * incoming or length - offset < 2 * outgoing:
             raise ValueError("Split farther from the transition, or shorten the transition first.")
-    else:
-        audible = min(length, max(0, project_duration(project) - start))
-        if offset < item["fade_in"] or (item["fade_out"] and offset > audible - item["fade_out"]):
-            raise ValueError("Split outside the audio fade, or shorten the fade first.")
+    audible = min(length, max(0, project_duration(project) - start))
+    fade_in = max(item.get("fade_in", 0), item.get("transition_fade_in", 0))
+    fade_out = max(item.get("fade_out", 0), item.get("transition_fade_out", 0))
+    if offset < fade_in or (fade_out and offset > audible - fade_out):
+        raise ValueError("Split outside the audio fade, or shorten the fade first.")
+    if kind == "clips":
+        if offset < item.get("video_fade_in", 0) or (item.get("video_fade_out", 0) and offset > length - item["video_fade_out"]):
+            raise ValueError("Split outside the picture fade, or shorten the fade first.")
     right = copy.deepcopy(item)
     right["id"] = uuid.uuid4().hex
     cut = item["in"] + offset * item.get("speed", 1)
@@ -256,8 +314,13 @@ def split_item(project, kind, index, at):
         item["transition"] = "none"  # Keep the original outgoing effect on the right.
     else:
         right["start"] = at
-        item["fade_out"] = 0.0
-        right["fade_in"] = 0.0
+    # Fades belong to the original item's outer edges, not the new middle cut.
+    for key in ("fade_out", "transition_fade_out", "video_fade_out"):
+        if key in item:
+            item[key] = 0.0
+    for key in ("fade_in", "transition_fade_in", "video_fade_in"):
+        if key in right:
+            right[key] = 0.0
     result[kind].insert(index + 1, right)
     validate_project(result, check_files=False)
     return result
@@ -279,8 +342,8 @@ def trim_item(project, kind, index, edge, delta):
         item["in"] = begin
     else:
         item["out"] = min(item["duration"], max(item["in"] + minimum, item["out"] + delta * speed))
-    if kind == "audio":
-        for key in ("fade_in", "fade_out"):
+    for key in AUDIO_FADES + ("video_fade_in", "video_fade_out"):
+        if key in item:
             item[key] = min(item[key], clip_duration(item))
     validate_project(result, check_files=False)
     return result

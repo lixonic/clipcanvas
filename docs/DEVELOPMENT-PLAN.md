@@ -2,8 +2,9 @@
 
 Updated 10 October 2026. The user selected all C01–C60 and X01–X10, then deferred
 C44–C49 and AI/API/MCP integration. Work proceeds in usable, tested increments.
-Selected features are not necessarily implemented. Ubuntu 0.2.0 is the first
-foundation increment; Windows remains an intended, unvalidated platform.
+Selected features are not necessarily implemented. Ubuntu 0.2.0 established the
+first foundation increment; 0.3.0 adds native UI and audio workflows. Windows
+remains an intended, unvalidated platform.
 
 ## Product direction
 
@@ -32,6 +33,33 @@ clean save/close clears the current recovery copy.
 The FFmpeg progress reader now works without Unix pipe selectors. This removes
 one Windows blocker; it does not establish Windows runtime or installer support.
 
+## Native editor and audio increment: 0.3.0
+
+The user's review made workspace clarity the immediate priority. The permanent
+right inspector is replaced with compact contextual Timing, Picture, Sound,
+and Transition popovers. Native GTK chrome, symbolic icons, system fonts, and
+file choosers follow Ubuntu's light/dark theme. The media sidebar can be
+searched, filtered, or collapsed; a divider adjusts canvas/timeline height.
+
+Every adjacent clip join has a clickable add/change transition control. Its
+popover shows the effective overlap after neighboring-clip limits. The final
+plus action imports video. Right-click menus expose the editing actions where
+users need them. C15/C16 are still a limited transition subset, rather than full
+Canva effects parity.
+
+C34 extraction creates an independent soundtrack without rewriting originals.
+It retains the clip's trim, timeline start, speed, volume, audio fades, and
+existing transition audio envelopes, then mutes the clip. Extraction from clips without an audio stream or already extracted clips
+is unavailable. Later clip edits do not move or retime that independent
+track; linked editing remains separate work.
+
+C33 now covers attached clip audio as well as soundtracks. Soundtrack waveform
+tapers and drag handles expose fade durations directly. Picture fades from/to
+black are separate controls, not sound fades or join dissolves. WAV remains a
+local input format. See the [UI study and acceptance criteria](UI-STUDY.md) for
+the evidence behind these changes. Release validation records completed checks
+separately from the study's design targets.
+
 ## Remaining staged work
 
 | Increment | Feature groups | Acceptance checks |
@@ -49,7 +77,7 @@ one Windows blocker; it does not establish Windows runtime or installer support.
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external model/provider integration is included in the 0.2.0 package.
+no external model/provider integration is included in the 0.3.0 package.
 
 Next implementation target: **C21 timed text and C05/C18 visual layers**, followed
 by captions and the remaining soundtrack controls. Detailed designs will keep

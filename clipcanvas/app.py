@@ -15,54 +15,18 @@ from urllib.parse import unquote, urlparse
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 import cairo
 
 from . import model, engine, storage
 from . import __version__
 from .player import VideoCanvas
 
-CSS = b'''
-* { font-family: "Ubuntu", "DejaVu Sans", sans-serif; font-size: 13px; }
-window { background: #f5f5fa; color: #252333; }
-list, row, viewport, scrolledwindow { background: #ffffff; color: #252333; }
-row:hover { background: #f4eefb; }
-button { background: #ffffff; border: 1px solid #e1dfea; border-radius: 9px; box-shadow: none; padding: 8px 13px; color: #353044; }
-button:hover { background: #f0eafb; border-color: #bfa5eb; }
-button:disabled { color: #a4a0b0; }
-button.primary { background: #7a39d8; border-color: #7a39d8; color: white; font-weight: bold; }
-button.primary:hover { background: #682bc3; }
-button.quiet { background: transparent; border-color: transparent; }
-.topbar { background: linear-gradient(110deg, #03a9b7, #6f39da); padding: 12px 18px; }
-.topbar label { color: white; }
-.topbar button { background: alpha(white, .15); border-color: alpha(white,.3); color: white; }
-.topbar button:hover { background: alpha(white,.25); }
-.topbar button.primary { background: white; color: #6630bd; }
-.topbar button.primary label { color: #6630bd; }
-.topbar button.primary:disabled label { color: #aa96c7; }
-.topbar entry { background: alpha(white,.13); border-color: transparent; color: white; border-radius: 8px; }
-.brand { font-size: 20px; font-weight: bold; }
-.heading { font-size: 22px; font-weight: bold; }
-.hero { font-size: 34px; font-weight: bold; }
-.section { font-weight: bold; font-size: 14px; }
-.muted { color: #777082; }
-.small { font-size: 11px; }
-.panel { background: #ffffff; }
-.card { background: white; border: 1px solid #e5e0ee; border-radius: 16px; padding: 22px; }
-.asset { border-bottom: 1px solid #f0edf4; padding: 8px; }
-.asset:selected { background: #eee4ff; }
-.inspector { padding: 16px; }
-entry, spinbutton, combobox button { border: 1px solid #e1dfea; border-radius: 7px; background: white; color: #252333; }
-entry, spinbutton { padding: 5px; }
-notebook header { background: #faf9fc; border-bottom: 1px solid #e6e1ee; }
-notebook tab { padding: 9px; }
-notebook tab:checked { border-bottom: 2px solid #7a39d8; }
-scale trough { background: #e2dcea; border-radius: 6px; min-height: 4px; }
-scale highlight { background: #9152e6; }
-scale slider { background: white; border: 1px solid #b49bcc; min-width: 13px; min-height: 13px; }
-.status { background: #eeebf4; padding: 7px 16px; }
-progressbar progress { background: #7a39d8; }
-'''
+from . import ui_theme
+
+# Kept as an import for third-party launchers and the native integration checks.
+CSS = ui_theme.CSS
 
 FORMATS = [
     ('YouTube video', 'Landscape · 16:9', 1920, 1080),
@@ -71,8 +35,12 @@ FORMATS = [
     ('YouTube 4K', 'Landscape · 16:9', 3840, 2160),
     ('Vertical 4K', 'Portrait · 9:16', 2160, 3840),
 ]
-TRANSITIONS = [('none', 'Cut · no transition'), ('fade', 'Cross dissolve'),
+TRANSITIONS = [('none', 'Cut · no transition'), ('fade', 'Fade · cross dissolve'),
                ('wipeleft', 'Wipe left'), ('slideright', 'Slide right'), ('dissolve', 'Dissolve pixels')]
+
+def file_chooser(parent,title,action,accept):
+    """Use the desktop file chooser and its native ACCEPT response."""
+    return Gtk.FileChooserNative.new(title,parent,action,accept,'Cancel')
 
 def media_filters(kind):
     """Keep WAV files visible even when their MIME type is not recognized."""
@@ -142,10 +110,11 @@ def rounded(cr, x, y, w, h, radius=8):
 
 def draw_text(cr, text, x, y, color='#51485f', size=12, bold=False):
     rgb(cr, color)
-    cr.select_font_face('Ubuntu', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD if bold else cairo.FONT_WEIGHT_NORMAL)
-    cr.set_font_size(size)
-    cr.move_to(x, y)
-    cr.show_text(text)
+    font=Pango.FontDescription(Gtk.Settings.get_default().get_property('gtk-font-name'))
+    font.set_absolute_size(size*Pango.SCALE)
+    if bold:font.set_weight(Pango.Weight.BOLD)
+    layout=PangoCairo.create_layout(cr);layout.set_font_description(font);layout.set_text(text,-1)
+    cr.move_to(x,y-size);PangoCairo.show_layout(cr,layout)
 
 class FormatArt(Gtk.DrawingArea):
     def __init__(self, width, height):
@@ -172,13 +141,14 @@ class FormatArt(Gtk.DrawingArea):
 class Timeline(Gtk.DrawingArea):
     def __init__(self, owner):
         super().__init__()
-        self.owner=owner; self.scale=28.; self.hit=[]; self.drag=None
+        self.owner=owner; self.scale=28.; self.hit=[]; self.join_hits=[];self.fade_hits=[];self.add_hit=None;self.drag=None
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
         self.connect('draw',self.draw)
         self.connect('button-press-event',self.press)
         self.connect('button-release-event',self.release)
         self.connect('motion-notify-event',self.motion)
-        self.set_tooltip_text('Drag item edges to trim. Drag clip bodies to reorder or soundtracks to move. Drag the ruler to scrub; Split cuts the selected item at the playhead. Zoom in for short items.')
+        self.set_has_tooltip(True);self.connect('query-tooltip',self.query_tooltip)
+        self.connect('style-updated',lambda _:self.queue_draw())
 
     def refresh(self):
         duration=max([model.project_duration(self.owner.project)]+[a['start']+model.clip_duration(a) for a in self.owner.project['audio']])
@@ -186,18 +156,19 @@ class Timeline(Gtk.DrawingArea):
         self.queue_draw()
 
     def draw(self, widget, cr):
-        a=self.get_allocation(); p=self.owner.project; self.hit=[]
-        rgb(cr,'#faf9fd'); cr.paint()
+        a=self.get_allocation(); p=self.owner.project; self.hit=[];self.join_hits=[];self.fade_hits=[];self.add_hit=None
+        colors=ui_theme.palette(self)
+        rgb(cr,colors['background']); cr.paint()
         duration=model.project_duration(p)
         step=1 if self.scale>65 else 5 if self.scale>15 else 10
         for sec in range(0, int(max(duration,(a.width-100)/self.scale))+step,step):
             x=100+sec*self.scale
-            rgb(cr,'#e5e0ec'); cr.set_line_width(1); cr.move_to(x,30);cr.line_to(x,a.height);cr.stroke()
-            draw_text(cr,f'{sec}s',x+3,21,size=10)
-        draw_text(cr,'CLIPS',12,68,size=10,bold=True)
+            rgb(cr,colors['border']); cr.set_line_width(1); cr.move_to(x,30);cr.line_to(x,a.height);cr.stroke()
+            draw_text(cr,f'{sec}s',x+3,21,colors['muted'],size=10)
+        draw_text(cr,'VIDEO',12,68,colors['muted'],size=10,bold=True)
         if not p['clips']:
-            rounded(cr,105,42,max(300,a.width-130),75); rgb(cr,'#eee9f6');cr.fill()
-            draw_text(cr,'Import clips to start your story',128,85,'#857494',14)
+            rounded(cr,105,42,max(300,a.width-130),75); rgb(cr,colors['surface']);cr.fill()
+            draw_text(cr,'Import clips to start your story',128,85,colors['muted'],14)
         timings=model.timeline(p)
         for i,(clip,timing) in enumerate(zip(p['clips'],timings)):
             x=100+timing['start']*self.scale; y=40; w=max(12,timing['duration']*self.scale-3);h=79
@@ -213,50 +184,109 @@ class Timeline(Gtk.DrawingArea):
             draw_text(cr,f'{i+1}  {Path(clip["path"]).name}',x+8,y+71,'#ffffff',11,True)
             cr.restore()
             selected=self.owner.selected==('clips',i)
-            rounded(cr,x,y,w,h);rgb(cr,'#8139dd' if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
+            rounded(cr,x,y,w,h);rgb(cr,colors['accent'] if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
             self.hit.append(('clips',i,x,y,w,h))
             if selected and w >= 24:
                 for edge in (x+3,x+w-5):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+25,2,27);cr.fill()
-            if i<len(p['clips'])-1 and clip['transition']!='none':
-                tx=100+(timing['start']+timing['duration'])*self.scale-12
-                rounded(cr,tx,65,23,25,5);rgb(cr,'#8139dd');cr.fill();draw_text(cr,'↔',tx+4,82,'#ffffff',13)
         for i,audio in enumerate(p['audio']):
             y=139+i*54;x=100+audio['start']*self.scale
             visible=model.clip_duration(audio)
             w=max(12,visible*self.scale)
-            draw_text(cr,f'AUDIO {i+1}',12,y+26,size=10,bold=True)
+            draw_text(cr,f'AUDIO {i+1}',12,y+26,colors['muted'],size=10,bold=True)
             cr.save();rounded(cr,x,y,w,42,7);cr.clip();rgb(cr,'#8150c6');cr.paint()
             values=self.owner.waves.get(audio['path'],[])
             if values:
                 for xx in range(0,int(w),3):
-                    fraction=(audio['in']+(xx/max(w,1))*visible)/max(.01,audio['duration'])
+                    fraction=(audio['in']+(xx/max(w,1))*visible*audio.get('speed',1))/max(.01,audio['duration'])
                     amp=values[min(len(values)-1,max(0,int(fraction*len(values))))]
                     hh=max(2,amp*28);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+21-hh/2,2,hh);cr.fill()
             rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,Path(audio['path']).name,x+7,y+13,'#ffffff',10)
+            audible=max(0,min(visible,duration-audio['start']))
+            fade_end=x+audible*self.scale
+            for key,edge in [('fade_in','in'),('fade_out','out')]:
+                value=audio.get(key,0)
+                if self.drag and self.drag['mode']=='fade' and self.drag['index']==i and self.drag['edge']==edge:
+                    value=self.drag.get('preview',self.drag['value'])
+                fade=min(value,audible)*self.scale
+                if fade>0:
+                    cr.move_to(x,y+42) if edge=='in' else cr.move_to(fade_end-fade,y)
+                    cr.line_to(x+fade,y) if edge=='in' else cr.line_to(fade_end,y+42)
+                    cr.line_to(x,y) if edge=='in' else cr.line_to(fade_end,y)
+                    cr.close_path();rgb(cr,'#ffffff',.22);cr.fill()
+                if self.owner.selected==('audio',i) and audible>0:
+                    hx=x+fade if edge=='in' else fade_end-fade
+                    cr.arc(hx,y+4,4,0,math.tau);rgb(cr,'#ffffff');cr.fill()
+                    self.fade_hits.append((i,edge,hx,y+4,7))
             cutoff=max(x,100+duration*self.scale)
             if cutoff<x+w:
-                rgb(cr,'#faf9fd',.7);cr.rectangle(cutoff,y,x+w-cutoff,42);cr.fill()
+                rgb(cr,colors['background'],.7);cr.rectangle(cutoff,y,x+w-cutoff,42);cr.fill()
             cr.restore()
             if self.owner.selected==('audio',i):
-                rounded(cr,x,y,w,42,7);rgb(cr,'#3b156e');cr.set_line_width(3);cr.stroke()
+                rounded(cr,x,y,w,42,7);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
             self.hit.append(('audio',i,x,y,w,42))
             if self.owner.selected==('audio',i) and w >= 24:
                 for edge in (x+3,x+w-5):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+10,2,22);cr.fill()
+        # Paint joins after every thumbnail so their hit targets remain visible
+        # even when transition overlaps make the clip rectangles overlap.
+        for i,row in enumerate(timings[:-1]):
+            cx=100+(row['start']+row['duration']-row['overlap']/2)*self.scale;cy=80
+            cr.arc(cx,cy,14,0,math.tau);rgb(cr,colors['surface']);cr.fill_preserve()
+            rgb(cr,colors['accent'] if p['clips'][i]['transition']!='none' else colors['border']);cr.set_line_width(1.5);cr.stroke()
+            rgb(cr,colors['text']);cr.set_line_width(1.4)
+            for sign in (-1,1):
+                cr.move_to(cx,cy);cr.line_to(cx+sign*6,cy-4);cr.line_to(cx+sign*6,cy+4);cr.close_path();cr.stroke()
+            self.join_hits.append((i,cx,cy,15))
         if p['clips']:
             end=100+duration*self.scale
-            rgb(cr,'#9b8cae');cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
-            draw_text(cr,'Video ends',end+6,36,'#857494',10)
+            rgb(cr,colors['border']);cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
+            draw_text(cr,'Video ends',end+6,36,colors['muted'],10)
+            x=end+12;y=55;size=44
+            rounded(cr,x,y,size,size,9);rgb(cr,colors['surface']);cr.fill_preserve();rgb(cr,colors['border']);cr.set_line_width(1);cr.stroke()
+            rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(x+12,y+22);cr.line_to(x+32,y+22);cr.move_to(x+22,y+12);cr.line_to(x+22,y+32);cr.stroke()
+            self.add_hit=(x,y,size,size)
         px=100+self.owner.playhead*self.scale
-        rgb(cr,'#2b2035');cr.set_line_width(2);cr.move_to(px,27);cr.line_to(px,a.height);cr.stroke()
+        rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(px,27);cr.line_to(px,a.height);cr.stroke()
         cr.move_to(px-5,27);cr.line_to(px+5,27);cr.line_to(px,34);cr.close_path();cr.fill()
-        if self.drag and self.drag.get('edge'):
+        if self.drag and self.drag.get('mode')=='edit' and self.drag.get('edge'):
             gx=self.drag['boundary']+self.drag.get('delta',0)*self.scale
-            rgb(cr,'#08a5ae');cr.set_line_width(2);cr.move_to(gx,28);cr.line_to(gx,a.height);cr.stroke()
+            rgb(cr,colors['accent']);cr.set_line_width(2);cr.move_to(gx,28);cr.line_to(gx,a.height);cr.stroke()
+
+    def query_tooltip(self,widget,x,y,keyboard,tooltip):
+        if self.add_hit:
+            ax,ay,width,height=self.add_hit
+            if ax<=x<=ax+width and ay<=y<=ay+height:tooltip.set_text('Add videos');return True
+        for index,cx,cy,r in self.join_hits:
+            if abs(x-cx)<=r and abs(y-cy)<=r:
+                effect=self.owner.project['clips'][index]['transition']
+                tooltip.set_text('Add transition' if effect=='none' else 'Change transition');return True
+        for index,edge,cx,cy,r in self.fade_hits:
+            if abs(x-cx)<=r and abs(y-cy)<=r:
+                tooltip.set_text('Drag to adjust audio fade '+edge);return True
+        return False
 
     def press(self, w, event):
-        if event.button!=1 or self.owner.busy:return
+        if self.owner.busy:return
+        if event.button==3:
+            for kind,index,x,y,width,height in reversed(self.hit):
+                if x<=event.x<=x+width and y<=event.y<=y+height:
+                    self.owner.context_menu(kind,index,event);return True
+            return
+        if event.button!=1:return
+        if self.add_hit:
+            x,y,width,height=self.add_hit
+            if x<=event.x<=x+width and y<=event.y<=y+height:self.owner.import_dialog('clips');return True
+        for index,cx,cy,r in self.join_hits:
+            if abs(event.x-cx)<=r and abs(event.y-cy)<=r:
+                rect=Gdk.Rectangle();rect.x=int(cx-r);rect.y=int(cy-r);rect.width=rect.height=2*r
+                self.owner.show_transition(index,rect);return True
+        for index,edge,cx,cy,r in self.fade_hits:
+            if abs(event.x-cx)<=r and abs(event.y-cy)<=r:
+                self.owner.select('audio',index,seek=False)
+                self.drag={'mode':'fade','index':index,'edge':edge,'x':event.x,
+                           'value':self.owner.project['audio'][index].get('fade_'+edge,0)}
+                return True
         if event.y<34:
             self.drag={'mode':'seek'}
             self.owner.seek(max(0,(event.x-100)/self.scale));return True
@@ -280,9 +310,18 @@ class Timeline(Gtk.DrawingArea):
         if self.drag:
             if self.drag['mode']=='seek':
                 self.owner.seek(max(0,(event.x-100)/self.scale));return True
+            if self.drag['mode']=='fade':
+                value=self.fade_value(event.x);self.drag['preview']=value;self.queue_draw()
+                self.owner.set_status(f'Audio fade {self.drag["edge"]}: {value:.2f} s');return True
             self.drag['delta']=self.drag_delta(event.x)
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'grabbing'))
             self.queue_draw()
+
+    def fade_value(self,x):
+        d=self.drag;item=self.owner.project['audio'][d['index']]
+        sign=1 if d['edge']=='in' else -1
+        audible=max(0,min(model.clip_duration(item),model.project_duration(self.owner.project)-item['start']))
+        return max(0,min(audible,d['value']+sign*(x-d['x'])/self.scale))
 
     def drag_delta(self,x):
         d=self.drag
@@ -308,6 +347,10 @@ class Timeline(Gtk.DrawingArea):
         if not self.drag:return
         d=self.drag
         if d['mode']=='seek':self.drag=None;return True
+        if d['mode']=='fade':
+            value=self.fade_value(event.x);self.drag=None
+            self.owner.checkpoint();self.owner.project['audio'][d['index']]['fade_'+d['edge']]=round(value,2)
+            self.owner.changed();return True
         delta=self.drag_delta(event.x);self.drag=None;self.queue_draw()
         if abs(event.x-d['x'])<3:return
         kind,i=d['kind'],d['index']
@@ -332,8 +375,10 @@ class ClipCanvasWindow(Gtk.Window):
         super().__init__(title='ClipCanvas')
         self.set_wmclass('clipcanvas','ClipCanvas')
         self.set_default_size(1380,900);self.set_position(Gtk.WindowPosition.CENTER)
+        self.get_style_context().add_class('clipcanvas')
         self.project=model.new_project();self.project_path=None;self.saved=json.dumps(self.project,sort_keys=True)
         self.selected=None;self.history=[];self.future=[];self.thumbs={};self.waves={};self.playhead=0.;self.preview_key=None
+        self.media_metadata={};self.mute_volumes={}
         self.temp=Path(tempfile.mkdtemp(prefix='clipcanvas-'));self.pool=ThreadPoolExecutor(max_workers=2)
         self.closed=False;self.busy=False;self.cancel_event=None;self.name_lock=False
         self.recovery=storage.Recovery(recovery_dir);self.autosave_timer=0;self.scrub_timer=0;self.scrub_serial=0;self.scrub_active=False
@@ -344,33 +389,41 @@ class ClipCanvasWindow(Gtk.Window):
         self.stack=Gtk.Stack();self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.root.pack_start(self.stack,True,True,0)
         self.make_welcome();self.make_editor()
-        self.status=label('Local files. Your original videos stay untouched.','muted');self.status.get_style_context().add_class('status')
+        self.status=label('Local files. Your originals stay untouched.','dim-label');self.status.get_style_context().add_class('status')
+        self.status.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.root.pack_start(self.status,False,False,0)
         self.stack.set_visible_child_name('welcome')
         self.drag_dest_set(Gtk.DestDefaults.ALL,[Gtk.TargetEntry.new('text/uri-list',0,0)],Gdk.DragAction.COPY)
         self.connect('drag-data-received',self.drop_files)
-        self.show_all();self.update_title()
+        self.show_all();self.properties_popover.hide();self.update_title()
         self.autosave_timer=GLib.timeout_add_seconds(30,self.autosave)
         if self.recovery.available():self.set_status('An unsaved project is available in Project → Recover unsaved project.')
 
     def make_header(self):
-        self.header=box(Gtk.Orientation.HORIZONTAL,9);self.header.get_style_context().add_class('topbar')
-        self.header.pack_start(label('◈  ClipCanvas','brand'),False,False,8)
-        self.header.pack_start(button('New',self.new),False,False,0)
-        self.header.pack_start(button('Open',self.open_project),False,False,0)
-        self.header.pack_start(button('Save',self.save),False,False,0)
-        self.name=Gtk.Entry();self.name.set_text(self.project['name']);self.name.set_max_length(100);self.name.set_width_chars(20)
-        self.name.connect('changed',self.name_changed);self.header.pack_start(self.name,True,True,28)
+        self.header=Gtk.HeaderBar();self.header.set_show_close_button(True)
+        self.header.set_title('ClipCanvas');self.set_titlebar(self.header)
+        files=box(Gtk.Orientation.HORIZONTAL,0);files.get_style_context().add_class('linked')
+        for icon,title,callback in [('document-new-symbolic','New project',self.new),
+                                    ('document-open-symbolic','Open project',self.open_project),
+                                    ('document-save-symbolic','Save project',self.save)]:
+            files.pack_start(ui_theme.icon_button(icon,callback,title),False,False,0)
+        self.header.pack_start(files)
+        self.name=Gtk.Entry();self.name.set_text(self.project['name']);self.name.set_max_length(100)
+        self.name.set_width_chars(24);self.name.set_tooltip_text('Project name')
+        self.name.get_style_context().add_class('project-name')
+        self.name.connect('changed',self.name_changed);self.header.set_custom_title(self.name)
         menu=Gtk.Menu()
-        for title,callback in [('Save portable copy…',self.collect_media),('Relink missing media…',self.relink_media),
+        for title,callback in [('New project',self.new),('Open project…',self.open_project),('Save project',self.save),
+                               ('Save portable copy…',self.collect_media),('Relink missing media…',self.relink_media),
                                ('Recover unsaved project…',self.recover_project),('Help',self.help)]:
             entry=Gtk.MenuItem(label=title);entry.connect('activate',lambda _,fn=callback:fn());menu.append(entry)
-        menu.show_all();project_menu=Gtk.MenuButton(label='Project ▾');project_menu.set_popup(menu)
-        self.header.pack_start(project_menu,False,False,0)
-        self.preview_button=button('▶  Preview',self.preview)
-        self.header.pack_start(self.preview_button,False,False,0)
-        self.export_button=button('Export video',self.export,'primary');self.header.pack_start(self.export_button,False,False,0)
-        self.root.pack_start(self.header,False,False,0)
+        menu.show_all();project_menu=Gtk.MenuButton();project_menu.set_image(ui_theme.icon('open-menu-symbolic'))
+        project_menu.set_tooltip_text('Project menu');project_menu.set_popup(menu)
+        self.header.pack_end(project_menu)
+        self.export_button=ui_theme.icon_button('document-send-symbolic',self.export,'Export finished video',label='Export',style='suggested-action')
+        self.header.pack_end(self.export_button)
+        self.preview_button=ui_theme.icon_button('media-playback-start-symbolic',self.preview,'Prepare the full mix for playback',label='Preview')
+        self.header.pack_end(self.preview_button)
 
     def make_welcome(self):
         outer=box(margin=40);outer.set_valign(Gtk.Align.CENTER)
@@ -391,70 +444,106 @@ class ClipCanvasWindow(Gtk.Window):
 
     def make_editor(self):
         self.editor=box(spacing=0)
-        body=Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        library=box(spacing=0);library.set_size_request(235,-1);library.get_style_context().add_class('panel')
-        library_top=box(margin=14)
+        self.workspace=Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.editor.pack_start(self.workspace,True,True,0)
+        self.body=Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        library=box(spacing=0);self.library=library;library.set_size_request(260,-1);library.get_style_context().add_class('library')
+        library_top=box(margin=16,spacing=10)
         library_top.pack_start(label('Your media','section'),False,False,0)
-        library_top.pack_start(button('+  Import clips',lambda:self.import_dialog('clips'),'primary'),False,False,0)
-        library_top.pack_start(button('♫  Add soundtracks',lambda:self.import_dialog('audio')),False,False,0)
-        library_top.pack_start(label('WAV · MP3 · FLAC · AAC · OGG','small'),False,False,0)
-        hint=label('Files are added directly from your computer.','muted');hint.set_line_wrap(True);hint.set_max_width_chars(26)
-        library_top.pack_start(hint,False,False,4);library.pack_start(library_top,False,False,0)
+        library_top.pack_start(ui_theme.icon_button('document-open-symbolic',lambda:self.import_dialog('clips'),'Add local videos',label='Add videos',style='suggested-action'),False,False,0)
+        library_top.pack_start(ui_theme.icon_button('audio-x-generic-symbolic',lambda:self.import_dialog('audio'),'Add WAV, MP3, FLAC and other soundtracks',label='Add audio'),False,False,0)
+        hint=label('Local files · no uploads','dim-label');library_top.pack_start(hint,False,False,0)
+        library.pack_start(library_top,False,False,0)
+        self.media_search=Gtk.SearchEntry();self.media_search.set_placeholder_text('Search your media')
+        self.media_search.set_margin_start(16);self.media_search.set_margin_end(16)
+        self.media_search.connect('search-changed',lambda _:self.refresh_assets())
+        library.pack_start(self.media_search,False,False,8)
+        self.media_tabs=Gtk.ComboBoxText()
+        for key,title in [('all','All media'),('clips','Videos'),('audio','Audio')]:self.media_tabs.append(key,title)
+        self.media_tabs.set_active_id('all');self.media_tabs.set_margin_start(16);self.media_tabs.set_margin_end(16)
+        self.media_tabs.connect('changed',lambda _:self.refresh_assets())
+        library.pack_start(self.media_tabs,False,False,4)
         self.assets=Gtk.ListBox();self.assets.set_selection_mode(Gtk.SelectionMode.NONE)
         library.pack_start(scrolled(self.assets),True,True,0)
-        body.pack1(library,False,False)
-        central=Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.body.pack1(library,False,False)
         center=box(spacing=0)
-        canvas_toolbar=box(Gtk.Orientation.HORIZONTAL,8,12)
+        self.canvas_toolbar=box(Gtk.Orientation.HORIZONTAL,10,12)
+        self.canvas_toolbar.get_style_context().add_class('editor-toolbar')
+        self.canvas_toolbar.pack_start(ui_theme.icon_button('folder-symbolic',self.toggle_library,'Show or hide your media'),False,False,0)
+        self.canvas_toolbar.pack_start(label('Canvas','dim-label'),False,False,0)
         self.format_combo=Gtk.ComboBoxText()
-        for title,desc,w,h in FORMATS:self.format_combo.append(f'{w}x{h}',f'{title}  ·  {w} × {h}')
+        for title,desc,w,h in FORMATS:
+            ratio='16:9' if w>h else '9:16' if h>w else '1:1'
+            self.format_combo.append(f'{w}x{h}',f'{ratio} · {title} · {w} × {h}')
         self.format_combo.set_active(0);self.format_combo.connect('changed',self.format_changed)
-        canvas_toolbar.pack_start(self.format_combo,False,False,0)
+        self.canvas_toolbar.pack_start(self.format_combo,False,False,0)
         self.fps_combo=Gtk.ComboBoxText()
         for fps in ('24','25','30','50','60'):self.fps_combo.append(fps,f'{fps} fps')
         self.fps_combo.set_active_id('30');self.fps_combo.connect('changed',self.fps_changed)
-        canvas_toolbar.pack_end(self.fps_combo,False,False,0)
-        center.pack_start(canvas_toolbar,False,False,0)
-        self.canvas=VideoCanvas();self.canvas.set_size_request(300,270)
+        self.canvas_toolbar.pack_end(self.fps_combo,False,False,0)
+        self.canvas_toolbar.pack_end(label('Frame rate','dim-label'),False,False,0)
+        center.pack_start(self.canvas_toolbar,False,False,0)
+        self.context_toolbar=box(Gtk.Orientation.HORIZONTAL,8,10)
+        self.context_title=label('Select a clip to edit','dim-label');self.context_title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.context_title.set_max_width_chars(28);self.context_toolbar.pack_start(self.context_title,True,True,0)
+        self.edit_button=ui_theme.icon_button('document-properties-symbolic',lambda:self.open_properties('Timing'),'Trim and playback speed',label='Edit')
+        self.picture_button=ui_theme.icon_button('image-x-generic-symbolic',lambda:self.open_properties('Picture'),'Crop, rotate, flip and picture fades',label='Picture')
+        self.sound_button=ui_theme.icon_button('audio-volume-high-symbolic',lambda:self.open_properties('Sound'),'Volume and audio fade in/out',label='Audio')
+        for item in (self.edit_button,self.picture_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
+        center.pack_start(self.context_toolbar,False,False,0)
+        self.canvas=VideoCanvas();self.canvas.set_size_request(320,200)
         self.canvas.on_position=self.on_position;self.canvas.on_error=self.playback_error
-        self.canvas.on_end=lambda:self.play_button.set_label('▶')
+        self.canvas.on_end=lambda:self.update_play_button(False)
         center.pack_start(self.canvas,True,True,0)
-        playback=box(Gtk.Orientation.HORIZONTAL,12,10);playback.set_halign(Gtk.Align.CENTER)
-        self.play_button=button('▶',self.toggle_play);playback.pack_start(self.play_button,False,False,0)
+        playback=box(Gtk.Orientation.HORIZONTAL,12,12);playback.set_halign(Gtk.Align.CENTER)
+        self.play_button=ui_theme.icon_button('media-playback-start-symbolic',self.toggle_play,'Play / pause · Space',style='circular')
+        playback.pack_start(self.play_button,False,False,0)
         self.clock_label=label('0:00.0 / 0:00.0');playback.pack_start(self.clock_label,False,False,0)
-        self.preview_label=label('Preview is prepared locally','muted');playback.pack_start(self.preview_label,False,False,10)
+        self.preview_label=label('Press Preview to prepare the full mix','dim-label')
+        self.preview_label.set_ellipsize(Pango.EllipsizeMode.END);self.preview_label.set_max_width_chars(28)
+        playback.pack_start(self.preview_label,False,False,8)
         center.pack_start(playback,False,False,0)
-        central.pack1(center,True,False)
-        inspector_panel=box(spacing=0);inspector_panel.get_style_context().add_class('panel')
-        self.inspector=box();self.inspector.set_size_request(260,-1)
-        self.inspector.get_style_context().add_class('panel');self.inspector.get_style_context().add_class('inspector')
-        inspector_panel.pack_start(scrolled(self.inspector),True,True,0)
-        self.apply_button=button('Apply changes',self.apply_fields,'primary')
-        for side in ('start','end','top','bottom'):getattr(self.apply_button,'set_margin_'+side)(12)
-        inspector_panel.pack_start(self.apply_button,False,False,0)
-        central.pack2(inspector_panel,False,False);central.set_position(780)
-        body.pack2(central,True,False);body.set_position(245)
-        self.editor.pack_start(body,True,True,0)
-        tlbar=box(Gtk.Orientation.HORIZONTAL,8,10)
-        tlbar.pack_start(label('Your story','section'),False,False,7)
-        self.undo_button=button('↶',self.undo,tooltip='Undo · Ctrl+Z');self.redo_button=button('↷',self.redo,tooltip='Redo · Ctrl+Shift+Z')
-        tlbar.pack_start(self.undo_button,False,False,0);tlbar.pack_start(self.redo_button,False,False,0)
-        tlbar.pack_start(button('Move left',lambda:self.move(-1)),False,False,0)
-        tlbar.pack_start(button('Move right',lambda:self.move(1)),False,False,0)
-        tlbar.pack_start(button('Duplicate',self.duplicate),False,False,0)
-        tlbar.pack_start(button('Split',self.split_selected,tooltip='Split selected item at the playhead · S'),False,False,0)
-        tlbar.pack_start(button('Remove',self.remove),False,False,0)
-        self.snap_check=Gtk.CheckButton(label='Snap');self.snap_check.set_active(True)
-        tlbar.pack_start(self.snap_check,False,False,0)
-        zoom=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,6,100,1);zoom.set_value(28);zoom.set_draw_value(False);zoom.set_size_request(120,-1)
-        zoom.connect('value-changed',lambda s:self.zoom(s.get_value()))
-        tlbar.pack_end(zoom,False,False,0);tlbar.pack_end(label('Zoom','muted'),False,False,0)
-        self.editor.pack_start(tlbar,False,False,0)
+        self.body.pack2(center,True,False);self.body.set_position(280)
+        self.workspace.pack1(self.body,True,False)
+        timeline_area=box(spacing=0)
+        # Properties appear on demand. No permanent panel consumes preview space.
+        self.properties_popover=Gtk.Popover.new(self.edit_button)
+        self.properties_popover.set_position(Gtk.PositionType.BOTTOM)
+        properties=box(spacing=8,margin=12)
+        self.inspector=box(spacing=8);self.inspector.set_size_request(350,-1)
+        properties.pack_start(self.inspector,True,True,0)
+        self.apply_button=button('Apply changes',self.apply_fields,'suggested-action')
+        properties.pack_start(self.apply_button,False,False,0);self.properties_popover.add(properties)
+        tlbar=box(Gtk.Orientation.HORIZONTAL,6,10);tlbar.get_style_context().add_class('timeline-toolbar')
+        tlbar.pack_start(label('Timeline','section'),False,False,4)
+        self.undo_button=ui_theme.icon_button('edit-undo-symbolic',self.undo,'Undo · Ctrl+Z')
+        self.redo_button=ui_theme.icon_button('edit-redo-symbolic',self.redo,'Redo · Ctrl+Shift+Z')
+        for item in (self.undo_button,self.redo_button):tlbar.pack_start(item,False,False,0)
+        self.split_button=ui_theme.icon_button('edit-cut-symbolic',self.split_selected,'Split selected item at playhead · S',label='Split')
+        tlbar.pack_start(self.split_button,False,False,0)
+        self.duplicate_button=ui_theme.icon_button('edit-copy-symbolic',self.duplicate,'Duplicate selected item')
+        self.remove_button=ui_theme.icon_button('edit-delete-symbolic',self.remove,'Remove selected item')
+        for item in (self.duplicate_button,self.remove_button):tlbar.pack_start(item,False,False,0)
+        self.snap_check=Gtk.CheckButton(label='Snap');self.snap_check.set_active(True);tlbar.pack_start(self.snap_check,False,False,8)
+        self.timeline_hint=label('Right-click clips for more actions','dim-label');tlbar.pack_start(self.timeline_hint,True,True,8)
+        self.zoom_control=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,6,140,1)
+        self.zoom_control.set_value(28);self.zoom_control.set_draw_value(False);self.zoom_control.set_size_request(120,-1)
+        self.zoom_control.connect('value-changed',lambda s:self.zoom(s.get_value()))
+        tlbar.pack_end(self.zoom_control,False,False,0);tlbar.pack_end(label('Zoom','dim-label'),False,False,0)
+        timeline_area.pack_start(tlbar,False,False,0)
         self.timeline=Timeline(self);self.timeline.refresh()
-        timeline_scroll=Gtk.ScrolledWindow();timeline_scroll.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC)
-        timeline_scroll.set_size_request(-1,245);timeline_scroll.add(self.timeline)
-        self.editor.pack_start(timeline_scroll,False,True,0)
+        self.timeline_scroll=Gtk.ScrolledWindow();self.timeline_scroll.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC)
+        self.timeline_scroll.set_size_request(-1,180);self.timeline_scroll.add(self.timeline)
+        timeline_area.pack_start(self.timeline_scroll,True,True,0)
+        self.workspace.pack2(timeline_area,False,False);self.workspace.set_position(600)
         self.stack.add_named(self.editor,'editor');self.show_inspector()
+
+    def update_play_button(self,playing):
+        self.play_button.set_image(ui_theme.icon('media-playback-pause-symbolic' if playing else 'media-playback-start-symbolic'))
+
+    def toggle_library(self):
+        if self.library.get_visible():self.library.hide()
+        else:self.library.show();self.body.set_position(280)
 
     def start_project(self,width,height):
         self.recovery.clear()
@@ -497,7 +586,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def changed(self):
         self.cancel_scrub()
-        self.canvas.stop();self.preview_key=None;self.playhead=0;self.play_button.set_label('▶')
+        self.canvas.stop();self.preview_key=None;self.playhead=0;self.update_play_button(False)
         self.preview_label.set_text('Preview needs updating');self.refresh();self.show_selected_still()
 
     def refresh(self):
@@ -523,23 +612,27 @@ class ClipCanvasWindow(Gtk.Window):
 
     def refresh_assets(self):
         for child in self.assets.get_children():self.assets.remove(child)
+        query=self.media_search.get_text().casefold();category=self.media_tabs.get_active_id()
         for kind in ('clips','audio'):
+            if category not in ('all',kind):continue
             for i,item in enumerate(self.project[kind]):
+                if query and query not in Path(item['path']).name.casefold():continue
                 row=Gtk.ListBoxRow();row.get_style_context().add_class('asset')
                 b=Gtk.Button();b.get_style_context().add_class('quiet');content=box(Gtk.Orientation.HORIZONTAL,8)
                 if kind=='clips' and item['path'] in self.thumbs:
                     pix=self.thumbs[item['path']].scale_simple(54,34,GdkPixbuf.InterpType.BILINEAR)
                     content.pack_start(Gtk.Image.new_from_pixbuf(pix),False,False,0)
-                else:content.pack_start(label('▣' if kind=='clips' else '♫','heading'),False,False,0)
+                else:content.pack_start(ui_theme.icon('video-x-generic-symbolic' if kind=='clips' else 'audio-x-generic-symbolic',Gtk.IconSize.DIALOG),False,False,0)
                 text=box(spacing=3);name=label(Path(item['path']).name);name.set_ellipsize(Pango.EllipsizeMode.MIDDLE);name.set_max_width_chars(17)
                 text.pack_start(name,False,False,0);text.pack_start(label(f'{"Clip" if kind=="clips" else "Audio"} {i+1} · {time_text(model.clip_duration(item))}','small'),False,False,0)
-                content.pack_start(text,True,True,0);b.add(content);b.connect('clicked',lambda _,k=kind,n=i:self.select(k,n));row.add(b);self.assets.add(row)
+                content.pack_start(text,True,True,0);b.add(content);b.set_tooltip_text(item['path'])
+                b.connect('clicked',lambda _,k=kind,n=i:self.select(k,n));row.add(b);self.assets.add(row)
         self.assets.show_all()
 
-    def select(self,kind,index):
+    def select(self,kind,index,seek=True):
         self.selected=(kind,index);self.show_inspector();self.timeline.queue_draw()
-        if kind=='clips':
-            self.canvas.pause();self.play_button.set_label('▶')
+        if kind=='clips' and seek:
+            self.canvas.pause();self.update_play_button(False)
             if self.preview_key:self.canvas.seek(model.timeline(self.project)[index]['start'])
             else:
                 self.cancel_scrub();self.playhead=model.timeline(self.project)[index]['start'];self.show_selected_still()
@@ -572,53 +665,167 @@ class ClipCanvasWindow(Gtk.Window):
         self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5))
 
     def show_inspector(self):
+        old_page=getattr(self,'properties_page','Timing')
         for child in self.inspector.get_children():self.inspector.remove(child)
-        item=self.selected_item()
-        self.apply_button.set_sensitive(item is not None)
+        item=self.selected_item();self.fields={};self.property_pages={}
+        ready=item is not None
+        for widget in (self.apply_button,self.edit_button,self.sound_button,self.split_button,self.duplicate_button,self.remove_button):widget.set_sensitive(ready)
+        self.picture_button.set_sensitive(ready and self.selected[0]=='clips')
         if not item:
-            self.inspector.pack_start(label('Make it yours','section'),False,False,0)
-            hint=label('Select a clip or soundtrack below to adjust its timing, volume, and style.','muted');hint.set_line_wrap(True);hint.set_max_width_chars(26)
-            self.inspector.pack_start(hint,False,False,8);self.inspector.show_all();return
-        kind,i=self.selected;self.fields={}
-        self.inspector.pack_start(label(f'{"Clip" if kind=="clips" else "Soundtrack"} {i+1}','section'),False,False,0)
-        title=label(Path(item['path']).name,'muted');title.set_ellipsize(Pango.EllipsizeMode.MIDDLE);title.set_max_width_chars(25)
-        self.inspector.pack_start(title,False,False,0)
-        def spin(key,title,lo,hi,step=0.1,mult=1,parent=None):
-            row=box(Gtk.Orientation.HORIZONTAL,8)
-            title_label=label(title,'small');title_label.set_line_wrap(True);title_label.set_max_width_chars(18)
-            row.pack_start(title_label,True,True,0)
-            w=Gtk.SpinButton.new_with_range(lo,max(hi,lo+.01),step);w.set_digits(2 if step<1 else 0);w.set_value(item.get(key,0)*mult)
-            w.set_width_chars(5);w.set_max_width_chars(6)
-            row.pack_start(w,False,False,0);(parent or self.inspector).pack_start(row,False,False,0);self.fields[key]=(w,mult)
+            self.context_title.set_text('Select a clip to edit')
+            self.properties_popover.popdown();return
+        kind,i=self.selected
+        self.context_title.set_text(Path(item['path']).name)
+        heading=box(Gtk.Orientation.HORIZONTAL,8)
+        title=label(f'{"Video" if kind=="clips" else "Audio"} {i+1}','section')
+        heading.pack_start(title,True,True,0)
+        heading.pack_end(ui_theme.icon_button('window-close-symbolic',self.properties_popover.popdown,'Close properties'),False,False,0)
+        self.inspector.pack_start(heading,False,False,0)
+        pages=Gtk.Stack();pages.set_hhomogeneous(False);pages.set_vhomogeneous(False)
+        self.properties_stack=pages
+        switcher=Gtk.StackSwitcher();switcher.set_stack(pages);switcher.set_halign(Gtk.Align.CENTER)
+        self.inspector.pack_start(switcher,False,False,0);self.inspector.pack_start(pages,True,True,0)
+        def page(name):
+            content=box(spacing=12,margin=16)
+            pages.add_titled(content,name,name);self.property_pages[name]=len(self.property_pages)
+            return content
+        def hint(parent,text):
+            caption=label(text,'dim-label');caption.set_line_wrap(True);caption.set_max_width_chars(30)
+            parent.pack_start(caption,False,False,4);return caption
+        def spin(parent,key,title,lo,hi,step=.1,mult=1,default=0):
+            row=box(Gtk.Orientation.HORIZONTAL,12)
+            caption=label(title);caption.set_line_wrap(True);caption.set_max_width_chars(20)
+            row.pack_start(caption,True,True,0)
+            control=Gtk.SpinButton.new_with_range(lo,max(hi,lo+.01),step)
+            control.set_digits(2 if step<1 else 0);control.set_width_chars(5)
+            control.set_value(item.get(key,default)*mult)
+            row.pack_start(control,False,False,0);parent.pack_start(row,False,False,0)
+            self.fields[key]=(control,mult)
+        timing=page('Timing')
+        spin(timing,'in','Source start (s)',0,item['duration'])
+        spin(timing,'out','Source end (s)',.04,item['duration'])
+        if kind=='audio':spin(timing,'start','Start in video (s)',0,max(0,model.project_duration(self.project)-.04))
+        spin(timing,'speed','Playback speed (×)',.25,4,.05,default=1)
+        hint(timing,'Drag edges to trim. Speed preserves audio pitch.')
         if kind=='clips':
-            self.transition=Gtk.ComboBoxText()
-            for key,title in TRANSITIONS:self.transition.append(key,title)
-            self.transition.set_active_id(item['transition'])
-            self.inspector.pack_start(label('Transition to next clip','small'),False,False,0);self.inspector.pack_start(self.transition,False,False,0)
-            spin('transition_duration','Transition length (seconds)',.05,3,.05)
-        spin('in','Source start (seconds)',0,item['duration'])
-        spin('out','Source end (seconds)',.04,item['duration'])
-        if kind=='audio':spin('start','Start in your video (seconds)',0,max(0,model.project_duration(self.project)-.04))
-        spin('volume','Volume (%)',0,200,1,100)
-        if kind=='clips':
-            spin('speed','Playback speed (×)',.25,4,.05)
+            picture=page('Picture')
+            self.fit=Gtk.ComboBoxText();self.fit.append('fill','Fill canvas · crop edges');self.fit.append('fit','Fit whole picture · borders')
+            self.fit.set_active_id(item['fit']);picture.pack_start(self.fit,False,False,0)
             self.rotation=Gtk.ComboBoxText()
-            for value in (0,90,180,270):self.rotation.append(str(value),f'{value}° clockwise')
-            self.rotation.set_active_id(str(item.get('rotation',0)))
-            self.inspector.pack_start(self.rotation,False,False,0)
+            for value in (0,90,180,270):self.rotation.append(str(value),f'Rotate {value}° clockwise')
+            self.rotation.set_active_id(str(item.get('rotation',0)));picture.pack_start(self.rotation,False,False,0)
             self.flip_x=Gtk.CheckButton(label='Flip horizontally');self.flip_x.set_active(item.get('flip_x',False))
             self.flip_y=Gtk.CheckButton(label='Flip vertically');self.flip_y.set_active(item.get('flip_y',False))
-            self.inspector.pack_start(self.flip_x,False,False,0);self.inspector.pack_start(self.flip_y,False,False,0)
-            self.fit=Gtk.ComboBoxText();self.fit.append('fill','Fill canvas · crop');self.fit.append('fit','Fit whole video · borders');self.fit.set_active_id(item['fit'])
-            self.inspector.pack_start(label('Canvas fit','small'),False,False,0);self.inspector.pack_start(self.fit,False,False,0)
-            crop=Gtk.Expander(label='Adjust crop position');crop_box=box(spacing=8,margin=4);crop.add(crop_box)
-            spin('position_x','Left ↔ right (%)',0,100,1,100,parent=crop_box)
-            spin('position_y','Top ↔ bottom (%)',0,100,1,100,parent=crop_box)
-            self.inspector.pack_start(crop,False,False,4)
-        else:
-            spin('fade_in','Fade in (seconds)',0,item['duration'])
-            spin('fade_out','Fade out (seconds)',0,item['duration'])
+            picture.pack_start(self.flip_x,False,False,0);picture.pack_start(self.flip_y,False,False,0)
+            crop=Gtk.Expander(label='Crop position');crop_box=box(spacing=10,margin=8);crop.add(crop_box)
+            spin(crop_box,'position_x','Horizontal (%)',0,100,1,100,default=.5)
+            spin(crop_box,'position_y','Vertical (%)',0,100,1,100,default=.5)
+            picture.pack_start(crop,False,False,0)
+            spin(picture,'video_fade_in','Fade picture in (s)',0,model.clip_duration(item))
+            spin(picture,'video_fade_out','Fade picture out (s)',0,model.clip_duration(item))
+        sound=page('Sound')
+        spin(sound,'volume','Volume (%)',0,200,1,100,default=1)
+        spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
+        spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
+        hint(sound,'Fades soften the beginning and end of the sound.')
+        if kind=='clips':
+            self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
+            self.extract_button.set_sensitive(self.extraction_available(item))
+            sound.pack_start(self.extract_button,False,False,4)
+            transition=page('Transition')
+            self.transition=Gtk.ComboBoxText()
+            for key,title in TRANSITIONS:self.transition.append(key,title)
+            self.transition.set_active_id(item['transition']);transition.pack_start(self.transition,False,False,0)
+            spin(transition,'transition_duration','Duration (s)',.05,3,.05)
+            if i+1>=len(self.project['clips']):
+                self.transition.set_sensitive(False)
+                self.fields['transition_duration'][0].set_sensitive(False)
+                hint(transition,'Add another clip to create a transition.')
+            else:
+                overlap_hint=hint(transition,'')
+                def update_overlap(*args):
+                    candidate=copy.deepcopy(self.project)
+                    edited=candidate['clips'][i]
+                    for key in ('in','out','speed','transition_duration'):edited[key]=self.fields[key][0].get_value()
+                    edited['transition']=self.transition.get_active_id()
+                    actual=model.timeline(candidate)[i]['overlap']
+                    overlap_hint.set_text(f'Actual overlap: {actual:.2f} s. Limited to half of either adjacent clip.')
+                self.transition.connect('changed',update_overlap)
+                for key in ('in','out','speed','transition_duration'):self.fields[key][0].connect('value-changed',update_overlap)
+                update_overlap()
         self.inspector.show_all()
+        if old_page in self.property_pages:pages.set_visible_child_name(old_page)
+
+    def open_properties(self,page='Timing',anchor=None,rectangle=None):
+        if not self.selected_item() or self.busy:return
+        self.properties_page=page
+        self.properties_popover.set_relative_to(anchor or self.edit_button)
+        if rectangle:self.properties_popover.set_pointing_to(rectangle)
+        else:
+            allocation=(anchor or self.edit_button).get_allocation()
+            rect=Gdk.Rectangle();rect.x=0;rect.y=0;rect.width=allocation.width;rect.height=allocation.height
+            self.properties_popover.set_pointing_to(rect)
+        if page in self.property_pages:self.properties_stack.set_visible_child_name(page)
+        self.properties_popover.show_all();self.properties_popover.popup()
+
+    def show_transition(self,index,rectangle=None):
+        if not 0<=index<len(self.project['clips'])-1:return
+        self.select('clips',index,seek=False)
+        self.open_properties('Transition',self.timeline,rectangle)
+
+    def context_menu(self,kind,index,event=None):
+        if self.busy:return
+        self.select(kind,index,seek=False)
+        menu=Gtk.Menu()
+        def action(title,callback,enabled=True):
+            item=Gtk.MenuItem(label=title);item.set_sensitive(enabled)
+            item.connect('activate',lambda _:callback());menu.append(item)
+        action('Edit clip…' if kind=='clips' else 'Edit audio…',lambda:self.open_properties('Timing'))
+        action('Volume and fades…',lambda:self.open_properties('Sound'))
+        if kind=='clips':
+            action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
+            action('Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
+            action('Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
+            action('Move left',lambda:self.move(-1),index>0)
+            action('Move right',lambda:self.move(1),index+1<len(self.project['clips']))
+        menu.append(Gtk.SeparatorMenuItem())
+        action('Split at playhead',self.split_selected)
+        action('Duplicate',self.duplicate)
+        action('Delete',self.remove)
+        menu.show_all();self.active_context_menu=menu
+        if isinstance(event,(Gdk.Event,Gdk.EventButton)):menu.popup_at_pointer(event)
+        else:menu.popup_at_widget(self.timeline,Gdk.Gravity.NORTH_WEST,Gdk.Gravity.SOUTH_WEST,None)
+        return menu
+
+    def extraction_available(self,item):
+        return (self.media_metadata.get(item['path'],{}).get('has_audio') is not False
+                and not any(a.get('source_clip_id')==item['id'] for a in self.project['audio']))
+
+    def toggle_mute(self):
+        item=self.selected_item()
+        if not item or self.busy:return
+        self.checkpoint()
+        if item['volume']>0:
+            self.mute_volumes[item['id']]=item['volume'];item['volume']=0
+        else:item['volume']=self.mute_volumes.get(item['id'],1)
+        self.changed()
+
+    def extract_audio(self):
+        if self.busy or not self.selected or self.selected[0]!='clips':return
+        index=self.selected[1];snapshot=copy.deepcopy(self.project)
+        self.properties_popover.popdown();self.canvas.pause();self.set_busy(True);self.set_status('Separating audio from the original clip…')
+        def finish(project,error):
+            if self.closed:return False
+            self.set_busy(False)
+            if error:self.error(str(error));return False
+            self.checkpoint();self.project=project;self.selected=('audio',len(project['audio'])-1)
+            self.changed();self.load_asset(project['audio'][-1],'audio')
+            self.set_status('Audio extracted into its own track. The video’s sound is muted to avoid doubling.');return False
+        def work():
+            try:project=model.detach_audio(snapshot,index);error=None
+            except Exception as e:project=None;error=e
+            GLib.idle_add(finish,project,error)
+        self.pool.submit(work)
 
     def apply_fields(self):
         original=self.selected_item()
@@ -630,7 +837,10 @@ class ClipCanvasWindow(Gtk.Window):
         if self.selected[0]=='clips':
             item['fit']=self.fit.get_active_id();item['transition']=self.transition.get_active_id()
             item['rotation']=int(self.rotation.get_active_id());item['flip_x']=self.flip_x.get_active();item['flip_y']=self.flip_y.get_active()
-        self.checkpoint();kind,i=self.selected;self.project[kind][i]=item;self.changed();self.set_status('Changes applied. Press Preview to see and hear the full video.')
+        candidate=copy.deepcopy(self.project);kind,i=self.selected;candidate[kind][i]=item
+        try:model.validate_project(candidate,check_files=False)
+        except ValueError as e:self.error(str(e));return
+        self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed();self.set_status('Changes applied. Press Preview to see and hear the full video.')
 
     def move(self,amount):
         if not self.selected or self.selected[0]!='clips':return
@@ -661,10 +871,10 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline.scale=value;self.timeline.refresh()
 
     def import_dialog(self,kind):
-        dialog=Gtk.FileChooserDialog(title='Import clips' if kind=='clips' else 'Add soundtracks',transient_for=self,action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Add files',Gtk.ResponseType.OK);dialog.set_select_multiple(True)
+        dialog=file_chooser(self,'Import clips' if kind=='clips' else 'Add soundtracks',Gtk.FileChooserAction.OPEN,'Add files')
+        dialog.set_select_multiple(True)
         for filt in media_filters(kind):dialog.add_filter(filt)
-        paths=dialog.get_filenames() if dialog.run()==Gtk.ResponseType.OK else [];dialog.destroy()
+        paths=dialog.get_filenames() if dialog.run()==Gtk.ResponseType.ACCEPT else [];dialog.destroy()
         if paths:self.import_paths(paths,kind)
 
     def drop_files(self,w,context,x,y,data,info,timestamp):
@@ -686,7 +896,7 @@ class ClipCanvasWindow(Gtk.Window):
                     if actual=='clips' and not metadata['has_video']:raise ValueError('This file has no video track.')
                     if actual=='audio' and not metadata['has_audio']:raise ValueError('This file has no audio track.')
                     item=model.new_clip(path,metadata) if actual=='clips' else model.new_audio(path,metadata)
-                    items.append((actual,item))
+                    items.append((actual,item,metadata))
                 except Exception as e:errors.append(f'{Path(path).name}: {e}')
             GLib.idle_add(self.finish_import,items,errors)
         self.pool.submit(work)
@@ -696,7 +906,8 @@ class ClipCanvasWindow(Gtk.Window):
         self.set_busy(False)
         if items:
             self.checkpoint()
-            for kind,item in items:
+            for kind,item,metadata in items:
+                self.media_metadata[item['path']]=metadata
                 self.project[kind].append(item);self.selected=(kind,len(self.project[kind])-1);self.load_asset(item,kind)
             self.stack.set_visible_child_name('editor');self.changed()
             self.set_status(f'Added {len(items)} local file(s). Drag clips to reorder; select one to adjust it.')
@@ -709,12 +920,21 @@ class ClipCanvasWindow(Gtk.Window):
         def work():
             try:
                 if kind=='clips':
+                    if path not in self.media_metadata:GLib.idle_add(self.media_info_ready,path,engine.probe(path))
                     target=self.temp/(hashlib.sha256(path.encode()).hexdigest()+'.jpg')
                     engine.thumbnail(path,str(target),at=item['in'],width=640,height=360)
                     GLib.idle_add(self.asset_ready,path,kind,str(target))
                 else:GLib.idle_add(self.asset_ready,path,kind,engine.waveform(path,max_points=600))
             except Exception:pass
         self.pool.submit(work)
+
+    def media_info_ready(self,path,metadata):
+        if self.closed:return False
+        self.media_metadata[path]=metadata
+        item=self.selected_item()
+        if item and self.selected[0]=='clips' and item['path']==path and hasattr(self,'extract_button'):
+            self.extract_button.set_sensitive(self.extraction_available(item))
+        return False
 
     def asset_ready(self,path,kind,data):
         if self.closed:return False
@@ -729,15 +949,15 @@ class ClipCanvasWindow(Gtk.Window):
         self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw()
 
     def playback_error(self,message):
-        self.play_button.set_label('▶');self.set_status(message)
+        self.update_play_button(False);self.set_status(message)
 
     def toggle_play(self):
         if self.busy or not self.project['clips']:return
         if not self.preview_key:self.preview();return
-        if self.canvas.playing:self.canvas.pause();self.play_button.set_label('▶')
+        if self.canvas.playing:self.canvas.pause();self.update_play_button(False)
         else:
             if self.playhead>=model.project_duration(self.project)-.1:self.canvas.seek(0)
-            self.canvas.play();self.play_button.set_label('Ⅱ')
+            self.canvas.play();self.update_play_button(True)
 
     def seek(self,seconds):
         if self.busy:return
@@ -785,7 +1005,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.render_job(str(target),True,lambda path:self.preview_done(path,key))
 
     def preview_done(self,path,key):
-        self.preview_key=key;self.canvas.load(path,autoplay=True);self.play_button.set_label('Ⅱ')
+        self.preview_key=key;self.canvas.load(path,autoplay=True);self.update_play_button(True)
         self.preview_label.set_text('Preview · export uses original files');self.set_status('Preview ready. Click the timeline ruler to seek.')
 
     def export(self):
@@ -800,11 +1020,11 @@ class ClipCanvasWindow(Gtk.Window):
         hint=label('Export uses the original media. MP4 compression can cause\nsmall quality changes; no watermark is added.','muted');content.pack_start(hint,False,False,0)
         dialog.show_all();response=dialog.run();q=quality.get_active_id();dialog.destroy()
         if response!=Gtk.ResponseType.OK:return
-        save=Gtk.FileChooserDialog(title='Save finished video',transient_for=self,action=Gtk.FileChooserAction.SAVE)
-        save.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Export',Gtk.ResponseType.OK);save.set_do_overwrite_confirmation(True)
+        save=file_chooser(self,'Save finished video',Gtk.FileChooserAction.SAVE,'Export')
+        save.set_do_overwrite_confirmation(True)
         safe_name=''.join(c for c in self.project['name'] if c.isalnum() or c in ' -_').strip() or 'My video'
         save.set_current_name(safe_name+'.mp4')
-        path=save.get_filename() if save.run()==Gtk.ResponseType.OK else None;save.destroy()
+        path=save.get_filename() if save.run()==Gtk.ResponseType.ACCEPT else None;save.destroy()
         if not path:return
         if not path.lower().endswith('.mp4'):
             path+='.mp4'
@@ -814,7 +1034,7 @@ class ClipCanvasWindow(Gtk.Window):
     def render_job(self,path,preview,done,quality='high'):
         try:model.validate_project(self.project)
         except Exception as e:self.error(str(e));return
-        self.canvas.pause();self.play_button.set_label('▶');self.set_busy(True);snapshot=copy.deepcopy(self.project)
+        self.canvas.pause();self.update_play_button(False);self.set_busy(True);snapshot=copy.deepcopy(self.project)
         if self.project_path:snapshot['_project_path']=str(Path(self.project_path).resolve())
         self.cancel_event=threading.Event()
         dialog=Gtk.Dialog(title='Preparing preview' if preview else 'Exporting video',transient_for=self,modal=True)
@@ -861,9 +1081,9 @@ class ClipCanvasWindow(Gtk.Window):
         if self.busy:return False
         path=self.project_path
         if not path:
-            dialog=Gtk.FileChooserDialog(title='Save project',transient_for=self,action=Gtk.FileChooserAction.SAVE)
-            dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Save',Gtk.ResponseType.OK);dialog.set_do_overwrite_confirmation(True);dialog.set_current_name('My story.clipcanvas')
-            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+            dialog=file_chooser(self,'Save project',Gtk.FileChooserAction.SAVE,'Save')
+            dialog.set_do_overwrite_confirmation(True);dialog.set_current_name('My story.clipcanvas')
+            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
             if not path:return False
             if not path.endswith('.clipcanvas'):
                 path+='.clipcanvas'
@@ -876,10 +1096,9 @@ class ClipCanvasWindow(Gtk.Window):
     def open_project(self,path=None):
         if self.busy or not self.confirm_discard():return
         if not path:
-            dialog=Gtk.FileChooserDialog(title='Open project',transient_for=self,action=Gtk.FileChooserAction.OPEN)
-            dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Open',Gtk.ResponseType.OK)
+            dialog=file_chooser(self,'Open project',Gtk.FileChooserAction.OPEN,'Open')
             filt=Gtk.FileFilter();filt.set_name('ClipCanvas projects');filt.add_pattern('*.clipcanvas');filt.add_pattern('*.json');dialog.add_filter(filt)
-            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
         if not path:return
         try:project=model.load_project(path)
         except Exception as e:self.error(str(e));return
@@ -934,10 +1153,9 @@ class ClipCanvasWindow(Gtk.Window):
 
     def collect_media(self):
         if self.busy:return
-        dialog=Gtk.FileChooserDialog(title='Save portable copy in a new folder',transient_for=self,action=Gtk.FileChooserAction.SAVE)
-        dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Collect project and media',Gtk.ResponseType.OK)
+        dialog=file_chooser(self,'Save portable copy in a new folder',Gtk.FileChooserAction.SAVE,'Collect project and media')
         dialog.set_current_name('ClipCanvas portable project')
-        path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+        path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
         if not path:return
         snapshot=copy.deepcopy(self.project);self.set_busy(True);self.set_status('Copying original media into the portable project folder…')
         def finish(result,error):
@@ -958,9 +1176,8 @@ class ClipCanvasWindow(Gtk.Window):
         if not missing:self.set_status('All source media files are available.');return
         replacements={}
         for old in missing:
-            dialog=Gtk.FileChooserDialog(title=f'Locate {Path(old).name}',transient_for=self,action=Gtk.FileChooserAction.OPEN)
-            dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Use this file',Gtk.ResponseType.OK)
-            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+            dialog=file_chooser(self,f'Locate {Path(old).name}',Gtk.FileChooserAction.OPEN,'Use this file')
+            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
             if not path:return
             replacements[old]=path
         snapshot=copy.deepcopy(self.project);self.set_busy(True);self.set_status('Checking replacement media…')
@@ -1006,7 +1223,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def help(self):
         dialog=Gtk.MessageDialog(transient_for=self,modal=True,message_type=Gtk.MessageType.INFO,buttons=Gtk.ButtonsType.CLOSE,text='A simple way to make your video')
-        dialog.format_secondary_text('1. Choose your canvas, import clips and drag to reorder.\n2. Drag item edges to trim; zoom in for short items.\n3. Drag the ruler to scrub, then Split the selected item (S).\n4. Select a clip to change speed, rotation, flips and transitions; Apply changes.\n5. Add WAV or other soundtracks. Set timing, volume and fades.\n6. Preview your complete mix, then Export video.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
+        dialog.format_secondary_text('1. Choose your canvas, add videos and drag to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles.\n6. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
         dialog.run();dialog.destroy()
 
     def keypress(self,w,event):
@@ -1039,10 +1256,9 @@ class ClipCanvasWindow(Gtk.Window):
         threading.Thread(target=clean,daemon=True).start()
 
 def main():
-    provider=Gtk.CssProvider();provider.load_from_data(CSS)
     if not Gdk.Screen.get_default():
         print('ClipCanvas needs an Ubuntu desktop session.',file=sys.stderr);return 1
-    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(),provider,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    provider=ui_theme.install()
     GLib.set_prgname('clipcanvas');GLib.set_application_name('ClipCanvas')
     window=ClipCanvasWindow()
     if len(sys.argv)>1 and Path(sys.argv[1]).is_file():window.open_project(sys.argv[1])

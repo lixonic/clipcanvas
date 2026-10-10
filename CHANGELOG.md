@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0 — 2026-10-10
+
+- Rebuilt the editor around Ubuntu's GTK theme, system fonts, symbolic icons,
+  native header bar, and native file choosers. Removed global widget color
+  overrides that made dropdown text unreadable under Yaru Dark.
+- Removed the permanent right inspector. Timing, Picture, Sound, and Transition
+  controls now open in compact contextual popovers beside the selected item.
+- Added media search/type filtering, sidebar collapse, and an adjustable divider
+  between the canvas and timeline.
+- Added clickable round transition controls at every adjacent clip join, with
+  effective overlap feedback; the trailing plus action adds local videos.
+- Added clip/audio context menus for editing, fades, split, duplicate, delete,
+  clip movement, mute/unmute, and audio extraction.
+- Extract audio into an independent local track while retaining source trim,
+  timeline start, pitch-preserving speed, volume, fades, and existing transition
+  audio envelopes. Mute the original clip; undo restores it. Reject clips without audio
+  and repeated extraction while that clip's extracted track remains.
+- Added audio fades to attached video sound as well as soundtracks. Selected
+  soundtracks show draggable fade handles and waveform tapers at their audible
+  composition boundaries.
+- Added separately labeled picture fade in/out from/to black. These are distinct
+  from audio fades and cross-dissolve joins.
+- Added a detailed Canva UI study separating screenshot observations, verified
+  official interactions, baseline gaps, implemented changes, and QA targets.
+- Retained local WAV support and original-media rendering. Real-time mixed
+  preview, titles/overlays, Windows packaging, and deferred AI/MCP work remain
+  outside this release.
+
 ## 0.2.0 — 2026-10-10
 
 - Split video and WAV/audio tracks at the playhead, with undo/redo. Splits near

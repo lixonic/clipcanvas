@@ -135,6 +135,33 @@ def _fmt(number):
     return format(float(number), ".8f").rstrip("0").rstrip(".") or "0"
 
 
+def _tempo(speed):
+    """Pitch-preserving tempo changes, including FFmpeg versions limited to 2x."""
+    remaining = float(speed)
+    filters = []
+    while remaining < .5:
+        filters.append("atempo=0.5")
+        remaining /= .5
+    while remaining > 2:
+        filters.append("atempo=2")
+        remaining /= 2
+    filters.append(f"atempo={_fmt(remaining)}")
+    return filters
+
+
+def _audio_fades(item, audible_length):
+    """User fades and the independent transition envelope copied on extraction."""
+    filters = []
+    for prefix in ("", "transition_"):
+        fade_in = min(float(item.get(prefix + "fade_in", 0)), audible_length)
+        fade_out = min(float(item.get(prefix + "fade_out", 0)), audible_length)
+        if fade_in > 0:
+            filters.append(f"afade=t=in:st=0:d={_fmt(fade_in)}")
+        if fade_out > 0:
+            filters.append(f"afade=t=out:st={_fmt(audible_length-fade_out)}:d={_fmt(fade_out)}")
+    return filters
+
+
 def _stop(process):
     if process.poll() is not None:
         return
@@ -232,17 +259,23 @@ def _graph(project, preview=False):
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={width}:{height}:(iw-ow)*{x}:(ih-oh)*{y}"
-        filters.append(f"[{index}:{metadata['video_index']}]{framing},setsar=1,format=yuv420p,setpts=(PTS-STARTPTS)/{_fmt(speed)},tpad=stop_mode=clone:stop_duration={_fmt(duration)},trim=duration={_fmt(duration)},fps={_fmt(fps)},settb=AVTB[v{index}]")
+        picture = [f"[{index}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
+                   f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(duration)}",
+                   f"trim=duration={_fmt(duration)}", f"fps={_fmt(fps)}", "settb=AVTB"]
+        picture_fade_in = min(float(clip.get("video_fade_in", 0)), duration)
+        picture_fade_out = min(float(clip.get("video_fade_out", 0)), duration)
+        if picture_fade_in > 0:
+            picture.append(f"fade=t=in:st=0:d={_fmt(picture_fade_in)}")
+        if picture_fade_out > 0:
+            picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
+        filters.append(",".join(picture) + f"[v{index}]")
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
-            remaining = speed
-            tempos = []
-            while remaining < .5:
-                tempos.append("atempo=0.5"); remaining /= .5
-            while remaining > 2:
-                tempos.append("atempo=2"); remaining /= 2
-            tempos.append(f"atempo={_fmt(remaining)}")
-            tempo = ",".join(tempos)
-            filters.append(f"[{index}:{metadata['audio_index']}]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,{tempo},apad,atrim=duration={_fmt(duration)},volume={_fmt(clip.get('volume', 1))}[a{index}]")
+            parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
+                     "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
+            parts.extend(_tempo(speed))
+            parts.extend(["apad", f"atrim=duration={_fmt(duration)}", f"volume={_fmt(clip.get('volume', 1))}"])
+            parts.extend(_audio_fades(clip, duration))
+            filters.append(",".join(parts) + f"[a{index}]")
         else:
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={_fmt(duration)},asetpts=PTS-STARTPTS[a{index}]")
     video, audio = "v0", "a0"
@@ -266,18 +299,18 @@ def _graph(project, preview=False):
         metadata = probe(track["path"])
         if not metadata["has_audio"]:
             raise RenderError(f"{Path(track['path']).name} has no audio stream.")
-        args += ["-threads", "1", "-ss", _fmt(track.get("in", 0)), "-t", _fmt(length), "-i", track["path"]]
+        args += ["-threads", "1", "-ss", _fmt(track.get("in", 0)), "-t", _fmt(track["out"] - track.get("in", 0)), "-i", track["path"]]
         parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
-                 "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS",
-                 f"atrim=duration={_fmt(length)}", f"volume={_fmt(track.get('volume', 1))}"]
+                 "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
+        parts.extend(_tempo(track.get("speed", 1)))
+        parts.extend(["apad", f"atrim=duration={_fmt(length)}", f"volume={_fmt(track.get('volume', 1))}"])
         audible_length = max(0.0, min(length, total - start))
-        fade_in = min(float(track.get("fade_in", 0)), audible_length)
-        fade_out = min(float(track.get("fade_out", 0)), audible_length)
-        if fade_in > 0:
-            parts.append(f"afade=t=in:st=0:d={_fmt(fade_in)}")
-        if fade_out > 0:
-            parts.append(f"afade=t=out:st={_fmt(audible_length-fade_out)}:d={_fmt(fade_out)}")
-        parts.extend([f"adelay={round(start*1000)}:all=1", f"apad=whole_dur={_fmt(total)}", f"atrim=duration={_fmt(total)}"])
+        parts.extend(_audio_fades(track, audible_length))
+        # Give the delayed sample sequence an explicit zero origin. With tempo
+        # conversion/padding, inherited timestamps can otherwise cause amix to
+        # discard the leading silence and start this independent track early.
+        parts.extend([f"adelay={round(start*1000)}:all=1", "asetpts=N/SR/TB",
+                      f"apad=whole_dur={_fmt(total)}", f"atrim=duration={_fmt(total)}"])
         filters.append(",".join(parts) + f"[music{offset}]")
         mix_labels.append(f"music{offset}")
     filters.append("".join(f"[{label}]" for label in mix_labels) + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)}[outaudio]")

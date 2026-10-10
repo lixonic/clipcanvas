@@ -17,6 +17,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Gst", "1.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gst, Gtk, Pango, PangoCairo
+from . import ui_theme
 
 
 Gst.init(None)
@@ -73,6 +74,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._bus.add_signal_watch()
         self._bus_handler = self._bus.connect("message", self._message)
         self.connect("draw", self._draw)
+        self.connect("style-updated", lambda _: self.queue_draw())
         self.connect("destroy", self._cleanup)
         self._timer_id = GLib.timeout_add(100, self._tick)
 
@@ -245,7 +247,7 @@ class VideoCanvas(Gtk.DrawingArea):
     @staticmethod
     def _text(cr, text, x, y, width, size, color, bold=False):
         layout = PangoCairo.create_layout(cr)
-        description = Pango.FontDescription("Sans")
+        description = Pango.FontDescription(Gtk.Settings.get_default().get_property('gtk-font-name'))
         description.set_absolute_size(size * Pango.SCALE)
         if bold:
             description.set_weight(Pango.Weight.SEMIBOLD)
@@ -260,7 +262,8 @@ class VideoCanvas(Gtk.DrawingArea):
 
     def _draw(self, widget, cr):
         width, height = self.get_allocated_width(), self.get_allocated_height()
-        cr.set_source_rgb(0.949, 0.949, 0.973)
+        color=Gdk.RGBA();color.parse(ui_theme.palette(self)['background'])
+        cr.set_source_rgb(color.red,color.green,color.blue)
         cr.paint()
         padding = min(28, width / 12, height / 12)
         scale = min(max(1, width - padding * 2) / self.aspect_width,
