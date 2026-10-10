@@ -3,6 +3,7 @@ import copy
 import json
 import time
 import unittest
+from types import SimpleNamespace
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -39,7 +40,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.fail('The desktop workflow did not finish in time')
 
     def test_import_edit_preview_save_and_reopen(self):
-        w = ClipCanvasWindow()
+        w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'recovery')
         errors = []
         w.error = errors.append
         # Automated playback is muted without changing exported audio.
@@ -99,6 +100,54 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.destroy()
             while Gtk.events_pending():
                 Gtk.main_iteration_do(False)
+
+    def test_split_trim_snap_speed_scrub_and_recovery(self):
+        w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'editing-recovery')
+        errors = [];w.error = errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            self.pump(lambda: not w.busy and len(w.thumbs)==2 and len(w.waves)==1)
+            w.select('clips',0)
+            w.fields['speed'][0].set_value(2)
+            w.rotation.set_active_id('90');w.flip_x.set_active(True);w.apply_fields()
+            self.assertEqual(model.clip_duration(w.project['clips'][0]),.75)
+            self.assertEqual(w.project['clips'][0]['rotation'],90)
+            w.seek(.3)
+            self.pump(lambda: not w.scrub_timer and 'Scrub frame' in w.preview_label.get_text())
+            self.assertAlmostEqual(w.playhead,.3)
+            self.assertIsNone(w.preview_key)
+            w.split_selected()
+            self.assertEqual(len(w.project['clips']),3)
+            self.assertAlmostEqual(w.project['clips'][0]['out'],.6)
+            w.undo();self.assertEqual(len(w.project['clips']),2)
+            w.select('audio',0);w.seek(.5);w.split_selected()
+            self.assertEqual(len(w.project['audio']),2)
+            self.assertEqual(w.project['audio'][1]['start'],.5)
+            w.undo()
+            # Move a soundtrack near the next video boundary: snapping must align it.
+            self.pump(lambda: len(w.timeline.hit)==3)
+            hit=next(h for h in w.timeline.hit if h[0]=='audio')
+            _,_,x,y,width,height=hit
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+15,y=y+20))
+            w.timeline.release(None,SimpleNamespace(x=x+15+.72*w.timeline.scale))
+            self.assertAlmostEqual(w.project['audio'][0]['start'],.75,delta=1/30)
+            w.undo();w.snap_check.set_active(False)
+            # Drag the right video edge, preserving the source-time conversion at 2x speed.
+            w.zoom(100)
+            self.pump(lambda: w.timeline.hit[0][4]>60)
+            _,_,x,y,width,height=w.timeline.hit[0]
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+width-2,y=y+20))
+            w.timeline.release(None,SimpleNamespace(x=x+width-2-.2*w.timeline.scale))
+            self.assertAlmostEqual(w.project['clips'][0]['out'],1.1,delta=.07)
+            self.assertTrue(w.autosave())
+            recovered,original=w.recovery.read(w.recovery.path)
+            self.assertEqual(recovered,w.project)
+            self.assertIsNone(original)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
 
 
 if __name__ == '__main__':

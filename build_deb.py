@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 
 PROJECT = Path(__file__).resolve().parent
-VERSION = "0.1.1"
+from clipcanvas import __version__ as VERSION
 NAME = "clipcanvas"
 DEPENDENCIES = [
     "python3 (>= 3.10)", "python3-gi", "python3-cairo", "python3-gi-cairo",

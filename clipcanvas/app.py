@@ -18,7 +18,7 @@ gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango
 import cairo
 
-from . import model, engine
+from . import model, engine, storage
 from . import __version__
 from .player import VideoCanvas
 
@@ -178,10 +178,10 @@ class Timeline(Gtk.DrawingArea):
         self.connect('button-press-event',self.press)
         self.connect('button-release-event',self.release)
         self.connect('motion-notify-event',self.motion)
-        self.set_tooltip_text('Click a clip or soundtrack to edit. Drag clips to reorder; drag soundtracks to change their start time. Click the ruler to seek a prepared preview.')
+        self.set_tooltip_text('Drag item edges to trim. Drag clip bodies to reorder or soundtracks to move. Drag the ruler to scrub; Split cuts the selected item at the playhead. Zoom in for short items.')
 
     def refresh(self):
-        duration=model.project_duration(self.owner.project)
+        duration=max([model.project_duration(self.owner.project)]+[a['start']+model.clip_duration(a) for a in self.owner.project['audio']])
         self.set_size_request(max(800,int(duration*self.scale+170)),max(220,145+len(self.owner.project['audio'])*54))
         self.queue_draw()
 
@@ -215,12 +215,15 @@ class Timeline(Gtk.DrawingArea):
             selected=self.owner.selected==('clips',i)
             rounded(cr,x,y,w,h);rgb(cr,'#8139dd' if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
             self.hit.append(('clips',i,x,y,w,h))
+            if selected and w >= 24:
+                for edge in (x+3,x+w-5):
+                    rgb(cr,'#ffffff');cr.rectangle(edge,y+25,2,27);cr.fill()
             if i<len(p['clips'])-1 and clip['transition']!='none':
                 tx=100+(timing['start']+timing['duration'])*self.scale-12
                 rounded(cr,tx,65,23,25,5);rgb(cr,'#8139dd');cr.fill();draw_text(cr,'↔',tx+4,82,'#ffffff',13)
         for i,audio in enumerate(p['audio']):
             y=139+i*54;x=100+audio['start']*self.scale
-            visible=max(0,min(audio['out']-audio['in'],duration-audio['start']))
+            visible=model.clip_duration(audio)
             w=max(12,visible*self.scale)
             draw_text(cr,f'AUDIO {i+1}',12,y+26,size=10,bold=True)
             cr.save();rounded(cr,x,y,w,42,7);cr.clip();rgb(cr,'#8150c6');cr.paint()
@@ -231,37 +234,93 @@ class Timeline(Gtk.DrawingArea):
                     amp=values[min(len(values)-1,max(0,int(fraction*len(values))))]
                     hh=max(2,amp*28);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+21-hh/2,2,hh);cr.fill()
             rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,Path(audio['path']).name,x+7,y+13,'#ffffff',10)
+            cutoff=max(x,100+duration*self.scale)
+            if cutoff<x+w:
+                rgb(cr,'#faf9fd',.7);cr.rectangle(cutoff,y,x+w-cutoff,42);cr.fill()
             cr.restore()
             if self.owner.selected==('audio',i):
                 rounded(cr,x,y,w,42,7);rgb(cr,'#3b156e');cr.set_line_width(3);cr.stroke()
             self.hit.append(('audio',i,x,y,w,42))
+            if self.owner.selected==('audio',i) and w >= 24:
+                for edge in (x+3,x+w-5):
+                    rgb(cr,'#ffffff');cr.rectangle(edge,y+10,2,22);cr.fill()
+        if p['clips']:
+            end=100+duration*self.scale
+            rgb(cr,'#9b8cae');cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
+            draw_text(cr,'Video ends',end+6,36,'#857494',10)
         px=100+self.owner.playhead*self.scale
         rgb(cr,'#2b2035');cr.set_line_width(2);cr.move_to(px,27);cr.line_to(px,a.height);cr.stroke()
         cr.move_to(px-5,27);cr.line_to(px+5,27);cr.line_to(px,34);cr.close_path();cr.fill()
+        if self.drag and self.drag.get('edge'):
+            gx=self.drag['boundary']+self.drag.get('delta',0)*self.scale
+            rgb(cr,'#08a5ae');cr.set_line_width(2);cr.move_to(gx,28);cr.line_to(gx,a.height);cr.stroke()
 
     def press(self, w, event):
-        if event.button!=1:return
+        if event.button!=1 or self.owner.busy:return
         if event.y<34:
+            self.drag={'mode':'seek'}
             self.owner.seek(max(0,(event.x-100)/self.scale));return True
-        for kind,i,x,y,width,height in reversed(self.hit):
+        hits=list(reversed(self.hit))
+        # A selected outgoing edge can overlap the next clip. Keep its trim
+        # handle reachable without changing ordinary body-selection order.
+        for hit in list(hits):
+            kind,i,x,y,width,height=hit
+            if self.owner.selected==(kind,i) and width>=24 and y<=event.y<=y+height and (x<=event.x<x+8 or x+width-8<event.x<=x+width):
+                hits.remove(hit);hits.insert(0,hit);break
+        for kind,i,x,y,width,height in hits:
             if x<=event.x<=x+width and y<=event.y<=y+height:
                 self.owner.select(kind,i)
-                self.drag=(kind,i,event.x,self.owner.project[kind][i].get('start',0))
+                edge='left' if width>=24 and event.x-x<8 else 'right' if width>=24 and x+width-event.x<8 else None
+                self.drag={'mode':'edit','kind':kind,'index':i,'x':event.x,'edge':edge,
+                           'boundary':x if edge=='left' else x+width+(3 if kind=='clips' else 0),
+                           'start':self.owner.project[kind][i].get('start',0),'delta':0}
                 return True
 
     def motion(self,w,event):
         if self.drag:
+            if self.drag['mode']=='seek':
+                self.owner.seek(max(0,(event.x-100)/self.scale));return True
+            self.drag['delta']=self.drag_delta(event.x)
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'grabbing'))
+            self.queue_draw()
+
+    def drag_delta(self,x):
+        d=self.drag
+        delta=(x-d['x'])/self.scale
+        if d['edge']:at=(d['boundary']-100)/self.scale
+        elif d['kind']=='audio':at=d['start']
+        else:return delta
+        value=at+delta
+        if self.owner.snap_check.get_active():
+            marks=[0,self.owner.playhead]
+            for row in model.timeline(self.owner.project):marks.extend((row['start'],row['start']+row['duration']))
+            for i,item in enumerate(self.owner.project['audio']):
+                if d['kind']=='audio' and i==d['index']:continue
+                marks.extend((item['start'],item['start']+model.clip_duration(item)))
+            marks=[m for m in marks if abs(m-at)>1e-6]
+            if marks:
+                nearest=min(marks,key=lambda m:abs(m-value))
+                if abs(nearest-value)*self.scale<=8:value=nearest
+        return round(value*self.owner.project['fps'])/self.owner.project['fps']-at
 
     def release(self,w,event):
         if self.get_window():self.get_window().set_cursor(None)
         if not self.drag:return
-        kind,i,old_x,start=self.drag;self.drag=None
-        if abs(event.x-old_x)<8:return
-        self.owner.checkpoint()
-        if kind=='audio':
-            self.owner.project[kind][i]['start']=round(max(0,min(model.project_duration(self.owner.project)-.1,start+(event.x-old_x)/self.scale)),2)
+        d=self.drag
+        if d['mode']=='seek':self.drag=None;return True
+        delta=self.drag_delta(event.x);self.drag=None;self.queue_draw()
+        if abs(event.x-d['x'])<3:return
+        kind,i=d['kind'],d['index']
+        if d['edge']:
+            try:project=model.trim_item(self.owner.project,kind,i,d['edge'],delta)
+            except ValueError as e:self.owner.set_status(str(e));return
+            if project==self.owner.project:return
+            self.owner.checkpoint();self.owner.project=project
+        elif kind=='audio':
+            self.owner.checkpoint()
+            self.owner.project[kind][i]['start']=max(0,min(max(0,model.project_duration(self.owner.project)-.04),d['start']+delta))
         else:
+            self.owner.checkpoint()
             target=i
             for _,j,x,y,width,height in [h for h in self.hit if h[0]=='clips']:
                 if event.x>x:target=j
@@ -269,7 +328,7 @@ class Timeline(Gtk.DrawingArea):
         self.owner.changed()
 
 class ClipCanvasWindow(Gtk.Window):
-    def __init__(self):
+    def __init__(self,recovery_dir=None):
         super().__init__(title='ClipCanvas')
         self.set_wmclass('clipcanvas','ClipCanvas')
         self.set_default_size(1380,900);self.set_position(Gtk.WindowPosition.CENTER)
@@ -277,6 +336,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.selected=None;self.history=[];self.future=[];self.thumbs={};self.waves={};self.playhead=0.;self.preview_key=None
         self.temp=Path(tempfile.mkdtemp(prefix='clipcanvas-'));self.pool=ThreadPoolExecutor(max_workers=2)
         self.closed=False;self.busy=False;self.cancel_event=None;self.name_lock=False
+        self.recovery=storage.Recovery(recovery_dir);self.autosave_timer=0;self.scrub_timer=0;self.scrub_serial=0;self.scrub_active=False
         self.connect('delete-event',self.close_request)
         self.connect('key-press-event',self.keypress)
         self.root=box(spacing=0);self.add(self.root)
@@ -290,6 +350,8 @@ class ClipCanvasWindow(Gtk.Window):
         self.drag_dest_set(Gtk.DestDefaults.ALL,[Gtk.TargetEntry.new('text/uri-list',0,0)],Gdk.DragAction.COPY)
         self.connect('drag-data-received',self.drop_files)
         self.show_all();self.update_title()
+        self.autosave_timer=GLib.timeout_add_seconds(30,self.autosave)
+        if self.recovery.available():self.set_status('An unsaved project is available in Project → Recover unsaved project.')
 
     def make_header(self):
         self.header=box(Gtk.Orientation.HORIZONTAL,9);self.header.get_style_context().add_class('topbar')
@@ -299,7 +361,12 @@ class ClipCanvasWindow(Gtk.Window):
         self.header.pack_start(button('Save',self.save),False,False,0)
         self.name=Gtk.Entry();self.name.set_text(self.project['name']);self.name.set_max_length(100);self.name.set_width_chars(20)
         self.name.connect('changed',self.name_changed);self.header.pack_start(self.name,True,True,28)
-        self.header.pack_start(button('Help',self.help),False,False,0)
+        menu=Gtk.Menu()
+        for title,callback in [('Save portable copy…',self.collect_media),('Relink missing media…',self.relink_media),
+                               ('Recover unsaved project…',self.recover_project),('Help',self.help)]:
+            entry=Gtk.MenuItem(label=title);entry.connect('activate',lambda _,fn=callback:fn());menu.append(entry)
+        menu.show_all();project_menu=Gtk.MenuButton(label='Project ▾');project_menu.set_popup(menu)
+        self.header.pack_start(project_menu,False,False,0)
         self.preview_button=button('▶  Preview',self.preview)
         self.header.pack_start(self.preview_button,False,False,0)
         self.export_button=button('Export video',self.export,'primary');self.header.pack_start(self.export_button,False,False,0)
@@ -375,7 +442,10 @@ class ClipCanvasWindow(Gtk.Window):
         tlbar.pack_start(button('Move left',lambda:self.move(-1)),False,False,0)
         tlbar.pack_start(button('Move right',lambda:self.move(1)),False,False,0)
         tlbar.pack_start(button('Duplicate',self.duplicate),False,False,0)
+        tlbar.pack_start(button('Split',self.split_selected,tooltip='Split selected item at the playhead · S'),False,False,0)
         tlbar.pack_start(button('Remove',self.remove),False,False,0)
+        self.snap_check=Gtk.CheckButton(label='Snap');self.snap_check.set_active(True)
+        tlbar.pack_start(self.snap_check,False,False,0)
         zoom=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,6,100,1);zoom.set_value(28);zoom.set_draw_value(False);zoom.set_size_request(120,-1)
         zoom.connect('value-changed',lambda s:self.zoom(s.get_value()))
         tlbar.pack_end(zoom,False,False,0);tlbar.pack_end(label('Zoom','muted'),False,False,0)
@@ -387,6 +457,8 @@ class ClipCanvasWindow(Gtk.Window):
         self.stack.add_named(self.editor,'editor');self.show_inspector()
 
     def start_project(self,width,height):
+        self.recovery.clear()
+        self.cancel_scrub()
         self.canvas.set_still(None)
         self.project=model.new_project(width,height);self.project_path=None;self.saved=json.dumps(self.project,sort_keys=True)
         self.selected=None;self.history=[];self.future=[];self.preview_key=None;self.playhead=0
@@ -424,6 +496,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.history.append(copy.deepcopy(self.project));self.history=self.history[-60:];self.future=[]
 
     def changed(self):
+        self.cancel_scrub()
         self.canvas.stop();self.preview_key=None;self.playhead=0;self.play_button.set_label('▶')
         self.preview_label.set_text('Preview needs updating');self.refresh();self.show_selected_still()
 
@@ -459,7 +532,7 @@ class ClipCanvasWindow(Gtk.Window):
                     content.pack_start(Gtk.Image.new_from_pixbuf(pix),False,False,0)
                 else:content.pack_start(label('▣' if kind=='clips' else '♫','heading'),False,False,0)
                 text=box(spacing=3);name=label(Path(item['path']).name);name.set_ellipsize(Pango.EllipsizeMode.MIDDLE);name.set_max_width_chars(17)
-                text.pack_start(name,False,False,0);text.pack_start(label(f'{"Clip" if kind=="clips" else "Audio"} {i+1} · {time_text(item["out"]-item["in"])}','small'),False,False,0)
+                text.pack_start(name,False,False,0);text.pack_start(label(f'{"Clip" if kind=="clips" else "Audio"} {i+1} · {time_text(model.clip_duration(item))}','small'),False,False,0)
                 content.pack_start(text,True,True,0);b.add(content);b.connect('clicked',lambda _,k=kind,n=i:self.select(k,n));row.add(b);self.assets.add(row)
         self.assets.show_all()
 
@@ -468,7 +541,9 @@ class ClipCanvasWindow(Gtk.Window):
         if kind=='clips':
             self.canvas.pause();self.play_button.set_label('▶')
             if self.preview_key:self.canvas.seek(model.timeline(self.project)[index]['start'])
-            else:self.show_selected_still()
+            else:
+                self.cancel_scrub();self.playhead=model.timeline(self.project)[index]['start'];self.show_selected_still()
+                self.clock_label.set_text(f'{time_text(self.playhead)} / {time_text(model.project_duration(self.project))}')
 
     def selected_item(self):
         if not self.selected:return None
@@ -477,7 +552,7 @@ class ClipCanvasWindow(Gtk.Window):
         return self.project[kind][i]
 
     def show_selected_still(self):
-        if self.preview_key:return
+        if self.preview_key or self.scrub_timer or self.scrub_active:return
         item=self.selected_item()
         if self.selected and self.selected[0]=='audio':
             if self.canvas.frame is not None:return
@@ -485,8 +560,16 @@ class ClipCanvasWindow(Gtk.Window):
         if not item:item=next(iter(self.project['clips']),None)
         if item:
             pix=self.thumbs.get(item['path'])
-            if pix:self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5))
+            if pix:self.display_still(pix,item)
         else:self.canvas.set_still(None)
+
+    def display_still(self,pix,item):
+        rotation={90:GdkPixbuf.PixbufRotation.CLOCKWISE,180:GdkPixbuf.PixbufRotation.UPSIDEDOWN,
+                  270:GdkPixbuf.PixbufRotation.COUNTERCLOCKWISE}.get(item.get('rotation',0))
+        if rotation is not None:pix=pix.rotate_simple(rotation)
+        if item.get('flip_x'):pix=pix.flip(True)
+        if item.get('flip_y'):pix=pix.flip(False)
+        self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5))
 
     def show_inspector(self):
         for child in self.inspector.get_children():self.inspector.remove(child)
@@ -518,6 +601,14 @@ class ClipCanvasWindow(Gtk.Window):
         if kind=='audio':spin('start','Start in your video (seconds)',0,max(0,model.project_duration(self.project)-.04))
         spin('volume','Volume (%)',0,200,1,100)
         if kind=='clips':
+            spin('speed','Playback speed (×)',.25,4,.05)
+            self.rotation=Gtk.ComboBoxText()
+            for value in (0,90,180,270):self.rotation.append(str(value),f'{value}° clockwise')
+            self.rotation.set_active_id(str(item.get('rotation',0)))
+            self.inspector.pack_start(self.rotation,False,False,0)
+            self.flip_x=Gtk.CheckButton(label='Flip horizontally');self.flip_x.set_active(item.get('flip_x',False))
+            self.flip_y=Gtk.CheckButton(label='Flip vertically');self.flip_y.set_active(item.get('flip_y',False))
+            self.inspector.pack_start(self.flip_x,False,False,0);self.inspector.pack_start(self.flip_y,False,False,0)
             self.fit=Gtk.ComboBoxText();self.fit.append('fill','Fill canvas · crop');self.fit.append('fit','Fit whole video · borders');self.fit.set_active_id(item['fit'])
             self.inspector.pack_start(label('Canvas fit','small'),False,False,0);self.inspector.pack_start(self.fit,False,False,0)
             crop=Gtk.Expander(label='Adjust crop position');crop_box=box(spacing=8,margin=4);crop.add(crop_box)
@@ -536,7 +627,9 @@ class ClipCanvasWindow(Gtk.Window):
         for key,(w,mult) in self.fields.items():item[key]=w.get_value()/mult
         if item['out']-item['in']<.04:
             self.error('The source end must be after the source start.');return
-        if self.selected[0]=='clips':item['fit']=self.fit.get_active_id();item['transition']=self.transition.get_active_id()
+        if self.selected[0]=='clips':
+            item['fit']=self.fit.get_active_id();item['transition']=self.transition.get_active_id()
+            item['rotation']=int(self.rotation.get_active_id());item['flip_x']=self.flip_x.get_active();item['flip_y']=self.flip_y.get_active()
         self.checkpoint();kind,i=self.selected;self.project[kind][i]=item;self.changed();self.set_status('Changes applied. Press Preview to see and hear the full video.')
 
     def move(self,amount):
@@ -555,6 +648,14 @@ class ClipCanvasWindow(Gtk.Window):
     def remove(self):
         if not self.selected_item():return
         self.checkpoint();kind,i=self.selected;self.project[kind].pop(i);self.selected=None;self.changed()
+
+    def split_selected(self):
+        if self.busy or not self.selected_item():return
+        kind,i=self.selected;at=self.playhead
+        try:project=model.split_item(self.project,kind,i,at)
+        except ValueError as e:self.set_status(str(e));return
+        self.checkpoint();self.project=project;self.selected=(kind,i+1);self.changed()
+        self.playhead=at;self.refresh();self.set_status('Split at the playhead. Each part can be edited independently.')
 
     def zoom(self,value):
         self.timeline.scale=value;self.timeline.refresh()
@@ -639,8 +740,42 @@ class ClipCanvasWindow(Gtk.Window):
             self.canvas.play();self.play_button.set_label('Ⅱ')
 
     def seek(self,seconds):
-        if not self.preview_key:self.set_status('Press Preview once to prepare playback with transitions and soundtracks.');return
-        self.canvas.seek(min(seconds,max(0,model.project_duration(self.project)-.05)))
+        if self.busy:return
+        seconds=min(seconds,max(0,model.project_duration(self.project)-1/self.project['fps']))
+        self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw()
+        if self.preview_key:self.canvas.seek(seconds);return
+        self.scrub_serial+=1
+        self.scrub_active=True
+        if self.scrub_timer:GLib.source_remove(self.scrub_timer)
+        self.scrub_timer=GLib.timeout_add(80,self.scrub_frame,self.scrub_serial,seconds)
+
+    def cancel_scrub(self):
+        self.scrub_serial+=1;self.scrub_active=False
+        if self.scrub_timer:GLib.source_remove(self.scrub_timer);self.scrub_timer=0
+
+    def scrub_frame(self,serial,seconds):
+        self.scrub_timer=0
+        if self.closed or serial!=self.scrub_serial:return False
+        candidates=[(c,t) for c,t in zip(self.project['clips'],model.timeline(self.project)) if t['start']<=seconds<t['start']+t['duration']]
+        if not candidates:return False
+        item,timing=candidates[-1];item=copy.deepcopy(item)
+        at=item['in']+(seconds-timing['start'])*item.get('speed',1)
+        target=self.temp/f'scrub-{serial}.jpg'
+        def finish(error):
+            if not self.closed and serial==self.scrub_serial and not self.preview_key:
+                if error:self.set_status(str(error))
+                else:
+                    self.display_still(GdkPixbuf.Pixbuf.new_from_file(str(target)),item)
+                    self.preview_label.set_text('Scrub frame · Preview for effects and audio')
+            target.unlink(missing_ok=True)
+            return False
+        def work():
+            if serial!=self.scrub_serial:return
+            try:engine.thumbnail(item['path'],target,at=at,width=640,height=640);error=None
+            except Exception as e:error=e
+            GLib.idle_add(finish,error)
+        self.pool.submit(work)
+        return False
 
     def preview(self):
         if not self.project['clips'] or self.busy:return
@@ -735,7 +870,7 @@ class ClipCanvasWindow(Gtk.Window):
                 if Path(path).exists() and not self.confirm_replace(path):return False
         try:
             model.save_project(self.project,path);self.project_path=path;self.saved=json.dumps(self.project,sort_keys=True);self.update_title()
-            self.set_status('Project saved. Keep the original media files in their current folders.');return True
+            self.recovery.clear();self.set_status('Project saved. Use Project → Save portable copy to include your media.');return True
         except Exception as e:self.error(str(e));return False
 
     def open_project(self,path=None):
@@ -749,12 +884,108 @@ class ClipCanvasWindow(Gtk.Window):
         try:project=model.load_project(path)
         except Exception as e:self.error(str(e));return
         self.canvas.set_still(None);self.project=project;self.project_path=path;self.saved=json.dumps(project,sort_keys=True)
+        self.recovery.clear();self.cancel_scrub()
         self.history=[];self.future=[];self.selected=None;self.preview_key=None;self.playhead=0
         self.sync_project_widgets();self.stack.set_visible_child_name('editor');self.refresh()
         for kind in ('clips','audio'):
             for item in project[kind]:self.load_asset(item,kind)
         self.show_selected_still()
         self.set_status('Project opened. Press Preview to prepare playback.')
+
+    def autosave(self):
+        if self.closed:return False
+        try:
+            if json.dumps(self.project,sort_keys=True)!=self.saved:
+                self.recovery.write(self.project,self.project_path)
+            else:self.recovery.clear()
+        except Exception as e:self.set_status(f'Could not save recovery copy: {e}')
+        return True
+
+    def recover_project(self):
+        if self.busy or not self.confirm_discard():return
+        choices=[]
+        for path in self.recovery.available()[:50]:
+            try:
+                project,original=self.recovery.read(path);choices.append((path,project,original))
+            except (ValueError,OSError):continue
+        if not choices:self.set_status('No recoverable unsaved projects were found.');return
+        dialog=Gtk.Dialog(title='Recover an unsaved project',transient_for=self,modal=True)
+        dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Recover',Gtk.ResponseType.OK)
+        content=dialog.get_content_area();content.set_border_width(20);content.set_spacing(10)
+        content.pack_start(label('Recovery copies are saved every 30 seconds.','muted'),False,False,0)
+        combo=Gtk.ComboBoxText()
+        from datetime import datetime
+        for i,(path,project,_) in enumerate(choices):
+            date=datetime.fromtimestamp(path.stat().st_mtime).strftime('%d %b %H:%M')
+            combo.append(str(i),f'{project["name"]} · {date}')
+        combo.set_active(0);content.pack_start(combo,False,False,0);dialog.show_all()
+        response=dialog.run();index=combo.get_active();dialog.destroy()
+        if response!=Gtk.ResponseType.OK:return
+        old,project,original=choices[index]
+        self.cancel_scrub();self.canvas.set_still(None);self.project=project;self.project_path=original;self.saved=''
+        self.selected=None;self.history=[];self.future=[];self.preview_key=None;self.playhead=0
+        self.sync_project_widgets();self.stack.set_visible_child_name('editor');self.refresh()
+        for kind in ('clips','audio'):
+            for item in project[kind]:self.load_asset(item,kind)
+        # Preserve the previous snapshot until a new one has been saved successfully.
+        try:self.recovery.write(project,original);old.unlink()
+        except OSError as e:self.set_status(f'Recovered; save your project now: {e}');return
+        self.set_status('Unsaved project recovered. Save to keep it, or relink any missing media.')
+
+    def collect_media(self):
+        if self.busy:return
+        dialog=Gtk.FileChooserDialog(title='Save portable copy in a new folder',transient_for=self,action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Collect project and media',Gtk.ResponseType.OK)
+        dialog.set_current_name('ClipCanvas portable project')
+        path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+        if not path:return
+        snapshot=copy.deepcopy(self.project);self.set_busy(True);self.set_status('Copying original media into the portable project folder…')
+        def finish(result,error):
+            if self.closed:return False
+            self.set_busy(False)
+            if error:self.error(str(error))
+            else:self.set_status(f'Portable copy ready: {result}. Move the entire folder to your other computer.')
+            return False
+        def work():
+            try:result=storage.collect_project(snapshot,path);error=None
+            except Exception as e:result=None;error=e
+            GLib.idle_add(finish,result,error)
+        self.pool.submit(work)
+
+    def relink_media(self):
+        if self.busy:return
+        missing=sorted({item['path'] for item in self.project['clips']+self.project['audio'] if not Path(item['path']).is_file()})
+        if not missing:self.set_status('All source media files are available.');return
+        replacements={}
+        for old in missing:
+            dialog=Gtk.FileChooserDialog(title=f'Locate {Path(old).name}',transient_for=self,action=Gtk.FileChooserAction.OPEN)
+            dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Use this file',Gtk.ResponseType.OK)
+            path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.OK else None;dialog.destroy()
+            if not path:return
+            replacements[old]=path
+        snapshot=copy.deepcopy(self.project);self.set_busy(True);self.set_status('Checking replacement media…')
+        def finish(project,error):
+            self.set_busy(False)
+            if error:self.error(str(error));return False
+            self.checkpoint();self.project=project;self.changed()
+            for kind in ('clips','audio'):
+                for item in project[kind]:self.load_asset(item,kind)
+            self.set_status('Media relinked. Save the project to keep the new locations.');return False
+        def work():
+            try:
+                metadata={old:engine.probe(new) for old,new in replacements.items()}
+                for kind in ('clips','audio'):
+                    for item in snapshot[kind]:
+                        old=item['path']
+                        if old not in replacements:continue
+                        meta=metadata[old]
+                        if not meta['has_video' if kind=='clips' else 'has_audio'] or meta['duration']+.001<item['out']:
+                            raise ValueError(f'{Path(replacements[old]).name} does not contain the required media or is too short for the saved trim points.')
+                        item['path']=str(Path(replacements[old]).resolve());item['duration']=meta['duration']
+                model.validate_project(snapshot);error=None
+            except Exception as e:error=e
+            GLib.idle_add(finish,snapshot,error)
+        self.pool.submit(work)
 
     def confirm_discard(self):
         if json.dumps(self.project,sort_keys=True)==self.saved:return True
@@ -775,7 +1006,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def help(self):
         dialog=Gtk.MessageDialog(transient_for=self,modal=True,message_type=Gtk.MessageType.INFO,buttons=Gtk.ButtonsType.CLOSE,text='A simple way to make your video')
-        dialog.format_secondary_text('1. Choose your canvas size at the top.\n2. Import clips; drag them in the story strip to reorder.\n3. Select a clip, choose its transition, and Apply changes.\n4. Add soundtracks, including WAV files. Drag them to set timing, or enter exact times.\n5. Preview your complete mix, then Export video.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo\n\nProjects reference your originals: keep those files in place.\nPreview is lower resolution; export reads the original media.\nSoundtracks stop at the end of the video.\n\nClipCanvas '+__version__+' · Native, local, and free.')
+        dialog.format_secondary_text('1. Choose your canvas, import clips and drag to reorder.\n2. Drag item edges to trim; zoom in for short items.\n3. Drag the ruler to scrub, then Split the selected item (S).\n4. Select a clip to change speed, rotation, flips and transitions; Apply changes.\n5. Add WAV or other soundtracks. Set timing, volume and fades.\n6. Preview your complete mix, then Export video.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
         dialog.run();dialog.destroy()
 
     def keypress(self,w,event):
@@ -789,6 +1020,8 @@ class ClipCanvasWindow(Gtk.Window):
         focus=self.get_focus()
         if name=='space' and not isinstance(focus,(Gtk.Entry,Gtk.SpinButton)):
             self.toggle_play();return True
+        if name=='s' and not ctrl and not isinstance(focus,(Gtk.Entry,Gtk.SpinButton)):
+            self.split_selected();return True
         return False
 
     def close_request(self,*args):
@@ -797,6 +1030,9 @@ class ClipCanvasWindow(Gtk.Window):
         self.cleanup();Gtk.main_quit();return False
 
     def cleanup(self):
+        for timer in (self.autosave_timer,self.scrub_timer):
+            if timer:GLib.source_remove(timer)
+        self.recovery.clear();self.scrub_serial+=1
         self.closed=True;self.canvas.stop();self.pool.shutdown(wait=False,cancel_futures=True)
         # Workers may still be finishing thumbnails; remove their temp directory after they exit.
         def clean():self.pool.shutdown(wait=True);shutil.rmtree(self.temp,ignore_errors=True)

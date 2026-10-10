@@ -13,10 +13,11 @@ import json
 import math
 import os
 from pathlib import Path
-import selectors
+import queue
 import shutil
 import subprocess
 import tempfile
+import threading
 
 from .model import clip_duration, project_duration, timeline, validate_project
 
@@ -152,33 +153,36 @@ def _execute(arguments, seconds, progress, cancel, log_path):
     with open(log_path, "wb") as log:
         process = subprocess.Popen([binary] + arguments, stdout=subprocess.PIPE,
                                    stderr=log, stdin=subprocess.DEVNULL, env=env)
-        selector = selectors.DefaultSelector()
-        selector.register(process.stdout, selectors.EVENT_READ)
-        pending = b""
+        # Windows selectors cannot watch subprocess pipes. A reader thread also
+        # leaves the main worker free to cancel when FFmpeg emits no progress.
+        messages = queue.SimpleQueue()
+        def read_progress():
+            try:
+                for line in iter(process.stdout.readline, b""):
+                    messages.put(line.decode("utf-8", "replace").strip())
+            finally:
+                messages.put(None)
+        reader = threading.Thread(target=read_progress, daemon=True)
+        reader.start()
         try:
             while True:
                 if cancel is not None and cancel.is_set():
                     _stop(process)
                     raise RenderCancelled("Export cancelled.")
-                events = selector.select(timeout=0.15)
-                for key, _ in events:
-                    chunk = os.read(key.fileobj.fileno(), 65536)
-                    if not chunk:
-                        selector.unregister(key.fileobj)
-                        continue
-                    pending += chunk
-                    while b"\n" in pending:
-                        raw, pending = pending.split(b"\n", 1)
-                        line = raw.decode("utf-8", "replace").strip()
-                        if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
-                            try:
-                                elapsed = float(line.split("=", 1)[1]) / 1000000
-                            except ValueError:
-                                continue
-                            if progress:
-                                progress(min(0.995, max(0.0, elapsed / max(seconds, 0.001))), "Rendering your video…")
-                if process.poll() is not None and not selector.get_map():
+                try:
+                    line = messages.get(timeout=.15)
+                except queue.Empty:
+                    continue
+                if line is None:
                     break
+                if line.startswith(("out_time_us=", "out_time_ms=")):
+                    try:
+                        elapsed = float(line.split("=", 1)[1]) / 1000000
+                    except ValueError:
+                        continue
+                    if progress:
+                        progress(min(0.995, max(0.0, elapsed / max(seconds, 0.001))), "Rendering your video…")
+            process.wait()
             if process.returncode:
                 log.flush()
                 detail = Path(log_path).read_text(errors="replace")[-2500:].strip()
@@ -187,7 +191,8 @@ def _execute(arguments, seconds, progress, cancel, log_path):
             _stop(process)
             raise
         finally:
-            selector.close()
+            _stop(process)
+            reader.join(timeout=3)
             process.stdout.close()
 
 
@@ -204,20 +209,40 @@ def _graph(project, preview=False):
     clips = project["clips"]
     for index, clip in enumerate(clips):
         duration = clip_duration(clip)
+        speed = clip.get("speed", 1)
         metadata = probe(clip["path"])
         if not metadata["has_video"]:
             raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-        args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)), "-t", _fmt(duration), "-i", clip["path"]]
+        args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)), "-t", _fmt(clip["out"] - clip["in"]), "-i", clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
+        rotation = clip.get("rotation", 0)
+        if rotation == 90:
+            framing += "transpose=clock,"
+        elif rotation == 180:
+            framing += "hflip,vflip,"
+        elif rotation == 270:
+            framing += "transpose=cclock,"
+        if clip.get("flip_x"):
+            framing += "hflip,"
+        if clip.get("flip_y"):
+            framing += "vflip,"
         if clip.get("fit", "fill") == "fit":
             framing += f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={width}:{height}:(iw-ow)*{x}:(ih-oh)*{y}"
-        filters.append(f"[{index}:{metadata['video_index']}]{framing},setsar=1,format=yuv420p,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={_fmt(duration)},trim=duration={_fmt(duration)},fps={_fmt(fps)},settb=AVTB[v{index}]")
+        filters.append(f"[{index}:{metadata['video_index']}]{framing},setsar=1,format=yuv420p,setpts=(PTS-STARTPTS)/{_fmt(speed)},tpad=stop_mode=clone:stop_duration={_fmt(duration)},trim=duration={_fmt(duration)},fps={_fmt(fps)},settb=AVTB[v{index}]")
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
-            filters.append(f"[{index}:{metadata['audio_index']}]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,apad,atrim=duration={_fmt(duration)},volume={_fmt(clip.get('volume', 1))}[a{index}]")
+            remaining = speed
+            tempos = []
+            while remaining < .5:
+                tempos.append("atempo=0.5"); remaining /= .5
+            while remaining > 2:
+                tempos.append("atempo=2"); remaining /= 2
+            tempos.append(f"atempo={_fmt(remaining)}")
+            tempo = ",".join(tempos)
+            filters.append(f"[{index}:{metadata['audio_index']}]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,{tempo},apad,atrim=duration={_fmt(duration)},volume={_fmt(clip.get('volume', 1))}[a{index}]")
         else:
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={_fmt(duration)},asetpts=PTS-STARTPTS[a{index}]")
     video, audio = "v0", "a0"

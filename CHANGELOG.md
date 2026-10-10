@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0 — 2026-10-10
+
+- Split video and WAV/audio tracks at the playhead, with undo/redo. Splits near
+  transitions or within fades are guarded to preserve their timing.
+- Drag clip/audio edges to trim. Video edits ripple; audio left trims keep
+  source sound aligned. Snap to clip edges, audio edges and the playhead.
+- Scrub source frames without first rendering a complete composition. This
+  frame preview does not simulate transitions or play mixed audio.
+- Set constant video speed from 0.25× to 4×, preserving original audio pitch.
+- Rotate by 90° increments and flip footage horizontally or vertically.
+- Save recovery copies every 30 seconds; recover through the Project menu.
+- Relink missing media and collect a portable project with copies of originals.
+- Project format 2 uses relative media paths where possible and loads format 1.
+  New projects cannot be opened in ClipCanvas 0.1.x.
+- Replaced the Unix-only FFmpeg progress reader with a portable worker thread.
+  Windows runtime and installer work remain pending.
+- Recorded the full overhaul scope; C44–C49 and AI/API/MCP connections are
+  deferred following the latest scope adjustment.
+
 ## 0.1.1 — 2026-10-10
 
 - Made WAV files easier to select in the soundtrack importer, including uppercase

@@ -29,7 +29,7 @@ equivalent local headless run, install `xvfb` and `xauth`, then use
 
 The package builder produces a `.deb`, source archive, guide and checksums.
 Generated artifacts go in `dist/` and are ignored by Git. The small committed
-Ubuntu baseline installer in `installers/ubuntu/` is a convenience download;
+Ubuntu installers in `installers/ubuntu/` is a convenience download;
 future releases should distribute installers through GitHub Releases.
 
 ## Work on a selected feature
@@ -41,7 +41,8 @@ Do not implement the entire inventory at once.
 
 Rendering and media probes belong in `clipcanvas/engine.py`; project validation
 and timing belong in `clipcanvas/model.py`; GTK controls belong in
-`clipcanvas/app.py`; playback belongs in `clipcanvas/player.py`. Media operations
+`clipcanvas/app.py`; playback belongs in `clipcanvas/player.py`. Recovery and
+portable collection belong in `clipcanvas/storage.py`. Media operations
 must not block GTK's main thread. FFmpeg calls use argument lists, never shell
 interpolation.
 

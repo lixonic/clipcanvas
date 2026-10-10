@@ -147,6 +147,50 @@ class EngineIntegrationTests(unittest.TestCase):
         self.assertLessEqual(height, 180)
         self.assertAlmostEqual(width / height, 180 / 320, delta=0.01)
 
+    def test_speed_duration_and_original_audio_pitch(self):
+        for speed in (.25, 2, 4):
+            with self.subTest(speed=speed):
+                p = self.project(count=1);p['clips'][0]['speed'] = speed
+                out = self.root/f'speed-{speed}.mp4'
+                engine.render(p, out, preview=True)
+                self.assertAlmostEqual(engine.probe(out)['duration'], 1.5/speed, delta=.07)
+                raw = subprocess.run([self.ffmpeg, '-v', 'error', '-i', str(out), '-ss', '0.05', '-t', '0.2',
+                                      '-vn', '-ar', '8000', '-ac', '1', '-f', 'f32le', 'pipe:1'],
+                                     env=self.env, stdout=subprocess.PIPE, check=True).stdout
+                samples = array.array('f');samples.frombytes(raw)
+                def strength(hz):
+                    real = sum(v*math.cos(2*math.pi*hz*i/8000) for i,v in enumerate(samples))
+                    imag = sum(v*math.sin(2*math.pi*hz*i/8000) for i,v in enumerate(samples))
+                    return math.hypot(real, imag)/len(samples)
+                strongest = max(range(350, 551, 5), key=strength)
+                self.assertAlmostEqual(strongest, 440, delta=5)
+                self.assertGreater(strength(440), .02)
+
+    def test_rotation_and_flip_match_reference_pixels(self):
+        p = self.project(180, 320, count=1)
+        p['clips'][0].update(rotation=90, flip_x=True, fit='fit')
+        out = self.root/'rotated.mp4';engine.render(p, out)
+        def pixels(path, filters):
+            return subprocess.run([self.ffmpeg, '-v', 'error', '-threads', '1', '-i', str(path),
+                                   '-vf', filters, '-frames:v', '1', '-threads', '1', '-f', 'rawvideo',
+                                   '-pix_fmt', 'rgb24', 'pipe:1'], env=self.env, stdout=subprocess.PIPE, check=True).stdout
+        expected = pixels(self.root/'landscape.mp4', 'transpose=clock,hflip')
+        actual = pixels(out, 'null')
+        self.assertEqual(len(expected), len(actual))
+        self.assertLess(sum(abs(a-b) for a,b in zip(expected,actual))/len(actual), 6)
+
+    def test_split_wav_remains_audible_on_both_sides_of_cut(self):
+        p = self.project(count=1);p['clips'][0]['volume'] = 0
+        track = model.new_audio(self.root/'music.wav');track.update(start=.1, out=1.4)
+        p['audio'] = [track];p = model.split_item(p, 'audio', 0, .7)
+        out = self.root/'split-wav.mp4';engine.render(p, out)
+        raw = subprocess.run([self.ffmpeg, '-v', 'error', '-i', str(out), '-vn', '-ar', '8000', '-ac', '1',
+                              '-f', 'f32le', 'pipe:1'], env=self.env, stdout=subprocess.PIPE, check=True).stdout
+        samples = array.array('f');samples.frombytes(raw)
+        for at in (.55, .75):
+            segment = samples[int(at*8000):int((at+.1)*8000)]
+            self.assertGreater(math.sqrt(sum(v*v for v in segment)/len(segment)), .07)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ htmlcov/
 *.egg-info/
 *.deb
 !/installers/ubuntu/clipcanvas_0.1.1_all.deb
+!/installers/ubuntu/clipcanvas_0.2.0_all.deb
 *.clipcanvas
 *.mp4
 *.mov
