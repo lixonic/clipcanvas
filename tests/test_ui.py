@@ -50,7 +50,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         errors=[];w.canvas.on_error=errors.append
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2 and len(w.waves)==1)
             w.project['clips'][0].update(transition='fade',transition_duration=.4)
             w.project['layers']=[model.new_text('Live',0,3)];w.project['layers'][0]['font_size']=24
@@ -99,7 +99,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'fps-recovery')
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('portrait.mp4','landscape.mp4')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('portrait.mp4','landscape.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2)
             self.assertEqual(w.project['fps'],25)
             w.select('clips',1,seek=False);w.move(-1)
@@ -124,7 +124,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         errors=[];w.canvas.on_error=errors.append
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.timeline.hit))
             w.zoom(100);w.seek(.3)
             self.pump(lambda:w.canvas.live and not w.scrub_timer and abs(w.canvas.position()-.3)<.01)
@@ -183,7 +183,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'zoom-preview-recovery')
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs) and w.canvas.canvas_rect is not None)
             before=copy.deepcopy(w.project);history=len(w.history)
             fit=w.canvas.canvas_rect
@@ -229,7 +229,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         try:
             w.start_project(1080, 1920)
             sources = [str(self.fixtures.root / n) for n in ('landscape.mp4', 'portrait.mp4', 'music.wav')]
-            w.import_paths(sources)
+            w.import_paths(sources,add_to_timeline=True)
             self.pump(lambda: not w.busy and len(w.thumbs) == 2 and len(w.waves) == 1)
             self.assertFalse(errors)
             self.assertEqual(len(w.project['clips']), 2)
@@ -288,7 +288,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         errors = [];w.error = errors.append
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
             self.pump(lambda: not w.busy and len(w.thumbs)==2 and len(w.waves)==1)
             w.select('clips',0)
             w.fields['speed'][0].set_value(2)
@@ -334,7 +334,7 @@ class DesktopWorkflowTests(unittest.TestCase):
     def test_quality_picker_refreshes_still_live_and_export_defaults(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'quality-ui-recovery');w.error=lambda message:self.fail(message)
         try:
-            w.start_project(960,540);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            w.start_project(960,540);w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and not w._scrub_settling and w.canvas.frame is not None)
             self.assertEqual(w.preview_quality.get_active_id(),'0')
             self.assertEqual((w.canvas.frame.get_width(),w.canvas.frame.get_height()),(960,540))
@@ -362,7 +362,7 @@ class DesktopWorkflowTests(unittest.TestCase):
     def test_insert_edit_split_reorder_cards_with_visible_drag_and_undo(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'cards-ui-recovery');w.error=lambda message:self.fail(message)
         try:
-            w.start_project(320,180);w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')])
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2)
             w.select('clips',0,seek=False)
             def insert():
@@ -446,7 +446,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             # Place the clip with sound second, so extraction must preserve a
             # nonzero offset as well as its source trim and playback speed.
             w.import_paths([str(self.fixtures.root/n)
-                            for n in ('portrait.mp4', 'landscape.mp4')])
+                            for n in ('portrait.mp4', 'landscape.mp4')],add_to_timeline=True)
             self.pump(lambda: not w.busy and len(w.thumbs) == 2
                       and bool(w.timeline.join_hits))
             w.seek(.7)
@@ -541,7 +541,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         errors=[];w.error=errors.append
         w.canvas._pipeline.set_property('volume',0)
         try:
-            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs) and w.canvas.canvas_rect is not None)
             w.layer_tools.add_text()
             self.assertEqual(w.selected,('layers',0))
@@ -566,7 +566,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             logo=self.fixtures.root/'ui-logo.png'
             surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,50,50);cr=cairo.Context(surface)
             cr.set_source_rgba(1,0,0,.7);cr.paint();surface.write_to_png(str(logo))
-            w.import_paths([str(logo)])
+            w.import_paths([str(logo)],add_to_timeline=True)
             self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
             self.assertEqual(len(w.project['layers']),2)
             w.layer_tools.replace_captions(captions.parse_srt('1\n00:00:00,100 --> 00:00:01,000\nRecognized words\n'))
@@ -607,7 +607,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'speech-ui-recovery');errors=[];w.error=errors.append
         w.canvas._pipeline.set_property('volume',0)
         try:
-            w.start_project(320,180);w.import_paths([str(source)])
+            w.start_project(320,180);w.import_paths([str(source)],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs))
             # This is the same background job used by the Generate dialog:
             # private runtime -> timeline-aware audio -> real offline ASR -> editable cues.
@@ -637,7 +637,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'presets-ui-recovery')
         errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
         try:
-            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs))
             w.layer_tools.add_text();w.layer_tools.text.get_buffer().set_text('Keep my words')
             w.layer_tools.font.set_font_name('Sans 24');w.fields['height'][0].set_value(35)
@@ -660,7 +660,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             logo=self.fixtures.root/'preset-logo.png'
             surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,40,40);cr=cairo.Context(surface)
             cr.set_source_rgba(1,0,0,.5);cr.paint();surface.write_to_png(str(logo))
-            w.import_paths([str(logo)]);self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
+            w.import_paths([str(logo)],add_to_timeline=True);self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
             w.select('layers',1,seek=False)
             self.assertTrue(w.layer_tools.overlay_controls.get_visible())
             w.project['layers'][1].update(start=.2,end=.8);w.layer_tools.overlay_full_video()
@@ -685,7 +685,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.waves))
             w.project['clips'][0].update(transition='fade',transition_duration=.2)
             w.layer_tools.add_text();w.layer_tools.font.set_font_name('Sans 24');w.apply_fields()
@@ -734,7 +734,7 @@ class DesktopWorkflowTests(unittest.TestCase):
         callback_errors=[];audition_paths=[]
         try:
             w.start_project(320,180)
-            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','music.wav')])
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','music.wav')],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs) and bool(w.waves))
             w.project['clips'][0]['volume']=0;w.changed();w.seek(.3)
             before=copy.deepcopy(w.project)
@@ -789,6 +789,131 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+
+    def test_library_click_group_selection_keyboard_and_timeline_wheel(self):
+        from clipcanvas import workflow
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'new-workflow-recovery')
+        errors=[];w.error=errors.append
+        clipboard=SimpleNamespace(text=None)
+        clipboard.set_text=lambda text,length:setattr(clipboard,'text',text)
+        clipboard.wait_for_text=lambda:clipboard.text
+        def key(name,ctrl=False,shift=False):
+            state=(Gdk.ModifierType.CONTROL_MASK if ctrl else 0)|(Gdk.ModifierType.SHIFT_MASK if shift else 0)
+            return w.keypress(w,SimpleNamespace(keyval=Gdk.keyval_from_name(name),state=state))
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and len(w.waves)==1)
+            self.assertEqual((len(w.project['clips']),len(w.project['audio'])),(0,0))
+            self.assertEqual(len(w.project['assets']),3)
+            # Click the actual library buttons to create independent copies.
+            for row in w.assets.get_children()[:3]:row.get_child().clicked()
+            self.assertEqual((len(w.project['clips']),len(w.project['audio'])),(2,1))
+            self.assertEqual(len(w.project['assets']),3)
+            w.cancel_scrub();w.timeline.grab_focus()
+            w.select('audio',0,seek=False)
+            menu=w.context_menu('clips',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
+            menu.popdown()
+            self.assertEqual({kind for kind,_,_ in w.selection_items()},{'clips'})
+            self.assertEqual(len(w.selection_items()),2)
+            original=copy.deepcopy(w.project)
+            with mock.patch.object(Gtk.Clipboard,'get',return_value=clipboard):
+                self.assertTrue(key('c',ctrl=True))
+                self.assertTrue(clipboard.text.startswith(workflow.CLIPBOARD_PREFIX))
+                w.playhead=model.project_duration(w.project)
+                self.assertTrue(key('v',ctrl=True))
+                self.assertEqual(len(w.project['clips']),4)
+                self.assertEqual(len(w.selection_items()),2)
+                self.assertTrue(key('Delete'))
+                self.assertEqual(w.project,original)
+                w.undo();self.assertEqual(len(w.project['clips']),4)
+                w.redo();self.assertEqual(w.project,original)
+                # Ctrl+A selects every timeline kind; Shift+right-click audio is scoped.
+                key('a',ctrl=True);self.assertEqual(len(w.selection_items()),3)
+                menu=w.context_menu('audio',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK));menu.popdown()
+                self.assertEqual([kind for kind,_,_ in w.selection_items()],['audio'])
+                # Entry shortcuts must remain text operations.
+                w.name.grab_focus();before=copy.deepcopy(w.project)
+                self.assertFalse(key('Delete'));self.assertFalse(key('c',ctrl=True));self.assertFalse(key('v',ctrl=True))
+                self.assertEqual(w.project,before)
+            w.timeline.grab_focus();w.select('clips',0,seek=False)
+            w.select_modified('clips',1,Gdk.ModifierType.SHIFT_MASK);self.assertEqual(len(w.selection_items()),2)
+            w.select_modified('clips',1,Gdk.ModifierType.CONTROL_MASK);self.assertEqual(len(w.selection_items()),1)
+            scale=w.timeline.scale;preview_zoom=w.canvas.preview_zoom
+            self.assertTrue(w.timeline.scroll(None,SimpleNamespace(state=Gdk.ModifierType.CONTROL_MASK,direction=Gdk.ScrollDirection.UP,x=200)))
+            self.assertGreater(w.timeline.scale,scale);self.assertEqual(w.canvas.preview_zoom,preview_zoom)
+            self.assertGreaterEqual(w.play_button.get_size_request()[1],52)
+            self.assertEqual(w.play_button.get_label(),'Play')
+            # Store unused imported assets too, then restore an editable project.
+            w.project_path=str(self.fixtures.root/'new-workflow.clipcanvas');self.assertTrue(w.save())
+            saved=copy.deepcopy(w.project);w.open_project(w.project_path)
+            self.assertEqual(w.project,saved);self.assertFalse(w.selection)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_native_chooser_and_audio_defaults_persist_only_after_accept_apply(self):
+        from clipcanvas.audio_effects_ui import VoiceEffectsDialog,edit_voice_effects
+        prefs=self.fixtures.root/'remembered-settings';w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'remembered-recovery',preferences_dir=prefs)
+        chooser=None;dialog=None
+        try:
+            folder=self.fixtures.root/'chosen-media';folder.mkdir(exist_ok=True)
+            chooser=file_chooser(w,'Import clips',Gtk.FileChooserAction.OPEN,'Import')
+            chooser.set_current_folder(str(folder));self.pump(lambda:chooser.get_current_folder()==str(folder))
+            chooser.emit('response',Gtk.ResponseType.CANCEL)
+            self.assertIsNone(w.preferences.get('folder_media'))
+            chooser.emit('response',Gtk.ResponseType.ACCEPT);chooser.destroy();chooser=None
+            from clipcanvas.preferences import Preferences
+            self.assertEqual(Preferences(prefs).folder('media'),str(folder))
+            chooser=file_chooser(w,'Add soundtracks',Gtk.FileChooserAction.OPEN,'Import')
+            self.pump(lambda:chooser.get_current_folder()==str(folder));chooser.destroy();chooser=None
+            w.start_project(320,180);w.project['clips']=[model.new_card('#222222',3)]
+            w.project['audio']=[model.new_audio(self.fixtures.root/'music.wav')];w.select('audio',0,seek=False)
+            before=w.preferences.get('last_voice_effects')
+            with mock.patch.object(VoiceEffectsDialog,'run',return_value=Gtk.ResponseType.CANCEL):edit_voice_effects(w)
+            self.assertEqual(w.preferences.get('last_voice_effects'),before)
+            def apply_once(d):
+                d.controls['echo_enabled'][0].set_active(True)
+                d.controls['echo_delay_ms'][0].set_value(730)
+                d.controls['gain_db'][0].set_value(4)
+                return Gtk.ResponseType.OK
+            with mock.patch.object(VoiceEffectsDialog,'run',apply_once):edit_voice_effects(w)
+            self.assertEqual(Preferences(prefs).get('last_voice_effects')['echo_delay_ms'],730)
+            fresh=model.new_audio(self.fixtures.root/'music.wav')
+            dialog=VoiceEffectsDialog(w,fresh,2);self.assertEqual(dialog.read()['echo_delay_ms'],730);dialog.destroy();dialog=None
+            fresh['audio_effects']={'echo_delay_ms':360,'gain_db':-2}
+            dialog=VoiceEffectsDialog(w,fresh,2);self.assertEqual(dialog.read()['echo_delay_ms'],360);self.assertEqual(dialog.read()['gain_db'],-2);dialog.destroy();dialog=None
+            w.cancel_scrub();w.select('audio',0,seek=False)
+            w.fields['volume'][0].set_value(55);w.fields['fade_in'][0].set_value(.25);w.apply_fields()
+            self.assertEqual(Preferences(prefs).get('last_audio_settings')['volume'],.55)
+            w.select('audio',0,seek=False);w.fields['volume'][0].set_value(100);w.use_last_audio_settings()
+            self.assertAlmostEqual(w.fields['volume'][0].get_value(),55)
+            self.assertEqual(w.fields['fade_in'][0].get_value(),.25)
+        finally:
+            if dialog:dialog.destroy()
+            if chooser:chooser.destroy()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_playhead_position_is_notified_with_each_presented_live_frame(self):
+        from gi.repository import Gst
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'frame-clock-recovery')
+        try:
+            w.start_project(320,180)
+            canvas=w.canvas;canvas._live=SimpleNamespace(start=5,total=10,last_position=5,stop=lambda:None)
+            canvas._loaded=True
+            picture=Gst.Sample.new(Gst.Buffer.new_wrapped(bytes(4*2*3)),Gst.Caps.from_string('video/x-raw,format=RGB,width=4,height=2'),None,None)
+            picture.get_buffer().pts=int(.625*Gst.SECOND)
+            canvas._receive_sample(picture)
+            self.pump(lambda:canvas.frame is not None)
+            self.assertAlmostEqual(w.playhead,5.625);self.assertAlmostEqual(canvas.position(),5.625)
+            # No timer/query clock may advance the line past this visible frame.
+            canvas._tick();self.assertAlmostEqual(w.playhead,5.625)
+            canvas._live=None
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
 
 if __name__ == '__main__':
     unittest.main()

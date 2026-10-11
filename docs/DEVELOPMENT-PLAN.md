@@ -185,3 +185,14 @@ Lifted thumbnails, insertion gaps/markers and viewport-edge scrolling make a
 reorder visible before committing one undo step. See [validation](QUALITY-CARDS.md).
 High-bit-depth/HDR mastering, persistent preview caches and hardware acceleration
 remain separate work.
+
+## Desktop workflow follow-up: 0.9.0
+
+Separate saved library assets from timeline copies, with explicit click placement.
+Add group selection, clipboard/Delete controls, pointer-anchored Ctrl+wheel
+zoom, persistent accepted folders and applied audio settings, visible project
+controls and a larger Play button. Present playback time with the decoded frame;
+input-seek silent scrubbing while preserving source/output frame alignment and
+fades/joins. Format 5 migrates prior projects and collects unused assets too.
+See [workflow validation](EDITOR-WORKFLOW.md). Hardware decoding/caching and
+Windows/provider work remain separate increments.

@@ -65,6 +65,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = 0.0
         self._last_duration = 0.0
         self._pending_seek = None
+        self._freeze_frame = False
         self._live = None
         self._pipeline = Gst.ElementFactory.make("playbin", None)
         self._sink = Gst.ElementFactory.make("appsink", None)
@@ -226,6 +227,7 @@ class VideoCanvas(Gtk.DrawingArea):
         def end():
             if generation == self._generation:
                 self.playing = False
+                self._last_position=self.duration()
                 self._notify(self.on_position, self.duration(), self.duration())
                 self._notify(self.on_end)
         try:
@@ -237,6 +239,7 @@ class VideoCanvas(Gtk.DrawingArea):
             self._notify(self.on_error, 'Live preview is unavailable: ' + str(problem))
 
     def play(self):
+        self._freeze_frame = False
         if self._destroyed or not self._loaded:
             return
         if self.duration() > 0 and self.position() >= self.duration() - 0.05:
@@ -249,6 +252,9 @@ class VideoCanvas(Gtk.DrawingArea):
             self.playing = True
 
     def pause(self):
+        if self.playing:
+            self._freeze_frame = True
+            with self._frame_lock:self._latest_frame = None
         if self._live is not None:
             self._live.pause()
             self.playing = False
@@ -261,6 +267,7 @@ class VideoCanvas(Gtk.DrawingArea):
         if self._destroyed:
             return
         self.playing = False
+        self._freeze_frame = False
         self._generation += 1
         if self._live is not None:
             self._live.stop()
@@ -283,6 +290,7 @@ class VideoCanvas(Gtk.DrawingArea):
         if self._live is not None:
             self.load_project(self._live.project, seconds, self.playing)
             return
+        self._freeze_frame = False
         result = self._pipeline.seek_simple(
             Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
             int(seconds * Gst.SECOND),
@@ -295,7 +303,7 @@ class VideoCanvas(Gtk.DrawingArea):
 
     def position(self):
         if self._live is not None:
-            return self._live.position()
+            return self._last_position
         if not self._destroyed and self._loaded:
             ok, value = self._pipeline.query_position(Gst.Format.TIME)
             if ok and value >= 0:
@@ -319,7 +327,7 @@ class VideoCanvas(Gtk.DrawingArea):
 
     def _receive_sample(self, sample, generation=None):
         generation = self._generation if generation is None else generation
-        if sample is None or self._destroyed or generation != self._generation:
+        if sample is None or self._destroyed or self._freeze_frame or generation != self._generation:
             return Gst.FlowReturn.OK
         try:
             structure = sample.get_caps().get_structure(0)
@@ -332,7 +340,8 @@ class VideoCanvas(Gtk.DrawingArea):
                 stride = width * 3
             if width <= 0 or height <= 0 or size < stride * (height - 1) + width * 3:
                 return Gst.FlowReturn.OK
-            payload = (generation, buffer.extract_dup(0, size), width, height, stride)
+            pts=buffer.pts/Gst.SECOND if buffer.pts!=Gst.CLOCK_TIME_NONE else None
+            payload = (generation, buffer.extract_dup(0, size), width, height, stride, pts)
             with self._frame_lock:
                 self._latest_frame = payload
                 # Retain only the newest frame if GTK is busy. There is never
@@ -347,13 +356,17 @@ class VideoCanvas(Gtk.DrawingArea):
         with self._frame_lock:
             payload, self._latest_frame = self._latest_frame, None
             self._idle_id = 0
-        if self._destroyed or payload is None or payload[0] != self._generation:
+        if self._destroyed or self._freeze_frame or payload is None or payload[0] != self._generation:
             return GLib.SOURCE_REMOVE
-        _, pixels, width, height, stride = payload
+        _, pixels, width, height, stride, pts = payload
         self.frame = GdkPixbuf.Pixbuf.new_from_bytes(
             GLib.Bytes.new(pixels), GdkPixbuf.Colorspace.RGB, False, 8,
             width, height, stride,
         )
+        if pts is not None:
+            self._last_position=min(self.duration(), (self._live.start if self._live else 0)+pts)
+            if self._live:self._live.last_position=self._last_position
+            self._notify(self.on_position,self._last_position,self.duration())
         self.queue_draw()
         return GLib.SOURCE_REMOVE
 
@@ -377,7 +390,7 @@ class VideoCanvas(Gtk.DrawingArea):
     def _tick(self):
         if self._destroyed:
             return GLib.SOURCE_REMOVE
-        if self._loaded:
+        if self._loaded and not self._live:
             self._notify(self.on_position, self.position(), self.duration())
         return GLib.SOURCE_CONTINUE
 

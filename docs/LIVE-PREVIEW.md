@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.8.0
+# Live preview, scrubbing and zoom — ClipCanvas 0.9.0
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -142,3 +142,21 @@ Color cards run through the same composition graph with silent audio, transition
 absolute layer/caption timing and independent soundtracks. A new seek cancels
 any obsolete paused-frame request so its callback cannot interrupt the newer
 playback. See [quality, cards and validation](QUALITY-CARDS.md).
+
+## Frame timing and source seeking: 0.9.0
+
+The native live canvas reports the timestamp of each RGB buffer presented to GTK,
+so its clock label and timeline playhead move with the visible frame. The 100 ms
+pipeline-position polling path no longer drives live playback. Pause discards
+pending playback buffers; paused seeking still accepts its new preroll frame.
+
+Silent composed scrubbing now input-seeks within the first active source, skipping
+whole source/output frame intervals. Picture fades keep the original local time;
+transition offsets keep the shortened prefix length. The outgoing overlap and
+video-overlay resampling history are retained for accurate join/overlay frames.
+Audio/effect history is unchanged in playback and export.
+
+Fast is a resolution setting, not hardware acceleration. Decoding/compositing has
+finite latency, especially with many layers or high-resolution sources. See
+[workflow validation and timing](EDITOR-WORKFLOW.md). Ctrl+wheel zooms the surface
+under the pointer: timeline time scale or canvas magnification independently.

@@ -75,10 +75,7 @@ class StreamPlayer:
             end()
 
     def position(self):
-        if not self.cancel.is_set() and not self.ended:
-            ok, value = self.pipeline.query_position(Gst.Format.TIME)
-            if ok and value >= 0:
-                self.last_position = min(self.total, self.start + value/Gst.SECOND)
+        # Updated by the canvas when a decoded frame is actually presented.
         return self.last_position
 
     def play(self):

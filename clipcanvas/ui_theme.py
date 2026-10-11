@@ -44,6 +44,7 @@ CSS = b'''
 }
 .clipcanvas button.quiet { border-color: transparent; }
 .clipcanvas .round-control { border-radius: 50%; padding: 10px; }
+.clipcanvas button.preview-play { font-weight: bold; padding: 8px 18px; border-radius: 26px; }
 .clipcanvas .transition-card { padding: 10px; }
 '''
 

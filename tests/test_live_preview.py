@@ -151,3 +151,29 @@ class AutomaticFrameRateTests(unittest.TestCase):
             loaded=model.load_project(saved)
             self.assertEqual(loaded['fps'],p['fps'])
             self.assertEqual(loaded['clips'][0]['source_fps'],p['clips'][0]['source_fps'])
+
+
+class DeepScrubTests(unittest.TestCase):
+    def test_deep_source_seek_preserves_speed_fades_overlay_and_transition(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);ffmpeg,env=engine._tool('ffmpeg');source=root/'long.mp4'
+            subprocess.run([ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=s=160x90:r=30:d=18',
+                            '-c:v','libx264','-threads','1',str(source)],env=env,check=True)
+            p=model.new_project(160,90);p['clips']=[model.new_clip(source),model.new_card('#148ac9',3)]
+            p['clips'][0].update(speed=1.5,video_fade_in=2,video_fade_out=2,transition='fade',transition_duration=.8)
+            p['layers']=[model.new_visual(source,'video',2,14)]
+            p['layers'][0].update(width=.4,height=.4,opacity=.5,speed=2)
+            p['captions']=[model.new_caption('Tail',10,14)];p['caption_style']['font_size']=12
+            original=copy.deepcopy(p);graph=engine._graph
+            for at in (1.4,8,10.6,11.6,12.4):
+                fast=engine.preview_frame(p,at)
+                def reference(*args,**kwargs):
+                    kwargs['picture_start']=None
+                    return graph(*args,**kwargs)
+                with mock.patch.object(engine,'_graph',reference):baseline=engine.preview_frame(p,at)
+                error=sum(abs(a-b) for a,b in zip(fast['pixels'],baseline['pixels']))/len(fast['pixels'])
+                self.assertLess(error,3,f'Frame at {at} differs: {error}')
+            args,_,_=graph(p,True,root,video_only=True,picture_start=8)
+            self.assertGreater(float(args[args.index('-ss')+1]),11)
+            self.assertEqual(p,original)

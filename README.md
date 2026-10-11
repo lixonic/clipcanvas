@@ -1,17 +1,18 @@
-# ClipCanvas 0.8.0
+# ClipCanvas 0.9.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.8.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.9.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
 - [Canva UI study and native editor design](docs/UI-STUDY.md)
 - [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
 - [Contributing and build instructions](CONTRIBUTING.md)
+- [Media library, shortcuts, settings and project workflow](docs/EDITOR-WORKFLOW.md)
 - [Preview quality, lossless masters and color cards](docs/QUALITY-CARDS.md)
 - [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
@@ -22,6 +23,10 @@ AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playbac
 Version 0.7.1 adds continuous playhead scrubbing and preview zoom/pan.
 Version 0.8.0 adds full-resolution previews by default, a quality selector,
 lossless masters, color cards and visible clip dragging/drop gaps.
+Version 0.9.0 adds a saved media library (click assets to place timeline copies),
+group selection/copy/paste/Delete, Ctrl+wheel timeline zoom, remembered folders
+and audio settings, labelled Save/Open controls and a larger Play button.
+Playback time follows each displayed frame; silent scrub frames seek into the active source.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -29,24 +34,24 @@ positioned overlays and local speech captions are included. The inventory record
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
 
-![ClipCanvas full-resolution preview and color cards](docs/images/quality-cards-0.8.0.png)
+![ClipCanvas native media library, preview and project controls](docs/images/editor-workflow-0.9.0.png)
 
 ## Install and open
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.8.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.8.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.9.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.8.0_all.deb
+   sudo apt install ./clipcanvas_0.9.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -61,8 +66,11 @@ separate application and does not change VLC.
 1. **Choose a canvas.** Landscape is 16:9 for YouTube, portrait is 9:16 for Reels
    and Shorts, and square is 1:1. The **Canvas** menu remains above
    the preview. Frame rate follows the first source video automatically.
-2. **Add local videos.** Use **Add videos** in the media sidebar or the plus
-   action after the final timeline clip. Drag clips to reorder them: a lifted
+2. **Import local videos.** Use **Add videos** in the media sidebar or the plus
+   action after the final timeline clip. Import adds to the saved media library;
+   **click an asset** to append an independent timeline copy. Audio copies start
+   at the playhead. Importing does not start a timeline or replace your preview.
+   File pickers remember accepted folders across launches. Drag clips to reorder them: a lifted
    thumbnail follows your pointer, neighboring clips make room, and **Drop here**
    marks the destination. Hold near the viewport edge to scroll the timeline.
    Release commits one undoable move. Search the
@@ -245,8 +253,10 @@ embed a browser or the full Files application.
 
 ## Save projects and keep your originals
 
+**Save project** and **Open project** are labelled buttons in the top bar.
+Use Ctrl+S to save, Ctrl+Shift+S to Save as, and Ctrl+O to reopen.
 Save a project so you can return to the composition later. Projects store edit
-decisions and paths to your originals, with relative paths where possible. If
+decisions, the media library and paths to your originals, with relative paths where possible. If
 you move a project without its media, use **Project → Relink missing media**.
 Replacement files must contain the same media type and be long enough for the
 saved trim points.
@@ -261,12 +271,19 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.7.x and adds missing defaults on load.
-It saves project format 4 for file-free cards. Use ClipCanvas 0.8 or newer to
+This version reads projects from 0.1.x–0.8.x and adds missing defaults on load.
+It saves project format 5 for the separate media library. Use ClipCanvas 0.9 or newer to
 open projects saved by this version. Earlier files are migrated when opened.
 Shadows, rounded highlights and custom row order need 0.5.x or newer.
 Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
 include the media references, editable text, captions, styles and row layout.
+
+Shift+right-click a video or audio item selects all items of that kind.
+Shift+click selects a range; Ctrl+click toggles individual items. Ctrl+A selects
+all timeline items, including layers/captions. Ctrl+C/X/V copies/cuts/pastes;
+Delete removes the selection in one undo step. Text fields keep their text shortcuts.
+Ctrl+wheel over the timeline zooms around the pointer; over the canvas it zooms the preview.
+See the [workflow guide](docs/EDITOR-WORKFLOW.md) for placement and remembered audio settings.
 
 The exported MP4 is a standalone video that you can share or upload.
 

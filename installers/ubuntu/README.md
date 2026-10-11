@@ -1,27 +1,24 @@
 # Ubuntu installers
 
-`clipcanvas_0.8.0_all.deb` is the current Ubuntu 24.04 prototype. It adds Full/HD/Fast
-preview quality with Full as default, lossless MKV masters, native color cards
-and lifted timeline dragging with insertion gaps and edge scrolling. Existing
-live playback, WAV mixing, voice effects, layers and editable speech captions
-remain included. Earlier installers are kept for historical reference.
+`clipcanvas_0.9.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
+remembered folders/audio settings, visible project controls and a bigger Play
+button. The playback line follows displayed frames and silent scrubbing seeks
+into the active source. Earlier installers remain for historical reference.
 
-Download the current `.deb` and `SHA256SUMS.txt`. On GitHub, open the file and use
-**Download raw file**. Check the current installer's line from the checksum list.
+Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.8.0_all.deb
+sudo apt install ./clipcanvas_0.9.0_all.deb
 ```
 
-Installation may fetch Ubuntu dependencies. Automatic captions initially download
-a private runtime and Tiny/Small model; recognition then works offline. See
-[caption setup](../../docs/CAPTIONS.md). Save and reopen an already-running
-ClipCanvas session after upgrading.
+Save and reopen an already-running ClipCanvas session after upgrading. Installation
+may fetch Ubuntu dependencies. Automatic captions initially download their private
+runtime/model, then run offline. See [caption setup](../../docs/CAPTIONS.md).
 
-82 local checks cover rendering, WAV, quality/export, cards, 15 native desktop
-workflows and real speech recognition. See [validation](../../docs/QUALITY-CARDS.md).
-Build with `/usr/bin/python3 build_deb.py --output-dir dist`. GitHub Actions also
-provides temporary build artifacts. Windows and provider/API/MCP work remain pending.
+See [workflow validation](../../docs/EDITOR-WORKFLOW.md). Build with
+`/usr/bin/python3 build_deb.py --output-dir dist`; GitHub Actions provides temporary
+artifacts. Windows and external provider/API/MCP work remain pending.
 
-Version 0.8.0 reads projects from 0.1.x–0.7.x and saves format 4. Projects saved by
-0.8 require 0.8 or newer; earlier versions cannot read file-free card scenes.
+Version 0.9.0 reads project formats 1–4 and saves format 5, including unused local
+assets. Newly saved projects need 0.9 or newer.

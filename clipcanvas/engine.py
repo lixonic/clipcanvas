@@ -367,7 +367,7 @@ def preview_dimensions(project, max_edge=640):
     return max(2, round(width*scale/2)*2), max(2, round(height*scale/2)*2)
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640):
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None):
     # For live seeking, omit completed main clips. Keep the original global
     # timestamps for music, captions and overlays, including effect history.
     if origin:
@@ -382,18 +382,28 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     filters = []
     rows = timeline(project)
     total = project_duration(project) + origin
-    clips = project["clips"]
+    clips = project['clips']
+    skip=0
+    if video_only and picture_start is not None:
+        limit=max(0,rows[0]['duration']-rows[0]['overlap']-2/fps)
+        from fractions import Fraction
+        source_fps=fps if is_card(clips[0]) else probe(clips[0]['path'])['fps']
+        ratio=Fraction(source_fps/fps*clips[0].get('speed',1)).limit_denominator(10000)
+        frames=ratio.denominator
+        skip=math.floor(max(0,min(limit,picture_start-origin-2/fps))*fps/frames)*frames/fps
     for index, clip in enumerate(clips):
         duration = clip_duration(clip)
         speed = clip.get("speed", 1)
+        seek=skip if index==0 else 0
+        remaining=duration-seek
         if is_card(clip):
             metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
-            args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(duration)}"]
+            args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(remaining)}"]
         else:
             metadata = probe(clip["path"])
             if not metadata["has_video"]:
                 raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)), "-t", _fmt(clip["out"] - clip["in"]), "-i", clip["path"]]
+            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
         rotation = clip.get("rotation", 0)
@@ -413,14 +423,16 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={width}:{height}:(iw-ow)*{x}:(ih-oh)*{y}"
         picture = [f"[{index}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
-                   f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(duration)}",
-                   f"trim=duration={_fmt(duration)}", f"fps={_fmt(fps)}", "settb=AVTB"]
+                   f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
+                   f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
+        if seek:picture.append(f"setpts=PTS+{_fmt(seek)}/TB")
         picture_fade_in = min(float(clip.get("video_fade_in", 0)), duration)
         picture_fade_out = min(float(clip.get("video_fade_out", 0)), duration)
         if picture_fade_in > 0:
             picture.append(f"fade=t=in:st=0:d={_fmt(picture_fade_in)}")
         if picture_fade_out > 0:
             picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
+        if seek:picture.append(f"setpts=PTS-{_fmt(seek)}/TB")
         if not audio_only:
             filters.append(",".join(picture) + f"[v{index}]")
         if video_only:
@@ -433,7 +445,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         else:
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={_fmt(duration)},asetpts=PTS-STARTPTS[a{index}]")
     video, audio = "v0", "a0"
-    running_duration = rows[0]["duration"]
+    running_duration = rows[0]["duration"]-skip
     for index in range(1, len(clips)):
         overlap = rows[index - 1]["overlap"]
         if overlap:
@@ -449,9 +461,9 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
                 filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
         video, audio = f"joinv{index}", f"joina{index}"
         running_duration += rows[index]["duration"] - overlap
-    if origin:
+    if origin or skip:
         if not audio_only:
-            filters.append(f'[{video}]setpts=PTS+{_fmt(origin)}/TB[globalvideo]')
+            filters.append(f'[{video}]setpts=PTS+{_fmt(origin+skip)}/TB[globalvideo]')
             video = 'globalvideo'
         if not video_only:
             filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
@@ -487,7 +499,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
 def preview_frame(project, seconds, cancel=None, preview_edge=640):
     """Read one composed RGB frame for interactive, silent playhead dragging.
 
-    Skip completed clips and inactive layers/captions. Keep future clip joins
+    Seek into the active source at aligned source/composition frame boundaries,
+    skipping completed clips and inactive layers/captions. Keep future clip joins
     so color-format negotiation matches playback, with no soundtrack decoding
     or video file.
     """
@@ -506,7 +519,7 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
         project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
     width, height = preview_dimensions(project, preview_edge)
     with tempfile.TemporaryDirectory(prefix='clipcanvas-frame-') as scratch:
-        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge)
+        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge, picture_start=seconds)
         graph_path = Path(scratch)/'filters.txt'
         graph_path.write_text(graph, encoding='utf-8')
         picture = Path(scratch)/'picture.rgb'

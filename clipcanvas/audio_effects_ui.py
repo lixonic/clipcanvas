@@ -63,7 +63,13 @@ class VoiceEffectsDialog(Gtk.Dialog):
         self.player=Gst.ElementFactory.make('playbin',None)
         self.player.set_property('video-sink',Gst.ElementFactory.make('fakesink',None))
         self.bus=self.player.get_bus();self.bus.add_signal_watch();self.bus_handler=self.bus.connect('message',self.on_message)
-        self.load(audio_effects.settings(item));self.presets.set_active_id('custom');self.loading=False
+        initial=audio_effects.settings(item)
+        if 'audio_effects' not in item:
+            remembered=owner.preferences.get('last_voice_effects')
+            try:
+                if remembered is not None:audio_effects.validate(remembered);initial={**initial,**remembered}
+            except ValueError:pass
+        self.load(initial);self.presets.set_active_id('custom');self.loading=False
         self.presets.connect('changed',self.choose_preset);self.enabled.connect('toggled',self.changed)
         for widget,_ in self.controls.values():widget.connect('toggled' if isinstance(widget,Gtk.CheckButton) else 'value-changed',self.changed)
         self.connect('response',lambda *_:self.stop_audition());self.connect('destroy',lambda *_:self.cleanup())
@@ -164,6 +170,8 @@ def edit_voice_effects(owner,page='Echo'):
             if candidate[kind][index].get('id')!=source_id:break
             candidate[kind][index]['audio_effects']=value;model.validate_project(candidate,check_files=False)
         except ValueError as error:dialog.status.set_text(str(error));continue
+        try:owner.preferences.set('last_voice_effects',value)
+        except OSError as error:owner.set_status('Could not remember voice settings: '+str(error))
         owner.checkpoint();owner.project=candidate;owner.changed();owner.seek(at)
         owner.set_status('Voice effects applied. Press Preview to hear them in the full mix.');break
     dialog.destroy();owner.voice_dialog=None

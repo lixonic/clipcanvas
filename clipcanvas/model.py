@@ -1,8 +1,8 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Formats 1–3 migrate on load; format 4
-adds file-free color cards. Visual layers use canvas-relative centers and sizes, so their placement
+possible. Saving never changes the media. Formats 1–4 migrate on load; format 5
+adds a separate, saved media library alongside file-free color cards. Visual layers use canvas-relative centers and sizes, so their placement
 survives a canvas resize; text sizes are expressed in canvas pixels.
 """
 
@@ -22,7 +22,7 @@ from . import track_layout, audio_effects
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
-PROJECT_VERSION = 4
+PROJECT_VERSION = 5
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 MAX_TIMELINE_SECONDS = 86400 * 7
 
@@ -47,7 +47,7 @@ def caption_style():
 def new_project(width=1920, height=1080):
     return {"version": PROJECT_VERSION, "name": "Untitled video", "width": int(width),
             "height": int(height), "fps": 30, "clips": [], "audio": [],
-            "layers": [], "captions": [], "caption_style": caption_style(), "timeline_order": []}
+            "assets": [], "layers": [], "captions": [], "caption_style": caption_style(), "timeline_order": []}
 
 
 def new_text(text="Your title", start=0.0, end=3.0):
@@ -89,7 +89,14 @@ def media_items(project):
     or relinking. Collection deduplicates the source files separately.
     """
     return [item for item in project.get("clips", []) if not is_card(item)] + list(project.get("audio", [])) + [
-        item for item in project.get("layers", []) if item.get("kind") in ("image", "video")]
+        item for item in project.get("layers", []) if item.get("kind") in ("image", "video")] + list(project.get("assets", []))
+
+
+def new_asset(item, kind):
+    result = {'id': uuid.uuid4().hex, 'kind': kind, 'path': item['path']}
+    for key in ('duration', 'source_fps', 'width', 'height'):
+        if key in item: result[key] = item[key]
+    return result
 
 
 def _metadata(path, metadata):
@@ -356,6 +363,16 @@ def validate_project(project, check_files=True, require_clips=False):
     if not isinstance(style, dict):
         raise ValueError("The caption style is missing or invalid.")
     _text_style(style, "Caption")
+    assets = project.get('assets', [])
+    if not isinstance(assets, list) or len(assets) > 1000:
+        raise ValueError('Use a media library of no more than 1000 assets.')
+    for asset in assets:
+        if not isinstance(asset, dict) or asset.get('kind') not in ('video', 'audio', 'image'):
+            raise ValueError('A library asset must be video, audio or an image.')
+        _media_path(asset, 'Library asset', check_files and not require_clips)
+        if asset['kind'] != 'image':
+            _number(asset.get('duration'), 'Library source duration', .04, MAX_TIMELINE_SECONDS)
+        _number(asset.get('source_fps', 0), 'Library source frame rate', 0, 240)
     if require_clips and not project["clips"]:
         raise ValueError("Add at least one video or color card before creating a preview or export.")
     return True
@@ -404,7 +421,7 @@ def load_project(path):
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, 2, 3, PROJECT_VERSION):
+        if old_version not in (1, 2, 3, 4, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
@@ -465,6 +482,21 @@ def load_project(path):
             for item in captions:
                 if isinstance(item, dict):
                     item.setdefault("id", uuid.uuid4().hex)
+    if isinstance(project, dict):
+        if old_version < 5:
+            project['assets'] = []
+            validate_project(project, check_files=False)
+            seen = set()
+            for item in media_items(project):
+                kind = item.get('kind', 'audio' if item in project['audio'] else 'video')
+                key = (kind, item['path'])
+                if key not in seen:
+                    project['assets'].append(new_asset(item, kind));seen.add(key)
+        else:
+            project.setdefault('assets', [])
+            for asset in project['assets'] if isinstance(project['assets'], list) else []:
+                if isinstance(asset, dict) and isinstance(asset.get('path'), str):
+                    asset['path'] = str((target.parent / asset['path']).resolve())
     validate_project(project, check_files=False)
     return project
 

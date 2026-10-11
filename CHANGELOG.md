@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0 — 2026-10-11
+
+- Imported video/audio/image assets live in a separate media library. Clicking
+  creates an independent timeline copy; importing leaves the composition alone.
+  Format 5 saves unused assets too and migrates formats 1–4.
+- Shift+right-click selects all videos or audio; Shift+click selects a range,
+  Ctrl+click toggles items and Ctrl+A selects the complete timeline. Delete and
+  Ctrl+C/X/V operate on groups with one undo step and fresh pasted IDs. Text
+  fields keep their native editing shortcuts.
+- Ctrl+wheel zooms the timeline around the pointer independently of canvas zoom.
+- Native file pickers remember accepted folders across restarts. Applied voice
+  effects become initial settings for unconfigured tracks; configured tracks
+  retain their own values. Volume/fades have a Use last settings button.
+- Labelled Open/Save project controls, Save as/Ctrl+Shift+S, and a larger primary
+  Play/Pause button make project and playback actions visible.
+- Live playhead updates accompany presented video frames rather than a 100 ms
+  query timer. Pause discards queued frames. Silent scrubbing input-seeks into
+  the current clip with aligned source/composition frames and preserved fades
+  and transitions; sound processing retains its full history.
+
 ## 0.8.0 — 2026-10-11
 
 - Default native playback and paused pictures to the full project resolution.

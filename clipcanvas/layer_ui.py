@@ -126,7 +126,11 @@ class LayerTools:
         if edit:w.open_properties('Text' if kind=='captions' or item.get('kind')=='text' else 'Picture')
 
     def append(self,kind,item):
-        w=self.owner;w.checkpoint();w.project[kind].append(item);w.selected=(kind,len(w.project[kind])-1)
+        w=self.owner;w.checkpoint();w.project[kind].append(item);w.selected=(kind,len(w.project[kind])-1);w.selection={(kind,item['id'])}
+        if item.get('kind') in ('image','video') and not any(a['path']==item['path'] and a['kind']==item['kind'] for a in w.project['assets']):
+            asset=model.new_asset(item,item['kind'])
+            if item['kind']=='video':asset['source_fps']=engine.probe(item['path'])['fps']
+            w.project['assets'].append(asset)
         w.changed();w.seek(item['start']);w.media_stack.set_visible_child_name('Layers' if kind=='layers' else 'Captions')
         w.reveal_timeline_selection()
         w.open_properties('Text' if kind=='captions' or item.get('kind')=='text' else 'Picture')
@@ -294,7 +298,7 @@ class LayerTools:
             dialog=Gtk.MessageDialog(transient_for=w,modal=True,message_type=Gtk.MessageType.QUESTION,buttons=Gtk.ButtonsType.OK_CANCEL,text='Replace existing captions?')
             dialog.format_secondary_text('You can undo this replacement.');answer=dialog.run();dialog.destroy()
             if answer!=Gtk.ResponseType.OK:return False
-        w.checkpoint();w.project['captions']=items;w.selected=('captions',0) if items else None;w.changed();w.media_stack.set_visible_child_name('Captions')
+        w.checkpoint();w.project['captions']=items;w.selected=('captions',0) if items else None;w.selection={('captions',items[0]['id'])} if items else set();w.changed();w.media_stack.set_visible_child_name('Captions')
         w.reveal_timeline_selection()
         w.set_status(f'Added {len(items)} editable captions.')
         return True
