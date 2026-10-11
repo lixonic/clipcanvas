@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import threading
 
-from .model import clip_duration, media_items, project_duration, timeline, validate_project
+from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project
 from . import audio_effects
 
 
@@ -358,7 +358,13 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
     return video
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0):
+    # For live seeking, omit completed main clips. Keep the original global
+    # timestamps for music, captions and overlays, including effect history.
+    if origin:
+        project = copy.deepcopy(project)
+        project['clips'] = [clip for clip, row in zip(project['clips'], timeline(project))
+                            if row['start'] >= origin-0.0000001]
     width, height = int(project["width"]), int(project["height"])
     if preview:
         scale = min(1.0, 640 / max(width, height))
@@ -367,7 +373,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
     args = []
     filters = []
     rows = timeline(project)
-    total = project_duration(project)
+    total = project_duration(project) + origin
     clips = project["clips"]
     for index, clip in enumerate(clips):
         duration = clip_duration(clip)
@@ -427,6 +433,12 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
             filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
         video, audio = f"joinv{index}", f"joina{index}"
         running_duration += rows[index]["duration"] - overlap
+    if origin:
+        if not audio_only:
+            filters.append(f'[{video}]setpts=PTS+{_fmt(origin)}/TB[globalvideo]')
+            video = 'globalvideo'
+        filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
+        audio = 'globalaudio'
     mix_labels = [audio]
     for offset, track in enumerate(project.get("audio", [])):
         index = len(clips) + offset
@@ -454,6 +466,69 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
     return args, ";\n".join(filters), total
 
 
+def live_stream(project, start=0, cancel=None):
+    """Yield a bounded, unencoded Matroska stream for immediate native playback.
+
+    Raw I420 video and stereo PCM retain the export graph's effects/mix. The
+    consumer supplies backpressure, so we never generate a whole preview file.
+    Closing the generator or setting cancel stops FFmpeg and removes sprites.
+    """
+    project = copy.deepcopy(project)
+    _source_rate(project)
+    try:
+        validate_project(project, check_files=True, require_clips=True)
+    except ValueError as error:
+        raise RenderError(str(error)) from error
+    seconds = project_duration(project)
+    start = max(0, min(float(start), max(0, seconds-1/project['fps'])))
+    active = [row for row in timeline(project) if row['start'] <= start < row['start']+row['duration']]
+    origin = active[0]['start'] if active else 0
+    binary, env = _tool('ffmpeg')
+    with tempfile.TemporaryDirectory(prefix='clipcanvas-live-') as scratch:
+        args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin)
+        if cancel is not None and cancel.is_set():
+            return
+        graph_path = Path(scratch)/'filters.txt'
+        graph_path.write_text(graph, encoding='utf-8')
+        arguments = [binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+                     '-filter_complex_threads', '1'] + args + [
+                     '-filter_complex_script', str(graph_path), '-ss', _fmt(start),
+                     '-map', '[outvideo]', '-map', '[outaudio]',
+                     '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-threads', '1',
+                     '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
+                     '-t', _fmt(seconds-start), '-flush_packets', '1', '-f', 'matroska', 'pipe:1']
+        with open(Path(scratch)/'ffmpeg.log', 'wb') as log:
+            process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=log,
+                                       stdin=subprocess.DEVNULL, env=env)
+            # Reading stdout can block before the first frame or on damaged
+            # media. A watcher also cancels those cases without waiting for data.
+            finished = threading.Event()
+            def watch():
+                while not finished.wait(.05):
+                    if cancel is not None and cancel.is_set():
+                        _stop(process)
+                        return
+            watcher = threading.Thread(target=watch, daemon=True)
+            watcher.start()
+            try:
+                while cancel is None or not cancel.is_set():
+                    data = process.stdout.read(65536)
+                    if not data:
+                        break
+                    yield data
+                if cancel is not None and cancel.is_set():
+                    return
+                if process.wait():
+                    log.flush()
+                    detail = (Path(scratch)/'ffmpeg.log').read_text(errors='replace')[-1600:]
+                    raise RenderError('Live preview could not play this project.\n' + detail)
+            finally:
+                finished.set()
+                _stop(process)
+                process.stdout.close()
+                watcher.join(timeout=4)
+
+
 def render(project, output, preview=False, progress=None, cancel=None, quality="high"):
     """Render synchronously; progress receives (fraction_0_to_1, message).
 
@@ -462,6 +537,7 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
     Every mode re-encodes video; none promises bit-for-bit preservation.
     """
     project = copy.deepcopy(project)
+    _source_rate(project)
     try:
         validate_project(project, check_files=True, require_clips=True)
     except ValueError as error:
@@ -515,6 +591,14 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
             os.unlink(temporary)
         except FileNotFoundError:
             pass
+
+
+def _source_rate(project):
+    """Resolve older projects too, without blocking the desktop thread."""
+    clips = project.get('clips', [])
+    if clips and isinstance(clips[0], dict) and clips[0].get('path'):
+        clips[0]['source_fps'] = probe(clips[0]['path'])['fps']
+    adapt_frame_rate(project)
 
 
 def render_audio(project, output, source='mix', progress=None, cancel=None):

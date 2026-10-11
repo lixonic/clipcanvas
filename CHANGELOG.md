@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-10-11
+
+- Play the composition directly through a bounded raw video/PCM stream. No
+  preview MP4, full-timeline render or encoding is required before playback.
+- Live preview and scrubbing use the export composition graph: clip joins,
+  picture/audio fades, speed, text/captions, image/video overlays and voice DSP.
+  Pause, resume, end/replay and seek remain in the native canvas.
+- Removed the FPS dropdown. The first main clip supplies the original frame
+  rate, including fractional rates; mixed sources follow it. Reorder/remove,
+  legacy metadata probing, save/reopen and final export retain this policy.
+- Keep Project → Render smooth preview as an optional fallback for CPU-heavy
+  projects. Live frames are at most 640 pixels; final exports use originals.
+- Live playback is CPU-based and can stutter on complex projects. Seeking can
+  require decoding part of the active clip and soundtrack effect history.
+  Windows packaging and provider/API/MCP support remain pending.
+
 ## 0.6.0 — 2026-10-11
 
 - Added right-click Voice effects for WAV/MP3 and other soundtracks, plus attached

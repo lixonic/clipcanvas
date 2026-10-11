@@ -105,7 +105,8 @@ def new_clip(path, metadata=None):
         raise ValueError("This file has no video. Add it as a soundtrack instead.")
     duration = float(metadata["duration"])
     return {"id": uuid.uuid4().hex, "path": str(Path(path).expanduser().resolve()),
-            "duration": duration, "in": 0.0, "out": duration, "fit": "fill",
+            "duration": duration, "source_fps": float(metadata.get('fps', 0)),
+            "in": 0.0, "out": duration, "fit": "fill",
             "volume": 1.0, "transition": "none", "transition_duration": 0.5,
             "position_x": 0.5, "position_y": 0.5, "speed": 1.0,
             "rotation": 0, "flip_x": False, "flip_y": False,
@@ -126,6 +127,19 @@ def new_audio(path, metadata=None):
 
 def clip_duration(clip):
     return max(0.0, float(clip["out"]) - float(clip.get("in", 0.0))) / float(clip.get("speed", 1))
+
+
+def adapt_frame_rate(project):
+    """Follow the first main clip, preserving fractional rates such as 29.97.
+
+    Old projects keep their stored rate until the first source has been probed.
+    A fixed export needs one rate; later mixed-rate sources are resampled to it.
+    """
+    if project.get('clips'):
+        fps = project['clips'][0].get('source_fps', 0)
+        if isinstance(fps, (int, float)) and not isinstance(fps, bool) and math.isfinite(fps) and 1 <= fps <= 240:
+            project['fps'] = fps
+    return project['fps']
 
 
 def timeline(project):
@@ -232,7 +246,7 @@ def validate_project(project, check_files=True, require_clips=False):
         _number(value, f"Canvas {key}", 64, 8192)
         if int(value) != value or value % 2:
             raise ValueError("Canvas dimensions must be even whole numbers.")
-    _number(project.get("fps", 30), "Frame rate", 1, 120)
+    _number(project.get("fps", 30), "Frame rate", 1, 240)
     _text(project.get("name", ""), "The project name", 1000)
     track_layout.validate_order(project.get('timeline_order', []))
     for group in ("clips", "audio"):
@@ -259,6 +273,7 @@ def validate_project(project, check_files=True, require_clips=False):
                 # overlong fade is clamped to the audible segment when rendered.
                 _number(item.get(key, 0), f"{label} fade", 0, max(duration, duration / speed))
             if group == "clips":
+                _number(item.get('source_fps', 0), f'{label} original frame rate', 0, 240)
                 for key in ("video_fade_in", "video_fade_out"):
                     _number(item.get(key, 0), f"{label} picture fade", 0, max(duration, duration / speed))
                 if isinstance(item.get("rotation", 0), bool) or item.get("rotation", 0) not in (0, 90, 180, 270):

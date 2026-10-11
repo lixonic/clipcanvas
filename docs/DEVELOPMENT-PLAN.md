@@ -124,11 +124,11 @@ See [voice effects and validation](VOICE-EFFECTS.md).
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external provider/API integration is included in the 0.6.0 package. Local
+no external provider/API integration is included in the 0.7.0 package. Local
 speech recognition is included because the user explicitly requested it.
 
 Next selected work remains animation/effects, richer timeline/audio tools and
-caption refinements. Choose the next usable increment after reviewing 0.6.0;
+caption refinements. Choose the next usable increment after reviewing 0.7.0;
 keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering
@@ -152,3 +152,13 @@ preview resolution are separate; enlarging a source does not restore detail.
 Lossless/mezzanine export and HDR mastering are distinct delivery features.
 External generation, asset catalogs, collaboration and publishing will never be
 required to assemble and export local clips and soundtracks.
+
+## Live playback and source frame rate: 0.7.0
+
+The native canvas consumes raw video and PCM audio directly from the shared
+composition graph. No prepared preview movie is required. Queues are bounded;
+seek/edit/close cancels the prior producer. CPU-heavy projects may use the
+explicit rendered-preview fallback. First-source FPS replaces manual choice,
+including fractional rates and legacy-project metadata resolution. See
+[live preview and validation](LIVE-PREVIEW.md). Hardware/GPU playback, waveform
+cache improvements and Windows runtime validation remain future work.

@@ -1,47 +1,48 @@
-# ClipCanvas 0.6.0
+# ClipCanvas 0.7.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.6.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.7.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
 - [Canva UI study and native editor design](docs/UI-STUDY.md)
 - [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
 - [Contributing and build instructions](CONTRIBUTING.md)
+- [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
-AI/API/MCP connections are deferred. Version 0.6.0 adds non-destructive voice
-effects: echo, gain, tone filters and a compressor, with isolated A/B listening.
+AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
 
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
 
-![ClipCanvas native editor with logo opacity and editable captions](docs/images/editor-0.5.0.png)
+![ClipCanvas live preview with captions and logo](docs/images/live-preview-0.7.0.png)
 
 ## Install and open
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.6.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.7.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.6.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.7.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.6.0_all.deb
+   sudo apt install ./clipcanvas_0.7.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -54,8 +55,8 @@ separate application and does not change VLC.
 ## Make your first video
 
 1. **Choose a canvas.** Landscape is 16:9 for YouTube, portrait is 9:16 for Reels
-   and Shorts, and square is 1:1. The labeled **Canvas** and **Frame rate** menus
-   remain available above the preview.
+   and Shorts, and square is 1:1. The **Canvas** menu remains above
+   the preview. Frame rate follows the first source video automatically.
 2. **Add local videos.** Use **Add videos** in the media sidebar or the plus
    action after the final timeline clip. Drag clips to reorder them. Search the
    library by filename or filter it to videos/audio. Collapse the sidebar for
@@ -98,10 +99,14 @@ separate application and does not change VLC.
    end appears faded and is excluded from export. Splits within audio fades or
    too near transitions require shortening that effect first. Right-click also
    exposes split, duplicate, delete, and clip move actions.
-9. **Click Preview.** Preview preparation runs locally and may take time,
-   especially for long videos. After an edit, prepare a new preview to hear and
-   see the updated composition. Ruler scrubbing can show source frames before
-   preparation; it does not simulate transitions or play mixed audio.
+9. **Press Play or Preview.** The composition streams directly into the native
+   player, with transitions, fades, overlays, captions and mixed sound. No
+   preview MP4 is prepared. Press Space to pause/resume; drag the ruler to seek.
+   The first main clip supplies the frame rate automatically, including 29.97
+   and 59.94. Mixed-rate projects follow that first clip; reordering updates it.
+   Live frames use a 640-pixel preview; export always uses original media.
+   Heavy projects or seeks deep into long clips can take time or stutter. Use
+   **Project → Render smooth preview…** when you need a prepared playback file.
 10. **Export an MP4.** Choose where to save it with the native file chooser.
     Choose **High quality** for most projects or **Maximum quality** when a
     larger file is acceptable. Keep the app open until export finishes.
@@ -231,8 +236,8 @@ The exported MP4 is a standalone video that you can share or upload.
 
 ## Video quality
 
-Exports are made from the original media, not from the smaller rendered preview.
-Use a canvas and frame rate appropriate for your source. Increasing resolution
+Exports are made from the original media, not from the smaller live preview.
+Frame rate follows the first main clip; choose a canvas appropriate for your source. Increasing resolution
 does not restore detail that is absent in the original, and cropping landscape
 video into portrait necessarily removes part of the image.
 
@@ -247,10 +252,10 @@ platforms may compress the finished MP4 again after upload.
   A base video clip is required for preview/export; image-only slideshows are
   not implemented. Overlay/caption timing stays absolute when base clips move
   or change length; check it after rearranging the story.
-- Clip transitions and audio mixing require rendering; this is not a real-time
-  effects editor.
-- Preview and export need temporary disk space. Long or high-resolution projects
-  take more time and storage.
+- Live playback computes effects as it plays. CPU-heavy compositions can
+  stutter, and deep seeks may need catch-up decoding. This is not a GPU/NLE engine.
+- Live playback keeps bounded frame/audio buffers and temporary visual sprites;
+  optional rendered previews and exports also need disk space for video files.
 - No animated title/caption presets, motion paths, template/stock library, or
   caption translation yet. Imported animated GIFs are not supported as moving layers.
 - Keep backups of valuable source media and project files.

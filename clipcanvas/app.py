@@ -250,6 +250,7 @@ class Timeline(Gtk.DrawingArea):
         # even when transition overlaps make the clip rectangles overlap.
         for i,row in enumerate(timings[:-1]):
             cx=100+(row['start']+row['duration']-row['overlap']/2)*self.scale;cy=video_y+40
+            cr.new_sub_path()
             cr.arc(cx,cy,14,0,math.tau);rgb(cr,colors['surface']);cr.fill_preserve()
             rgb(cr,colors['accent'] if p['clips'][i]['transition']!='none' else colors['border']);cr.set_line_width(1.5);cr.stroke()
             rgb(cr,colors['text']);cr.set_line_width(1.4)
@@ -450,14 +451,15 @@ class ClipCanvasWindow(Gtk.Window):
         menu=Gtk.Menu()
         for title,callback in [('New project',self.new),('Open project…',self.open_project),('Save project',self.save),
                                ('Save portable copy…',self.collect_media),('Relink missing media…',self.relink_media),
-                               ('Recover unsaved project…',self.recover_project),('Help',self.help)]:
+                               ('Recover unsaved project…',self.recover_project),
+                               ('Render smooth preview…',self.render_preview),('Help',self.help)]:
             entry=Gtk.MenuItem(label=title);entry.connect('activate',lambda _,fn=callback:fn());menu.append(entry)
         menu.show_all();project_menu=Gtk.MenuButton();project_menu.set_image(ui_theme.icon('open-menu-symbolic'))
         project_menu.set_tooltip_text('Project menu');project_menu.set_popup(menu)
         self.header.pack_end(project_menu)
         self.export_button=ui_theme.icon_button('document-send-symbolic',self.export,'Export finished video',label='Export',style='suggested-action')
         self.header.pack_end(self.export_button)
-        self.preview_button=ui_theme.icon_button('media-playback-start-symbolic',self.preview,'Prepare the full mix for playback',label='Preview')
+        self.preview_button=ui_theme.icon_button('media-playback-start-symbolic',self.preview,'Play your video immediately',label='Preview')
         self.header.pack_end(self.preview_button)
 
     def make_welcome(self):
@@ -521,11 +523,6 @@ class ClipCanvasWindow(Gtk.Window):
             self.format_combo.append(f'{w}x{h}',f'{ratio} · {title} · {w} × {h}')
         self.format_combo.set_active(0);self.format_combo.connect('changed',self.format_changed)
         self.canvas_toolbar.pack_start(self.format_combo,False,False,0)
-        self.fps_combo=Gtk.ComboBoxText()
-        for fps in ('24','25','30','50','60'):self.fps_combo.append(fps,f'{fps} fps')
-        self.fps_combo.set_active_id('30');self.fps_combo.connect('changed',self.fps_changed)
-        self.canvas_toolbar.pack_end(self.fps_combo,False,False,0)
-        self.canvas_toolbar.pack_end(label('Frame rate','dim-label'),False,False,0)
         center.pack_start(self.canvas_toolbar,False,False,0)
         self.context_toolbar=box(Gtk.Orientation.HORIZONTAL,8,10)
         self.context_title=label('Select a clip to edit','dim-label');self.context_title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
@@ -548,7 +545,8 @@ class ClipCanvasWindow(Gtk.Window):
         self.play_button=ui_theme.icon_button('media-playback-start-symbolic',self.toggle_play,'Play / pause · Space',style='circular')
         playback.pack_start(self.play_button,False,False,0)
         self.clock_label=label('0:00.0 / 0:00.0');playback.pack_start(self.clock_label,False,False,0)
-        self.preview_label=label('Press Preview to prepare the full mix','dim-label')
+        self.preview_label=label('Press play to preview','dim-label')
+        self.preview_label.set_tooltip_text('Playback uses smaller frames; exports use original media.')
         self.preview_label.set_ellipsize(Pango.EllipsizeMode.END);self.preview_label.set_max_width_chars(28)
         playback.pack_start(self.preview_label,False,False,8)
         center.pack_start(playback,False,False,0)
@@ -630,9 +628,7 @@ class ClipCanvasWindow(Gtk.Window):
         key=f'{self.project["width"]}x{self.project["height"]}'
         if key not in [f'{x[2]}x{x[3]}' for x in FORMATS]:self.format_combo.append(key,key)
         self.format_combo.set_active_id(key)
-        fps=str(self.project['fps'])
-        if fps not in ('24','25','30','50','60'):self.fps_combo.append(fps,f'{fps} fps')
-        self.fps_combo.set_active_id(fps);self.name_lock=False
+        self.name_lock=False
         self.canvas.set_aspect(self.project['width'],self.project['height'])
 
     def format_changed(self,w):
@@ -640,17 +636,20 @@ class ClipCanvasWindow(Gtk.Window):
         self.checkpoint();self.project['width'],self.project['height']=map(int,w.get_active_id().split('x'))
         self.canvas.set_aspect(self.project['width'],self.project['height']);self.changed()
 
-    def fps_changed(self,w):
-        if self.name_lock or not w.get_active_id():return
-        self.checkpoint();self.project['fps']=float(w.get_active_id());self.changed()
-
     def checkpoint(self):
         self.history.append(copy.deepcopy(self.project));self.history=self.history[-60:];self.future=[]
 
     def changed(self):
         self.cancel_scrub()
+        self.adapt_frame_rate()
         self.canvas.stop();self.canvas.composited=False;self.preview_key=None;self.playhead=0;self.update_play_button(False)
-        self.preview_label.set_text('Preview needs updating');self.refresh();self.show_selected_still()
+        self.preview_label.set_text('Press play to preview');self.refresh();self.show_selected_still()
+
+    def adapt_frame_rate(self):
+        for clip in self.project['clips']:
+            metadata=self.media_metadata.get(clip['path'])
+            if metadata:clip['source_fps']=metadata['fps']
+        model.adapt_frame_rate(self.project)
 
     def refresh(self):
         self.update_title();self.refresh_assets();self.layer_tools.refresh();self.show_inspector();self.timeline.refresh()
@@ -704,7 +703,7 @@ class ClipCanvasWindow(Gtk.Window):
         if kind in ('layers','captions') and seek:self.seek(self.project[kind][index]['start'])
         if kind=='clips' and seek:
             self.canvas.pause();self.update_play_button(False)
-            if self.preview_key:self.canvas.seek(model.timeline(self.project)[index]['start'])
+            if self.preview_key or self.canvas.live:self.seek(model.timeline(self.project)[index]['start'])
             else:
                 self.cancel_scrub();self.playhead=model.timeline(self.project)[index]['start'];self.show_selected_still()
                 self.clock_label.set_text(f'{time_text(self.playhead)} / {time_text(model.project_duration(self.project))}')
@@ -748,7 +747,7 @@ class ClipCanvasWindow(Gtk.Window):
         return self.project[kind][i]
 
     def show_selected_still(self):
-        if self.preview_key or self.scrub_timer or self.scrub_active:return
+        if self.preview_key or self.canvas.live or self.scrub_timer or self.scrub_active:return
         item=self.selected_item()
         if self.selected and self.selected[0] in ('audio','layers','captions'):
             item=None
@@ -1049,7 +1048,9 @@ class ClipCanvasWindow(Gtk.Window):
 
     def load_asset(self,item,kind):
         path=item['path']
-        if (kind=='clips' and path in self.thumbs) or (kind=='audio' and path in self.waves):return
+        if kind=='clips' and path in self.thumbs and path in self.media_metadata:
+            self.adapt_frame_rate();return
+        if kind=='audio' and path in self.waves:return
         def work():
             try:
                 if kind=='clips':
@@ -1064,6 +1065,9 @@ class ClipCanvasWindow(Gtk.Window):
     def media_info_ready(self,path,metadata):
         if self.closed:return False
         self.media_metadata[path]=metadata
+        old_fps=self.project['fps'];self.adapt_frame_rate()
+        if self.project['fps']!=old_fps:
+            self.changed()
         item=self.selected_item()
         if item and self.selected[0]=='clips' and item['path']==path and hasattr(self,'extract_button'):
             self.extract_button.set_sensitive(self.extraction_available(item))
@@ -1086,27 +1090,37 @@ class ClipCanvasWindow(Gtk.Window):
 
     def toggle_play(self):
         if self.busy or not self.project['clips']:return
-        if not self.preview_key:self.preview();return
+        if not self.preview_key and not self.canvas.live:self.preview();return
         if self.canvas.playing:self.canvas.pause();self.update_play_button(False)
         else:
             if self.playhead>=model.project_duration(self.project)-.1:self.canvas.seek(0)
             self.canvas.play();self.update_play_button(True)
 
-    def seek(self,seconds):
+    def seek(self,seconds,source=False):
         if self.busy:return
-        seconds=min(seconds,max(0,model.project_duration(self.project)-1/self.project['fps']))
+        seconds=max(0,min(seconds,max(0,model.project_duration(self.project)-1/self.project['fps'])))
         self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw();self.canvas.queue_draw()
         if self.preview_key:self.canvas.seek(seconds);return
         self.scrub_serial+=1
         self.scrub_active=True
         if self.scrub_timer:GLib.source_remove(self.scrub_timer)
-        self.scrub_timer=GLib.timeout_add(80,self.scrub_frame,self.scrub_serial,seconds)
+        self.scrub_timer=GLib.timeout_add(80,self.source_scrub_frame if source else self.scrub_frame,self.scrub_serial,seconds)
 
     def cancel_scrub(self):
         self.scrub_serial+=1;self.scrub_active=False
         if self.scrub_timer:GLib.source_remove(self.scrub_timer);self.scrub_timer=0
 
     def scrub_frame(self,serial,seconds):
+        self.scrub_timer=0
+        if self.closed or serial!=self.scrub_serial:return False
+        if self.project['clips']:
+            playing=self.canvas.playing
+            self.canvas.load_project(self.project,seconds,autoplay=playing)
+            self.update_play_button(playing)
+            self.preview_label.set_text('Live preview')
+        return False
+
+    def source_scrub_frame(self,serial,seconds):
         self.scrub_timer=0
         if self.closed or serial!=self.scrub_serial:return False
         candidates=[(c,t) for c,t in zip(self.project['clips'],model.timeline(self.project)) if t['start']<=seconds<t['start']+t['duration']]
@@ -1117,13 +1131,13 @@ class ClipCanvasWindow(Gtk.Window):
         overlays=[copy.deepcopy(layer) for layer in self.project.get('layers',[]) if layer['kind']=='video' and layer['start']<=seconds<layer['end']]
         overlay_frames=[]
         def finish(error):
-            if not self.closed and serial==self.scrub_serial and not self.preview_key:
+            if not self.closed and serial==self.scrub_serial and not self.preview_key and not self.canvas.live:
                 if error:self.set_status(str(error))
                 else:
                     for layer_id,path in overlay_frames:
                         self.layer_tools.assets[layer_id]=GdkPixbuf.Pixbuf.new_from_file(str(path))
                     self.display_still(GdkPixbuf.Pixbuf.new_from_file(str(target)),item)
-                    self.preview_label.set_text('Scrub frame · Preview for effects and audio')
+                    self.preview_label.set_text('Editing frame · press play for full mix')
             target.unlink(missing_ok=True)
             for _,path in overlay_frames:path.unlink(missing_ok=True)
             return False
@@ -1145,6 +1159,16 @@ class ClipCanvasWindow(Gtk.Window):
 
     def preview(self):
         if not self.project['clips'] or self.busy:return
+        self.cancel_scrub();self.adapt_frame_rate();self.preview_key=None
+        start=0 if self.playhead>=model.project_duration(self.project)-.1 else self.playhead
+        self.canvas.load_project(self.project,start,autoplay=True)
+        self.update_play_button(self.canvas.playing)
+        self.preview_label.set_text('Live preview')
+        self.set_status('Live playback. If your project stutters, use Project → Render smooth preview.')
+
+    def render_preview(self):
+        if not self.project['clips'] or self.busy:return
+        self.adapt_frame_rate();self.cancel_scrub()
         render_project={k:v for k,v in self.project.items() if k!='timeline_order'}
         key=hashlib.sha256(json.dumps(render_project,sort_keys=True).encode()).hexdigest()
         target=self.temp/(key+'.mp4')
@@ -1153,10 +1177,11 @@ class ClipCanvasWindow(Gtk.Window):
 
     def preview_done(self,path,key):
         self.preview_key=key;self.canvas.load(path,autoplay=True);self.canvas.composited=True;self.update_play_button(True)
-        self.preview_label.set_text('Preview · export uses original files');self.set_status('Preview ready. Click the timeline ruler to seek.')
+        self.preview_label.set_text('Rendered preview');self.set_status('Preview ready. Click the timeline ruler to seek.')
 
     def export(self):
         if self.busy or not self.project['clips']:return
+        self.adapt_frame_rate()
         dialog=Gtk.Dialog(title='Export your video',transient_for=self,modal=True)
         dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Choose save location',Gtk.ResponseType.OK)
         content=dialog.get_content_area();content.set_spacing(12);content.set_border_width(22)
@@ -1257,7 +1282,7 @@ class ClipCanvasWindow(Gtk.Window):
             for item in project[kind]:self.load_asset(item,kind)
         for item in project.get('layers',[]):self.layer_tools.load_asset(item)
         self.show_selected_still()
-        self.set_status('Project opened. Press Preview to prepare playback.')
+        self.adapt_frame_rate();self.set_status('Project opened. Press play to preview.')
 
     def autosave(self):
         if self.closed:return False
@@ -1352,6 +1377,7 @@ class ClipCanvasWindow(Gtk.Window):
                         if not meta['has_video' if kind=='clips' else 'has_audio'] or meta['duration']+.001<item['out']:
                             raise ValueError(f'{Path(replacements[old]).name} does not contain the required media or is too short for the saved trim points.')
                         item['path']=str(Path(replacements[old]).resolve());item['duration']=meta['duration']
+                        if kind=='clips':item['source_fps']=meta['fps']
                 for item in snapshot.get('layers',[]):
                     old=item.get('path')
                     if old not in replacements:continue

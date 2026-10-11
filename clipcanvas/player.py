@@ -18,6 +18,7 @@ gi.require_version("Gst", "1.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gst, Gtk, Pango, PangoCairo
 from . import ui_theme
+from .live_player import StreamPlayer
 
 
 Gst.init(None)
@@ -59,6 +60,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = 0.0
         self._last_duration = 0.0
         self._pending_seek = None
+        self._live = None
         self._pipeline = Gst.ElementFactory.make("playbin", None)
         self._sink = Gst.ElementFactory.make("appsink", None)
         if self._pipeline is None or self._sink is None:
@@ -116,15 +118,53 @@ class VideoCanvas(Gtk.DrawingArea):
             self.playing = False
             self._notify(self.on_error, "This video could not be played. Try exporting the preview again.")
 
+    @property
+    def live(self):
+        return self._live is not None
+
+    def load_project(self, project, start=0, autoplay=True):
+        self.stop()
+        generation = self._generation
+        self.fit = 'fit'
+        self.composited = True
+        self._loaded = True
+        self._last_position = start
+        self._last_duration = 0
+        self.playing = autoplay
+        def error(message):
+            if generation == self._generation:
+                self.stop()
+                self._notify(self.on_error, message)
+        def end():
+            if generation == self._generation:
+                self.playing = False
+                self._notify(self.on_position, self.duration(), self.duration())
+                self._notify(self.on_end)
+        try:
+            self._live = StreamPlayer(project, start, autoplay,
+                lambda sample: self._receive_sample(sample, generation), error, end,
+                volume=self._pipeline.get_property('volume'))
+        except Exception as problem:
+            self._loaded = self.playing = self.composited = False
+            self._notify(self.on_error, 'Live preview is unavailable: ' + str(problem))
+
     def play(self):
         if self._destroyed or not self._loaded:
             return
         if self.duration() > 0 and self.position() >= self.duration() - 0.05:
             self.seek(0)
+        if self._live is not None:
+            self._live.play()
+            self.playing = True
+            return
         if self._pipeline.set_state(Gst.State.PLAYING) != Gst.StateChangeReturn.FAILURE:
             self.playing = True
 
     def pause(self):
+        if self._live is not None:
+            self._live.pause()
+            self.playing = False
+            return
         if not self._destroyed:
             self._pipeline.set_state(Gst.State.PAUSED if self._loaded else Gst.State.NULL)
         self.playing = False
@@ -133,8 +173,12 @@ class VideoCanvas(Gtk.DrawingArea):
         if self._destroyed:
             return
         self.playing = False
-        self._pipeline.set_state(Gst.State.NULL)
         self._generation += 1
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+        self._pipeline.set_state(Gst.State.NULL)
+        self._loaded = False
         with self._frame_lock:
             self._latest_frame = None
         self._last_position = 0.0
@@ -148,6 +192,9 @@ class VideoCanvas(Gtk.DrawingArea):
         duration = self.duration()
         if duration > 0:
             seconds = min(seconds, max(0.0, duration - 0.001))
+        if self._live is not None:
+            self.load_project(self._live.project, seconds, self.playing)
+            return
         result = self._pipeline.seek_simple(
             Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
             int(seconds * Gst.SECOND),
@@ -159,6 +206,8 @@ class VideoCanvas(Gtk.DrawingArea):
             self._pending_seek = seconds
 
     def position(self):
+        if self._live is not None:
+            return self._live.position()
         if not self._destroyed and self._loaded:
             ok, value = self._pipeline.query_position(Gst.Format.TIME)
             if ok and value >= 0:
@@ -166,6 +215,8 @@ class VideoCanvas(Gtk.DrawingArea):
         return self._last_position
 
     def duration(self):
+        if self._live is not None:
+            return self._live.total
         if not self._destroyed and self._loaded:
             ok, value = self._pipeline.query_duration(Gst.Format.TIME)
             if ok and value > 0:
@@ -178,8 +229,9 @@ class VideoCanvas(Gtk.DrawingArea):
     def _new_preroll(self, sink):
         return self._receive_sample(sink.emit("pull-preroll"))
 
-    def _receive_sample(self, sample):
-        if sample is None or self._destroyed:
+    def _receive_sample(self, sample, generation=None):
+        generation = self._generation if generation is None else generation
+        if sample is None or self._destroyed or generation != self._generation:
             return Gst.FlowReturn.OK
         try:
             structure = sample.get_caps().get_structure(0)
@@ -192,7 +244,7 @@ class VideoCanvas(Gtk.DrawingArea):
                 stride = width * 3
             if width <= 0 or height <= 0 or size < stride * (height - 1) + width * 3:
                 return Gst.FlowReturn.OK
-            payload = (self._generation, buffer.extract_dup(0, size), width, height, stride)
+            payload = (generation, buffer.extract_dup(0, size), width, height, stride)
             with self._frame_lock:
                 self._latest_frame = payload
                 # Retain only the newest frame if GTK is busy. There is never
@@ -324,6 +376,7 @@ class VideoCanvas(Gtk.DrawingArea):
     def _cleanup(self, *args):
         if self._destroyed:
             return
+        self.stop()
         self._destroyed = True
         self.playing = False
         self._pipeline.set_state(Gst.State.NULL)

@@ -374,7 +374,7 @@ class LayerTools:
         w=self.owner
         if w.busy or event.button!=1:return False
         if w.canvas.composited:
-            at=w.playhead;w.canvas.pause();w.preview_key=None;w.canvas.composited=False;w.show_selected_still();w.seek(at)
+            at=w.playhead;w.canvas.stop();w.preview_key=None;w.canvas.composited=False;w.show_selected_still();w.seek(at,source=True)
         rect=w.canvas.canvas_rect
         if not rect:return False
         for index in range(len(w.project.get('layers',[]))-1,-1,-1):

@@ -4,3 +4,4 @@
 acaf4681248a40a98482dcdabca186b76aa9257ce26fc4b8a696ab6b3813b69d  clipcanvas_0.4.0_all.deb
 21558ae0e2269484c4459da7964fa53fdf539e7ff92c2280f3bd6bac22fc1dc4  clipcanvas_0.5.0_all.deb
 fd4f5c271856c44e692dbe08d871cbe67820df59b231b6f079c230a09a8cff81  clipcanvas_0.6.0_all.deb
+f54ad21cebefa78459114d73bb204ba26929f215dbec837fb3ed38e3a5dc838e  clipcanvas_0.7.0_all.deb

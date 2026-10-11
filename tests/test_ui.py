@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import time
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 import cairo
@@ -43,6 +44,80 @@ class DesktopWorkflowTests(unittest.TestCase):
             time.sleep(.015)
         self.fail('The desktop workflow did not finish in time')
 
+    def test_live_play_pause_seek_replay_edit_and_cleanup_without_mp4(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'live-recovery')
+        w.canvas._pipeline.set_property('volume',0)
+        errors=[];w.canvas.on_error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and len(w.waves)==1)
+            w.project['clips'][0].update(transition='fade',transition_duration=.4)
+            w.project['layers']=[model.new_text('Live',0,3)];w.project['layers'][0]['font_size']=24
+            w.project['captions']=[model.new_caption('Caption',0,3)]
+            w.changed()
+            self.assertFalse(hasattr(w,'fps_combo'))
+            with mock.patch.object(engine,'render',side_effect=AssertionError('Live play must not render an MP4')):
+                w.toggle_play()
+                self.assertFalse(w.busy)
+                self.pump(lambda:w.canvas.live and w.canvas.position()>.15 and w.canvas.frame is not None)
+                self.assertTrue(w.canvas.composited)
+                self.assertIsNone(w.preview_key)
+                self.assertFalse(list(w.temp.glob('*.mp4')))
+                first=w.canvas._live
+                w.toggle_play();at=w.canvas.position()
+                deadline=time.monotonic()+.15
+                self.pump(lambda:time.monotonic()>=deadline)
+                self.assertAlmostEqual(w.canvas.position(),at,places=2)
+                w.seek(1.8)
+                self.pump(lambda:not w.scrub_timer and w.canvas._live is not first)
+                second=w.canvas._live
+                self.pump(lambda:second.pipeline.get_state(0)[1].value_nick=='paused')
+                self.assertFalse(w.canvas.playing)
+                self.assertAlmostEqual(w.canvas.position(),1.8,places=2)
+                w.toggle_play();self.pump(lambda:w.canvas.position()>2)
+                # Delayed asset completion must never replace the live stream.
+                w.asset_ready(w.project['clips'][0]['path'],'clips',next(str(p) for p in w.temp.glob('*.jpg')))
+                self.assertIs(w.canvas._live,second)
+                self.pump(lambda:not w.canvas.playing)
+                self.assertAlmostEqual(w.playhead,model.project_duration(w.project),places=2)
+                w.toggle_play();self.pump(lambda:.05<w.canvas.position()<.5)
+                w.select('clips',1);self.pump(lambda:not w.scrub_timer)
+                self.assertFalse(w.canvas.playing)
+                self.assertAlmostEqual(w.canvas.position(),model.timeline(w.project)[1]['start'],places=2)
+                last=w.canvas._live
+                w.changed()
+                self.assertFalse(w.canvas.live)
+                last.thread.join(timeout=5)
+                self.assertFalse(last.thread.is_alive())
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_frame_rate_adapts_after_import_reorder_and_old_project_probe(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'fps-recovery')
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('portrait.mp4','landscape.mp4')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2)
+            self.assertEqual(w.project['fps'],25)
+            w.select('clips',1,seek=False);w.move(-1)
+            self.assertEqual(w.project['fps'],30)
+            w.undo();self.assertEqual(w.project['fps'],25)
+            legacy=copy.deepcopy(w.project);legacy['fps']=60
+            for clip in legacy['clips']:clip.pop('source_fps')
+            saved=self.fixtures.root/'legacy-fps.clipcanvas';model.save_project(legacy,saved)
+            w.saved=json.dumps(w.project,sort_keys=True);w.open_project(str(saved))
+            self.assertEqual(w.project['fps'],25)
+            w.media_metadata.clear();w.project['fps']=60
+            for clip in w.project['clips']:clip.pop('source_fps',None)
+            w.media_info_ready(w.project['clips'][0]['path'],engine.probe(w.project['clips'][0]['path']))
+            self.assertEqual(w.project['fps'],25)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_import_edit_preview_save_and_reopen(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'recovery')
         errors = []
@@ -77,7 +152,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.project_path = str(self.fixtures.root / 'desktop.clipcanvas')
             self.assertTrue(w.save())
             self.assertEqual(model.load_project(w.project_path), w.project)
-            w.preview()
+            w.render_preview()
             self.pump(lambda: not w.busy and w.preview_key is not None and w.canvas.frame is not None)
             self.assertFalse(errors)
             preview = w.temp / (w.preview_key + '.mp4')
@@ -118,7 +193,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(model.clip_duration(w.project['clips'][0]),.75)
             self.assertEqual(w.project['clips'][0]['rotation'],90)
             w.seek(.3)
-            self.pump(lambda: not w.scrub_timer and 'Scrub frame' in w.preview_label.get_text())
+            self.pump(lambda: not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
             self.assertAlmostEqual(w.playhead,.3)
             self.assertIsNone(w.preview_key)
             w.split_selected()
@@ -297,7 +372,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             # Applying an already saved RGBA style must preserve transparency.
             w.select('layers',0,seek=False);w.apply_fields()
             self.assertEqual(w.project['layers'][0]['background'],'#00000000')
-            self.pump(lambda:not w.scrub_timer and 'Scrub frame' in w.preview_label.get_text())
+            self.pump(lambda:not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
             x,y,width,height=w.canvas.canvas_rect
             w.layer_tools.canvas_press(SimpleNamespace(button=1,x=x+width*.5,y=y+height*.5))
             w.layer_tools.canvas_motion(SimpleNamespace(x=x+width*.6,y=y+height*.6))
@@ -328,7 +403,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             saved=copy.deepcopy(w.project)
             srt=self.fixtures.root/'edited.srt';captions.save_srt(saved,srt)
             self.assertEqual(captions.load_srt(srt)[0]['text'],'Corrected words')
-            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.render_preview();self.pump(lambda:not w.busy and w.preview_key is not None)
             self.assertTrue(w.canvas.composited)
             w.canvas.pause();w.open_project(w.project_path)
             self.assertEqual(w.project,saved);self.assertFalse(w.canvas.composited)
@@ -414,7 +489,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertAlmostEqual(w.project['layers'][1]['opacity'],.35)
             self.assertAlmostEqual(w.playhead,.7)
             w.undo();self.assertEqual(w.project['layers'][1]['opacity'],1);w.redo()
-            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.render_preview();self.pump(lambda:not w.busy and w.preview_key is not None)
             self.assertFalse(errors)
         finally:
             w.cleanup();w.destroy()
@@ -432,7 +507,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.project['clips'][0].update(transition='fade',transition_duration=.2)
             w.layer_tools.add_text();w.layer_tools.font.set_font_name('Sans 24');w.apply_fields()
             w.project['captions']=[model.new_caption('Editable words',0,.7),model.new_caption('Second',.8,1.2)]
-            w.changed();w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.changed();w.render_preview();self.pump(lambda:not w.busy and w.preview_key is not None)
             w.canvas.pause();w.seek(.5);key=w.preview_key
             before=copy.deepcopy(w.project);w.select('captions',0,seek=False)
             for _ in range(3):w.row_up_button.clicked()
@@ -523,7 +598,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.redo();self.assertEqual(w.project,after)
             w.project_path=str(self.fixtures.root/'voice-effects.clipcanvas');self.assertTrue(w.save())
             w.open_project(w.project_path);self.assertEqual(w.project,after)
-            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.render_preview();self.pump(lambda:not w.busy and w.preview_key is not None)
             self.assertTrue(w.canvas.composited);self.assertFalse(errors)
         finally:
             if getattr(w,'voice_dialog',None):w.voice_dialog.destroy()

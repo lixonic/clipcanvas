@@ -74,7 +74,7 @@ The inventory in `CANVA-FEATURES.md` is a scoped catalogue, not a completed-feat
 | Video end fades | A cross-dissolve exists between clips; that is not fade-from/to-black on the project ends. | Explicitly named visual fades if included in this iteration. |
 | Extract audio | No clip context menu or detach action exists. C34 is marked “New work”. | Right-click → Extract audio with independent, correctly timed sound. |
 | Timeline editing | Trim, split, reorder, audio offsets, snapping, and zoom exist. | A calmer toolbar and task-specific menus without losing those functions. |
-| Preview | Source-frame scrubbing exists; the assembled composition is rendered before mixed playback. | Clear playback feedback; no suggestion that full real-time compositing is finished. |
+| Preview | 0.7.0 streams the composed video/audio; optional rendering is a fallback. | Direct play/pause/seek, with CPU and seek latency described. |
 
 The top-right section currently means **properties of the selected clip or audio item**. Those properties remain useful. Their permanent placement and width are the defect; removing the panel must not remove access to editing.
 
@@ -164,7 +164,7 @@ These criteria are **targets**. Mark them passed only against the finished build
 - [ ] Import/open/save use native desktop file choosers with appropriate filters.
 - [ ] WAV, WAVE, and mixed-case WAV files remain selectable.
 - [ ] Common actions use theme icons, with fallback text or a tooltip.
-- [ ] Format, fps, project menu, and property popups are readable under Ubuntu light and dark themes.
+- [ ] Format, project menu, and property popups are readable under Ubuntu light and dark themes.
 - [ ] Hover, selected, disabled, focused, and popup states have readable text.
 - [ ] Keyboard focus remains visible; icon actions expose a meaningful accessible label.
 
@@ -202,7 +202,7 @@ These criteria are **targets**. Mark them passed only against the finished build
 - [ ] Capture an ordinary cut, an applied transition, and its chooser.
 - [ ] Capture a clip context menu showing Extract audio.
 - [ ] Capture audio fade controls and the resulting waveform taper.
-- [ ] Capture readable format/fps popups in light and dark themes.
+- [ ] Capture readable format popups in light and dark themes.
 - [ ] Functionally verify a short export with transition, extracted audio, and fades.
 - [ ] Record release limitations clearly; do not mark the entire C01–C60 inventory complete.
 
@@ -248,3 +248,6 @@ unimplemented design tools are not added as empty decorative sections.
 Timed text, image/video overlays, caption styling, templates, recording, richer effects, real-time mixed preview, and Windows packaging remain separate work unless expressly implemented and validated in this release. Empty UI sections should not suggest they are available. The existing feature catalogue should continue distinguishing **Existing**, **Basic/Partial**, **New work**, and **Deferred**.
 
 The useful Canva pattern is direct manipulation with contextual controls: media on the left, composition in the center, timing below, and tools attached to the selected item or join. Using native Ubuntu controls is compatible with that pattern. Copying its web colors while retaining a large form does not reproduce the workflow.
+
+0.7.0 removes the FPS selector and follows the first main source automatically.
+See [live preview](LIVE-PREVIEW.md) for the current playback behavior.
