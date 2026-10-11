@@ -98,6 +98,26 @@ class LiveStreamTests(unittest.TestCase):
         plain=self.stream_file(p,3,'no-overlay-live.mkv')
         self.assertNotEqual(self.pixels(plain,.1),self.pixels(seeked,.1))
 
+    def test_scrub_frame_matches_stream_through_cues_transitions_and_later_clips(self):
+        p=self.project()
+        p['layers'].append(model.new_visual(self.root/'portrait.mp4','video',1.7,4))
+        full=self.stream_file(p,0,'scrub-reference.mkv')
+        original=copy.deepcopy(p)
+        for at in (.39,.6,1.2,2.2,3.1):
+            with self.subTest(at=at):
+                picture=engine.preview_frame(p,at)
+                reference=self.pixels(full,at)
+                self.assertEqual(len(picture['pixels']),len(reference))
+                # Pruning inactive layers and dropping completed joins can
+                # remove intermediate chroma conversions. Allow their small
+                # RGB rounding differences while comparing the whole frame.
+                error=sum(abs(a-b) for a,b in zip(picture['pixels'],reference))/len(reference)
+                self.assertLess(error,3)
+                self.assertEqual((picture['width'],picture['height']),(320,180))
+        self.assertEqual(p,original)
+        cancel=threading.Event();cancel.set()
+        with self.assertRaises(engine.RenderCancelled):engine.preview_frame(p,1,cancel)
+
     def test_auto_fractional_rate_is_used_by_stream_and_final_export(self):
         source=self.root/'fractional.mp4'
         subprocess.run([self.ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=s=160x90:r=30000/1001:d=0.5',

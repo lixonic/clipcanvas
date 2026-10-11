@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.1 — 2026-10-11
+
+- Drag the white playhead anywhere along its line, as well as the ruler, to
+  update the composed preview while moving. Coalesce pointer positions without
+  postponing every frame until dragging stops; ignore stale playback positions.
+- Pause sound while scrubbing and resume at the chosen time if previously
+  playing. Paused scrubbing reads one composed RGB frame without soundtrack
+  processing or a prepared video file. Completed clips and inactive cues are
+  skipped; deep seeks and complex pictures still depend on CPU decoding.
+- Add native preview minus/plus and Fit/25–400% controls, Ctrl+wheel zoom, and
+  Shift+drag or middle-button pan. Zoom follows the complete composition and
+  layer editing coordinates. Fit resets the view; exports and project geometry
+  are unchanged. New/open/recovered projects start at Fit.
+- Validate continuous dragging, cross-clip frames, captions/transitions/overlays,
+  paused release, playback resume, zoom/pan and layer placement.
+
 ## 0.7.0 — 2026-10-11
 
 - Play the composition directly through a bounded raw video/PCM stream. No

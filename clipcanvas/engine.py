@@ -358,7 +358,7 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
     return video
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0):
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False):
     # For live seeking, omit completed main clips. Keep the original global
     # timestamps for music, captions and overlays, including effect history.
     if origin:
@@ -411,6 +411,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
         if not audio_only:
             filters.append(",".join(picture) + f"[v{index}]")
+        if video_only:
+            continue
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
             parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
                      "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
@@ -426,19 +428,22 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             transition = clips[index - 1].get("transition", "fade")
             if not audio_only:
                 filters.append(f"[{video}][v{index}]xfade=transition={transition}:duration={_fmt(overlap)}:offset={_fmt(running_duration - overlap)},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
-            filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
+            if not video_only:
+                filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
         else:
             if not audio_only:
                 filters.append(f"[{video}][v{index}]concat=n=2:v=1:a=0,fps={_fmt(fps)},settb=AVTB[joinv{index}]")
-            filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
+            if not video_only:
+                filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
         video, audio = f"joinv{index}", f"joina{index}"
         running_duration += rows[index]["duration"] - overlap
     if origin:
         if not audio_only:
             filters.append(f'[{video}]setpts=PTS+{_fmt(origin)}/TB[globalvideo]')
             video = 'globalvideo'
-        filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
-        audio = 'globalaudio'
+        if not video_only:
+            filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
+            audio = 'globalaudio'
     mix_labels = [audio]
     for offset, track in enumerate(project.get("audio", [])):
         index = len(clips) + offset
@@ -459,11 +464,52 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
                       f"apad=whole_dur={_fmt(total)}", f"atrim=duration={_fmt(total)}"])
         filters.append(",".join(parts) + f"[music{offset}]")
         mix_labels.append(f"music{offset}")
-    filters.append("".join(f"[{label}]" for label in mix_labels) + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)}[outaudio]")
+    if not video_only:
+        filters.append("".join(f"[{label}]" for label in mix_labels) + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)}[outaudio]")
     if not audio_only:
         video = _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel)
         filters.append(f"[{video}]format=yuv420p[outvideo]")
     return args, ";\n".join(filters), total
+
+
+def preview_frame(project, seconds, cancel=None):
+    """Read one composed RGB frame for interactive, silent playhead dragging.
+
+    Skip completed clips and inactive layers/captions. Keep future clip joins
+    so color-format negotiation matches playback, with no soundtrack decoding
+    or video file.
+    """
+    project = copy.deepcopy(project)
+    _source_rate(project)
+    validate_project(project, check_files=True, require_clips=True)
+    seconds = max(0, min(float(seconds), project_duration(project)-1/project['fps']))
+    # FFmpeg's output seek chooses the next frame on the composition grid.
+    # Include cues/overlays entering on that frame, even just after the pointer.
+    seconds = math.ceil(seconds*project['fps']-1e-7)/project['fps']
+    active = [(i, row) for i, row in enumerate(timeline(project))
+              if row['start'] <= seconds < row['start']+row['duration']]
+    origin = active[0][1]['start']
+    project['audio'] = []
+    for group in ('layers', 'captions'):
+        project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
+    scale = min(1, 640/max(project['width'], project['height']))
+    width, height = [max(2, round(project[key]*scale/2)*2) for key in ('width', 'height')]
+    with tempfile.TemporaryDirectory(prefix='clipcanvas-frame-') as scratch:
+        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True)
+        graph_path = Path(scratch)/'filters.txt'
+        graph_path.write_text(graph, encoding='utf-8')
+        picture = Path(scratch)/'picture.rgb'
+        arguments = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+                     '-filter_complex_threads', '1'] + args + [
+                     '-filter_complex_script', str(graph_path), '-ss', _fmt(seconds),
+                     '-map', '[outvideo]', '-an', '-frames:v', '1', '-threads', '1',
+                     '-c:v', 'rawvideo', '-pix_fmt', 'rgb24', '-f', 'rawvideo',
+                     '-progress', 'pipe:1', str(picture)]
+        _execute(arguments, 1/project['fps'], None, cancel, Path(scratch)/'ffmpeg.log')
+        pixels = picture.read_bytes()
+        if len(pixels) != width*height*3:
+            raise RenderError('Could not read a frame at this timeline position.')
+        return {'pixels': pixels, 'width': width, 'height': height, 'position': seconds}
 
 
 def live_stream(project, start=0, cancel=None):

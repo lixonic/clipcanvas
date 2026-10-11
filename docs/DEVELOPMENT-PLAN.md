@@ -124,11 +124,11 @@ See [voice effects and validation](VOICE-EFFECTS.md).
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external provider/API integration is included in the 0.7.0 package. Local
+no external provider/API integration is included in the 0.7.1 package. Local
 speech recognition is included because the user explicitly requested it.
 
 Next selected work remains animation/effects, richer timeline/audio tools and
-caption refinements. Choose the next usable increment after reviewing 0.7.0;
+caption refinements. Choose the next usable increment after reviewing 0.7.1;
 keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering
@@ -162,3 +162,14 @@ explicit rendered-preview fallback. First-source FPS replaces manual choice,
 including fractional rates and legacy-project metadata resolution. See
 [live preview and validation](LIVE-PREVIEW.md). Hardware/GPU playback, waveform
 cache improvements and Windows runtime validation remain future work.
+
+## Continuous scrubbing and preview view: 0.7.1
+
+Drag the white playhead line anywhere along its height to update the composed
+picture while holding it. One cancellable frame worker consumes the latest
+pointer time without a growing queue or debounce starvation; paused release
+loads no audio mix. Previously playing preview resumes from the released time.
+Native Fit/25–400% controls, Ctrl+wheel zoom, and Shift/middle-button pan change
+only the view and retain layer placement coordinates. The suite now passes
+76 local checks, including 13 native workflows; see [validation](LIVE-PREVIEW.md).
+Persistent seek caches/proxies and hardware decoding remain future work.

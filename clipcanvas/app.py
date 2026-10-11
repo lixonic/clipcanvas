@@ -283,6 +283,8 @@ class Timeline(Gtk.DrawingArea):
         for index,edge,cx,cy,r in self.fade_hits:
             if abs(x-cx)<=r and abs(y-cy)<=r:
                 tooltip.set_text('Drag to adjust audio fade '+edge);return True
+        if y>=27 and abs(x-(100+self.owner.playhead*self.scale))<=6:
+            tooltip.set_text('Drag the playhead to preview a time');return True
         return False
 
     def press(self, w, event):
@@ -306,8 +308,9 @@ class Timeline(Gtk.DrawingArea):
                 self.drag={'mode':'fade','index':index,'edge':edge,'x':event.x,
                            'value':self.owner.project['audio'][index].get('fade_'+edge,0)}
                 return True
-        if event.y<34:
+        if event.y<34 or (event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6):
             self.drag={'mode':'seek'}
+            self.owner.begin_scrub()
             self.owner.seek(max(0,(event.x-100)/self.scale));return True
         hits=list(reversed(self.hit))
         # A selected outgoing edge can overlap the next clip. Keep its trim
@@ -335,6 +338,9 @@ class Timeline(Gtk.DrawingArea):
             self.drag['delta']=self.drag_delta(event.x)
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'grabbing'))
             self.queue_draw()
+        elif self.get_window():
+            near=event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6
+            self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'ew-resize') if near else None)
 
     def fade_value(self,x):
         d=self.drag;item=self.owner.project['audio'][d['index']]
@@ -369,7 +375,9 @@ class Timeline(Gtk.DrawingArea):
         if self.get_window():self.get_window().set_cursor(None)
         if not self.drag:return
         d=self.drag
-        if d['mode']=='seek':self.drag=None;return True
+        if d['mode']=='seek':
+            self.drag=None
+            self.owner.end_scrub(max(0,(event.x-100)/self.scale));return True
         if d['mode']=='fade':
             value=self.fade_value(event.x);self.drag=None
             self.owner.checkpoint();self.owner.project['audio'][d['index']]['fade_'+d['edge']]=round(value,2)
@@ -416,6 +424,9 @@ class ClipCanvasWindow(Gtk.Window):
         self.selected=None;self.history=[];self.future=[];self.thumbs={};self.waves={};self.playhead=0.;self.preview_key=None
         self.media_metadata={};self.mute_volumes={}
         self.temp=Path(tempfile.mkdtemp(prefix='clipcanvas-'));self.pool=ThreadPoolExecutor(max_workers=2)
+        self.frame_pool=ThreadPoolExecutor(max_workers=1)
+        self._drag_scrubbing=False;self._scrub_settling=False;self._scrub_resume=False;self._position_target=None
+        self._drag_frame_busy=False;self._drag_frame_cancel=None;self._drag_frame_pending=None;self._drag_frame_serial=0
         self.closed=False;self.busy=False;self.cancel_event=None;self.name_lock=False
         self.recovery=storage.Recovery(recovery_dir);self.autosave_timer=0;self.scrub_timer=0;self.scrub_serial=0;self.scrub_active=False
         self.connect('delete-event',self.close_request)
@@ -536,6 +547,19 @@ class ClipCanvasWindow(Gtk.Window):
         self.canvas.on_position=self.on_position;self.canvas.on_error=self.playback_error
         self.canvas.on_end=lambda:self.update_play_button(False)
         self.canvas.on_overlay_draw=self.draw_layers
+        self.view_lock=False
+        self.preview_zoom_combo=Gtk.ComboBoxText()
+        for factor,title in [('1','Fit'),('.25','25%'),('.5','50%'),('.75','75%'),('1.25','125%'),('1.5','150%'),('2','200%'),('3','300%'),('4','400%')]:
+            self.preview_zoom_combo.append(factor,title)
+        self.preview_zoom_combo.set_active_id('1')
+        self.preview_zoom_combo.set_tooltip_text('Preview magnification relative to Fit. Ctrl+wheel to zoom; Shift+drag to pan. Export is unchanged.')
+        self.preview_zoom_combo.connect('changed',self.preview_zoom_changed)
+        self.canvas.on_view_changed=self.preview_view_changed
+        view_controls=box(Gtk.Orientation.HORIZONTAL,0);view_controls.get_style_context().add_class('linked')
+        self.preview_zoom_out=ui_theme.icon_button('zoom-out-symbolic',lambda:self.canvas.zoom_step(-1),'Zoom preview out')
+        self.preview_zoom_in=ui_theme.icon_button('zoom-in-symbolic',lambda:self.canvas.zoom_step(1),'Zoom preview in')
+        for control in (self.preview_zoom_out,self.preview_zoom_combo,self.preview_zoom_in):view_controls.pack_start(control,False,False,0)
+        self.canvas_toolbar.pack_end(view_controls,False,False,0)
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.POINTER_MOTION_MASK)
         self.canvas.connect('button-press-event',lambda _,event:self.layer_tools.canvas_press(event))
         self.canvas.connect('motion-notify-event',lambda _,event:self.layer_tools.canvas_motion(event))
@@ -599,6 +623,19 @@ class ClipCanvasWindow(Gtk.Window):
             selected=self.selected_item() if self.selected and self.selected[0]=='layers' else None
             visuals.draw(cr,self.project,self.playhead,rect,selected=selected,assets=self.layer_tools.assets)
 
+    def preview_zoom_changed(self,combo):
+        if not self.view_lock and combo.get_active_id():
+            factor=float(combo.get_active_id())
+            self.canvas.set_preview_zoom(factor,reset_pan=factor==1)
+
+    def preview_view_changed(self,factor):
+        self.view_lock=True
+        key={.25:'.25',.5:'.5',.75:'.75'}.get(factor,f'{factor:g}')
+        self.preview_zoom_combo.set_active_id(key)
+        self.preview_zoom_out.set_sensitive(factor>.25)
+        self.preview_zoom_in.set_sensitive(factor<4)
+        self.view_lock=False
+
     def update_play_button(self,playing):
         self.play_button.set_image(ui_theme.icon('media-playback-pause-symbolic' if playing else 'media-playback-start-symbolic'))
 
@@ -610,6 +647,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.recovery.clear()
         self.cancel_scrub()
         self.canvas.set_still(None)
+        self.canvas.reset_view()
         self.project=model.new_project(width,height);self.project_path=None;self.saved=json.dumps(self.project,sort_keys=True)
         self.selected=None;self.history=[];self.future=[];self.preview_key=None;self.playhead=0
         self.sync_project_widgets();self.stack.set_visible_child_name('editor');self.refresh()
@@ -1083,6 +1121,10 @@ class ClipCanvasWindow(Gtk.Window):
         return False
 
     def on_position(self,seconds,duration):
+        if self._drag_scrubbing or self._scrub_settling or self.scrub_timer:return
+        if self._position_target is not None:
+            if abs(seconds-self._position_target)>.15 and GLib.get_monotonic_time()<self._position_target_until:return
+            self._position_target=None
         self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw();self.canvas.queue_draw()
 
     def playback_error(self,message):
@@ -1100,6 +1142,12 @@ class ClipCanvasWindow(Gtk.Window):
         if self.busy:return
         seconds=max(0,min(seconds,max(0,model.project_duration(self.project)-1/self.project['fps'])))
         self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw();self.canvas.queue_draw()
+        self._position_target=seconds
+        self._position_target_until=GLib.get_monotonic_time()+1000000
+        if self._drag_scrubbing and not self.preview_key:
+            self._drag_frame_serial+=1
+            self._drag_frame_pending=(self._drag_frame_serial,seconds)
+            self.start_drag_frame();return
         if self.preview_key:self.canvas.seek(seconds);return
         self.scrub_serial+=1
         self.scrub_active=True
@@ -1108,7 +1156,52 @@ class ClipCanvasWindow(Gtk.Window):
 
     def cancel_scrub(self):
         self.scrub_serial+=1;self.scrub_active=False
+        self._drag_scrubbing=False;self._scrub_settling=False;self._position_target=None;self._drag_frame_pending=None
+        if self._drag_frame_cancel:self._drag_frame_cancel.set()
         if self.scrub_timer:GLib.source_remove(self.scrub_timer);self.scrub_timer=0
+
+    def begin_scrub(self):
+        playing=self.canvas.playing
+        self.cancel_scrub();self._drag_scrubbing=True;self.scrub_active=True;self._scrub_resume=playing
+        self.canvas.pause();self.update_play_button(False)
+
+    def end_scrub(self,seconds):
+        resume=self._scrub_resume
+        if not resume and not self.preview_key:
+            self.seek(seconds)
+            self._drag_scrubbing=False;self._scrub_settling=True
+            return
+        self.cancel_scrub()
+        self.seek(seconds)
+        if resume:
+            if self.preview_key:self.canvas.play();self.update_play_button(True)
+            else:self.preview()
+
+    def start_drag_frame(self):
+        if self.closed or not (self._drag_scrubbing or self._scrub_settling) or self._drag_frame_busy or not self._drag_frame_pending:return
+        serial,seconds=self._drag_frame_pending;self._drag_frame_pending=None
+        self._drag_frame_busy=True;cancel=threading.Event();self._drag_frame_cancel=cancel
+        snapshot=copy.deepcopy(self.project);duration=model.project_duration(snapshot)
+        def finish(picture,error):
+            self._drag_frame_busy=False;self._drag_frame_cancel=None
+            if self.closed:return False
+            current=serial==self._drag_frame_serial
+            if not cancel.is_set() and (self._drag_scrubbing or (self._scrub_settling and current)):
+                if picture:
+                    self.canvas.set_composed_frame(picture,duration)
+                    self.preview_label.set_text('Scrubbing' if self._drag_scrubbing else 'Paused preview')
+                elif error and not isinstance(error,engine.RenderCancelled):self.set_status(str(error))
+                if self._scrub_settling and current:
+                    self._scrub_settling=False;self._position_target=None
+            # Finish the current frame before taking the newest pointer time.
+            # This keeps continuous movement from starving the frame worker.
+            self.start_drag_frame()
+            return False
+        def work():
+            try:picture=engine.preview_frame(snapshot,seconds,cancel);error=None
+            except Exception as problem:picture=None;error=problem
+            GLib.idle_add(finish,picture,error)
+        self.frame_pool.submit(work)
 
     def scrub_frame(self,serial,seconds):
         self.scrub_timer=0
@@ -1116,6 +1209,7 @@ class ClipCanvasWindow(Gtk.Window):
         if self.project['clips']:
             playing=self.canvas.playing
             self.canvas.load_project(self.project,seconds,autoplay=playing)
+            self._position_target=None
             self.update_play_button(playing)
             self.preview_label.set_text('Live preview')
         return False
@@ -1274,7 +1368,7 @@ class ClipCanvasWindow(Gtk.Window):
         if not path:return
         try:project=model.load_project(path)
         except Exception as e:self.error(str(e));return
-        self.canvas.set_still(None);self.project=project;self.project_path=path;self.saved=json.dumps(project,sort_keys=True)
+        self.canvas.set_still(None);self.canvas.reset_view();self.project=project;self.project_path=path;self.saved=json.dumps(project,sort_keys=True)
         self.recovery.clear();self.cancel_scrub()
         self.history=[];self.future=[];self.selected=None;self.preview_key=None;self.playhead=0
         self.sync_project_widgets();self.stack.set_visible_child_name('editor');self.refresh()
@@ -1314,7 +1408,7 @@ class ClipCanvasWindow(Gtk.Window):
         response=dialog.run();index=combo.get_active();dialog.destroy()
         if response!=Gtk.ResponseType.OK:return
         old,project,original=choices[index]
-        self.cancel_scrub();self.canvas.set_still(None);self.project=project;self.project_path=original;self.saved=''
+        self.cancel_scrub();self.canvas.set_still(None);self.canvas.reset_view();self.project=project;self.project_path=original;self.saved=''
         self.selected=None;self.history=[];self.future=[];self.preview_key=None;self.playhead=0
         self.sync_project_widgets();self.stack.set_visible_child_name('editor');self.refresh()
         for kind in ('clips','audio'):
@@ -1436,10 +1530,11 @@ class ClipCanvasWindow(Gtk.Window):
     def cleanup(self):
         for timer in (self.autosave_timer,self.scrub_timer):
             if timer:GLib.source_remove(timer)
-        self.recovery.clear();self.scrub_serial+=1
+        self.recovery.clear();self.cancel_scrub()
         self.closed=True;self.canvas.stop();self.pool.shutdown(wait=False,cancel_futures=True)
+        self.frame_pool.shutdown(wait=False,cancel_futures=True)
         # Workers may still be finishing thumbnails; remove their temp directory after they exit.
-        def clean():self.pool.shutdown(wait=True);shutil.rmtree(self.temp,ignore_errors=True)
+        def clean():self.pool.shutdown(wait=True);self.frame_pool.shutdown(wait=True);shutil.rmtree(self.temp,ignore_errors=True)
         threading.Thread(target=clean,daemon=True).start()
 
 def main():

@@ -49,6 +49,10 @@ class VideoCanvas(Gtk.DrawingArea):
         self.on_end = None
         self.on_overlay_draw = None
         self.canvas_rect = None
+        self.preview_zoom = 1.0
+        self.pan_x = self.pan_y = 0.0
+        self.on_view_changed = None
+        self._pan_drag = None
         self.composited = False
         self.hide_placeholder = False
         self._loaded = False
@@ -82,7 +86,90 @@ class VideoCanvas(Gtk.DrawingArea):
         self.connect("draw", self._draw)
         self.connect("style-updated", lambda _: self.queue_draw())
         self.connect("destroy", self._cleanup)
+        self.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK |
+                        Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
+                        Gdk.EventMask.POINTER_MOTION_MASK)
+        self.connect('scroll-event', self._scroll_view)
+        self.connect('button-press-event', self._pan_press)
+        self.connect('motion-notify-event', self._pan_motion)
+        self.connect('button-release-event', self._pan_release)
         self._timer_id = GLib.timeout_add(100, self._tick)
+
+    def set_preview_zoom(self, factor, reset_pan=False):
+        self.preview_zoom = max(.25, min(4, float(factor)))
+        if reset_pan or self.preview_zoom <= 1:
+            self.pan_x = self.pan_y = 0
+        self._view_rect()
+        self.queue_draw()
+        self._notify(self.on_view_changed, self.preview_zoom)
+
+    def reset_view(self):
+        self.set_preview_zoom(1, reset_pan=True)
+
+    def zoom_step(self, direction):
+        steps = (.25, .5, .75, 1, 1.25, 1.5, 2, 3, 4)
+        choices = [step for step in steps if (step-self.preview_zoom)*direction > .001]
+        if choices:
+            self.set_preview_zoom(min(choices) if direction > 0 else max(choices))
+
+    def _scroll_view(self, widget, event):
+        if not event.state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        if event.direction == Gdk.ScrollDirection.UP:
+            self.zoom_step(1)
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+            self.zoom_step(-1)
+        elif event.direction == Gdk.ScrollDirection.SMOOTH:
+            ok, dx, dy = event.get_scroll_deltas()
+            if ok and abs(dy) > .01:
+                self.zoom_step(-1 if dy > 0 else 1)
+        return True
+
+    def _pan_press(self, widget, event):
+        if self.preview_zoom <= 1 or not (event.button == 2 or
+                (event.button == 1 and event.state & Gdk.ModifierType.SHIFT_MASK)):
+            return False
+        self._pan_drag = (event.x, event.y, self.pan_x, self.pan_y)
+        if self.get_window():
+            self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(), 'grabbing'))
+        return True
+
+    def _pan_motion(self, widget, event):
+        if self._pan_drag is None:
+            return False
+        x, y, px, py = self._pan_drag
+        self.pan_x, self.pan_y = px+event.x-x, py+event.y-y
+        self._view_rect()
+        self.queue_draw()
+        return True
+
+    def _pan_release(self, widget, event):
+        if self._pan_drag is None:
+            return False
+        self._pan_drag = None
+        if self.get_window():
+            self.get_window().set_cursor(None)
+        return True
+
+    def _view_rect(self):
+        width, height = self.get_allocated_width(), self.get_allocated_height()
+        padding = min(28, width/12, height/12)
+        available_w, available_h = max(1, width-2*padding), max(1, height-2*padding)
+        scale = min(available_w/self.aspect_width, available_h/self.aspect_height)*self.preview_zoom
+        cw, ch = self.aspect_width*scale, self.aspect_height*scale
+        mx, my = max(0, (cw-available_w)/2), max(0, (ch-available_h)/2)
+        self.pan_x, self.pan_y = max(-mx, min(mx, self.pan_x)), max(-my, min(my, self.pan_y))
+        self.canvas_rect = ((width-cw)/2+self.pan_x, (height-ch)/2+self.pan_y, cw, ch)
+        return self.canvas_rect
+
+    def set_composed_frame(self, picture, duration):
+        self.stop()
+        self.fit = 'fit'
+        self.composited = True
+        self._last_position, self._last_duration = picture['position'], duration
+        self.frame = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(picture['pixels']),
+            GdkPixbuf.Colorspace.RGB, False, 8, picture['width'], picture['height'], picture['width']*3)
+        self.queue_draw()
 
     def set_aspect(self, width, height):
         if width <= 0 or height <= 0:
@@ -322,12 +409,7 @@ class VideoCanvas(Gtk.DrawingArea):
         color=Gdk.RGBA();color.parse(ui_theme.palette(self)['background'])
         cr.set_source_rgb(color.red,color.green,color.blue)
         cr.paint()
-        padding = min(28, width / 12, height / 12)
-        scale = min(max(1, width - padding * 2) / self.aspect_width,
-                    max(1, height - padding * 2) / self.aspect_height)
-        cw, ch = self.aspect_width * scale, self.aspect_height * scale
-        cx, cy = (width - cw) / 2, (height - ch) / 2
-        self.canvas_rect = (cx, cy, cw, ch)
+        cx, cy, cw, ch = self._view_rect()
         for spread in range(9, 0, -1):
             cr.set_source_rgba(0.12, 0.10, 0.23, 0.008)
             cr.rectangle(cx - spread, cy - spread / 2 + 3, cw + spread * 2, ch + spread)

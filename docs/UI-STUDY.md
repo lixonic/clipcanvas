@@ -74,7 +74,7 @@ The inventory in `CANVA-FEATURES.md` is a scoped catalogue, not a completed-feat
 | Video end fades | A cross-dissolve exists between clips; that is not fade-from/to-black on the project ends. | Explicitly named visual fades if included in this iteration. |
 | Extract audio | No clip context menu or detach action exists. C34 is marked “New work”. | Right-click → Extract audio with independent, correctly timed sound. |
 | Timeline editing | Trim, split, reorder, audio offsets, snapping, and zoom exist. | A calmer toolbar and task-specific menus without losing those functions. |
-| Preview | 0.7.0 streams the composed video/audio; optional rendering is a fallback. | Direct play/pause/seek, with CPU and seek latency described. |
+| Preview | 0.7.1 streams composed video/audio and updates frames during white-playhead dragging; optional rendering is a fallback. | Direct play/pause/seek, native Fit/zoom/pan, with CPU and seek latency described. |
 
 The top-right section currently means **properties of the selected clip or audio item**. Those properties remain useful. Their permanent placement and width are the defect; removing the panel must not remove access to editing.
 
@@ -251,3 +251,17 @@ The useful Canva pattern is direct manipulation with contextual controls: media 
 
 0.7.0 removes the FPS selector and follows the first main source automatically.
 See [live preview](LIVE-PREVIEW.md) for the current playback behavior.
+
+## 9. Preview interaction follow-up: 0.7.1
+
+The white playhead is a full-height drag target with a horizontal resize cursor
+and tooltip. Moving it updates the composed picture while the pointer is held;
+release retains the final position, without changing selection or clip timing.
+Sound pauses during the drag and resumes only when previously playing.
+
+A compact native linked control above the canvas provides minus, Fit/percentage
+and plus. Percentages are magnification relative to Fit, from 25% to 400%.
+Ctrl+wheel zooms; Shift+drag or middle-button drag pans an enlarged canvas.
+Fit resets the view. These controls do not add a permanent inspector or change
+export geometry. Light/dark native captures and zoomed layer positioning were
+checked; see [preview validation](LIVE-PREVIEW.md).

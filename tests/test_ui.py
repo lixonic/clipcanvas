@@ -118,6 +118,108 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_drag_playhead_line_updates_frames_before_release_and_resumes_playback(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'drag-preview-recovery')
+        w.canvas._pipeline.set_property('volume',0)
+        errors=[];w.canvas.on_error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.timeline.hit))
+            w.zoom(100);w.seek(.3)
+            self.pump(lambda:w.canvas.live and not w.scrub_timer and abs(w.canvas.position()-.3)<.01)
+            before=copy.deepcopy(w.project);selected=w.selected
+            y=w.timeline.hit[0][3]+40
+            # Grab the line below the ruler, through the video thumbnail.
+            w.timeline.press(None,SimpleNamespace(button=1,x=130,y=y))
+            self.assertEqual(w.timeline.drag['mode'],'seek')
+            self.assertTrue(w._drag_scrubbing)
+            seen=set()
+            for step in range(40):
+                at=.45+.45*step/39
+                w.timeline.motion(None,SimpleNamespace(x=100+at*100,y=y))
+                deadline=time.monotonic()+.03
+                self.pump(lambda:time.monotonic()>=deadline)
+                if not w.canvas.live:seen.add(round(w.canvas.position(),2))
+            self.assertGreaterEqual(len(seen),2,'Continuous pointer movement must not starve preview frames')
+            w.timeline.motion(None,SimpleNamespace(x=190,y=y))
+            self.pump(lambda:w.canvas.composited and not w.canvas.live and abs(w.canvas.position()-.9)<.04)
+            first=bytes(w.canvas.frame.get_pixels())
+            self.assertAlmostEqual(w.playhead,.9)
+            # A stale tick must not pull the pointer back.
+            w.on_position(.3,3.5);self.assertAlmostEqual(w.playhead,.9)
+            w.timeline.motion(None,SimpleNamespace(x=330,y=y))
+            self.pump(lambda:not w.canvas.live and abs(w.canvas.position()-2.3)<.04)
+            self.assertNotEqual(first,bytes(w.canvas.frame.get_pixels()))
+            self.assertIsNotNone(w.timeline.drag)
+            self.assertEqual(w.project,before)
+            self.assertEqual(w.selected,selected)
+            # Zoom changes remain while seeking and only affect the viewport.
+            w.preview_zoom_combo.set_active_id('2')
+            w.timeline.release(None,SimpleNamespace(x=330,y=y))
+            self.pump(lambda:not w._scrub_settling and abs(w.canvas.position()-2.3)<.01)
+            self.assertFalse(w.canvas.live)
+            self.assertFalse(w.canvas.playing)
+            self.assertEqual(w.canvas.preview_zoom,2)
+            self.assertEqual(w.project,before)
+            # Dragging a playing timeline pauses audio until release, then
+            # resumes from the new time rather than from the original player.
+            w.seek(.2);self.pump(lambda:not w.scrub_timer)
+            w.toggle_play();self.pump(lambda:w.canvas.position()>.3)
+            x=100+w.playhead*w.timeline.scale
+            w.timeline.press(None,SimpleNamespace(button=1,x=x,y=28))
+            self.assertFalse(w.canvas.playing)
+            w.timeline.motion(None,SimpleNamespace(x=220,y=y))
+            self.pump(lambda:not w.canvas.live and abs(w.canvas.position()-1.2)<.04)
+            w.timeline.release(None,SimpleNamespace(x=220,y=y))
+            self.pump(lambda:w.canvas.playing and w.canvas.position()>1.3)
+            self.assertFalse(list(w.temp.glob('*.mp4')))
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_preview_zoom_pan_fit_and_layer_coordinates_leave_project_unchanged(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'zoom-preview-recovery')
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            self.pump(lambda:not w.busy and bool(w.thumbs) and w.canvas.canvas_rect is not None)
+            before=copy.deepcopy(w.project);history=len(w.history)
+            fit=w.canvas.canvas_rect
+            w.preview_zoom_in.clicked()
+            self.pump(lambda:w.canvas.canvas_rect[2]>fit[2]*1.2)
+            self.assertEqual(w.preview_zoom_combo.get_active_id(),'1.25')
+            w.preview_zoom_combo.set_active_id('2')
+            self.pump(lambda:abs(w.canvas.canvas_rect[2]-2*fit[2])<.1)
+            w.canvas._pan_press(None,SimpleNamespace(button=1,state=Gdk.ModifierType.SHIFT_MASK,x=200,y=100))
+            self.assertTrue(w.canvas._pan_motion(None,SimpleNamespace(x=260,y=140)))
+            self.assertNotEqual(w.canvas.pan_y,0)
+            w.canvas._pan_release(None,SimpleNamespace(button=1))
+            w.canvas._scroll_view(None,SimpleNamespace(state=Gdk.ModifierType.CONTROL_MASK,direction=Gdk.ScrollDirection.DOWN))
+            self.assertEqual(w.canvas.preview_zoom,1.5)
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+            w.preview_zoom_combo.set_active_id('1')
+            self.pump(lambda:abs(w.canvas.canvas_rect[2]-fit[2])<.1)
+            self.assertEqual((w.canvas.pan_x,w.canvas.pan_y),(0,0))
+            # Direct overlay manipulation uses the zoomed rectangle, so a
+            # tenth of its width/height still moves by a tenth of the canvas.
+            w.layer_tools.add_text();w.apply_fields()
+            w.preview_zoom_combo.set_active_id('2')
+            self.pump(lambda:not w.scrub_timer and w.canvas.canvas_rect[2]>fit[2]*1.9)
+            x,y,width,height=w.canvas.canvas_rect
+            w.layer_tools.canvas_press(SimpleNamespace(button=1,x=x+width*.5,y=y+height*.5))
+            w.layer_tools.canvas_motion(SimpleNamespace(x=x+width*.6,y=y+height*.6))
+            w.layer_tools.canvas_release(SimpleNamespace(button=1))
+            self.assertAlmostEqual(w.project['layers'][0]['x'],.6,places=2)
+            self.assertAlmostEqual(w.project['layers'][0]['y'],.6,places=2)
+            self.assertEqual(w.canvas.preview_zoom,2)
+            w.start_project(1080,1920)
+            self.assertEqual(w.preview_zoom_combo.get_active_id(),'1')
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_import_edit_preview_save_and_reopen(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'recovery')
         errors = []

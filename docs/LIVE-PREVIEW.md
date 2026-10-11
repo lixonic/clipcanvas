@@ -1,8 +1,8 @@
-# Live preview and automatic FPS — ClipCanvas 0.7.0
+# Live preview, scrubbing and zoom — ClipCanvas 0.7.1
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
-Pause/resume, ruler seeking and replay at the end use the native GTK canvas.
+Pause/resume, playhead/ruler seeking and replay at the end use the native GTK canvas.
 After an edit, press play again. No cloud service or upload is involved.
 
 The preview includes clip cuts/transitions, picture/audio fades, trim and speed,
@@ -10,6 +10,31 @@ text/caption styles, image/video overlays and opacity, independent soundtrack
 placement, voice effects and the final audio limiter. Video overlays remain
 silent, as in export. Live frames are at most 640 pixels on their longest edge.
 Export still reads the originals at the chosen canvas resolution and quality.
+
+## Drag the playhead and zoom the preview
+
+Grab the white playhead line over any timeline row, or drag the ruler. The
+preview updates while you move it, including clip transitions, captions and
+visual layers. The line and clock follow the pointer immediately; composed
+frames can trail it while decoding. Sound pauses during dragging. Release
+resumes playback at that position if it was previously playing. If already
+paused, the final composed picture stays still without processing the audio mix.
+
+Use the native **− / Fit / +** controls above the preview for 25–400%
+magnification relative to the fitted canvas. **Ctrl+wheel** also zooms. When
+enlarged, **Shift+drag** or middle-button drag pans within the canvas; **Fit**
+centers and shows the complete image again. Zoom remains through playback and
+seeking, and resets on new/open/recovered projects. It changes only the preview
+view, never the export, saved geometry or undo history. Direct layer placement
+continues to use the visible, zoomed canvas coordinates.
+
+The frame worker finishes one composed RGB picture, then takes the newest
+pointer time; it does not build a backlog or keep resetting a debounce timer.
+It skips completed clips, inactive cues/layers, and audio processing while
+retaining the shared visual graph and global timing. The final released time
+replaces any older pending picture. Project changes and closing cancel the
+worker. There is no prepared video file. Large source frames, deep positions
+inside an active clip, and complex overlays can still slow individual updates.
 
 ## Automatic frame rate
 
@@ -40,7 +65,7 @@ retaining global layer/caption timing and soundtrack processing history.
 Playback is CPU-based. Complex projects can stutter; long active clips and
 soundtrack effect history can take catch-up decoding after a seek. A large set
 of caption sprites also adds startup work. GPU acceleration, adaptive proxies,
-a media cache and an interactive timeline engine remain separate improvements.
+a media cache and a persistent interactive timeline engine remain separate improvements.
 **Project → Render smooth preview…** retains the prepared-file fallback for
 projects that cannot keep up. Export still renders the final video.
 
@@ -48,7 +73,7 @@ On-canvas layer dragging briefly uses a source editing frame so the selected
 layer can move directly with the pointer. Ordinary ruler seeking uses the
 composed frame, including transitions and fades.
 
-## Validation
+## Validation of 0.7.0
 
 The full local suite passes **73 tests**, including **11 native GTK workflows**
 and actual local Tiny speech recognition. Generated test media exercises:
@@ -75,3 +100,27 @@ join outline was also fixed by starting its circle on an independent Cairo path.
 
 Dependencies remain Ubuntu GTK3, GStreamer base/good/libav and FFmpeg. This
 release provides an Ubuntu .deb; Windows runtime/installer validation is pending.
+
+## Validation of 0.7.1
+
+The full local suite passes **76 tests**, including **13 native GTK workflows**
+and actual local Tiny speech recognition. New checks compare scrub pictures
+with uninterrupted playback across cue entries, transitions and later clips,
+including video overlays. Whole-frame mean absolute RGB error stays below
+3/255; skipping inactive items/completed joins can remove intermediate chroma
+rounding. Source projects remain unchanged and cancellation is exercised.
+
+Native checks drag the line inside thumbnails, move continuously while holding
+it, cross clip boundaries, reject stale playback positions, retain selection
+and clip timing, settle silently when paused, and resume previous playback.
+Zoom controls, Ctrl+wheel, pan, Fit, layer positioning and new-project reset
+are checked without changing project/history. The continuous-drag check also
+passed after the final stale-position guard adjustment.
+
+A separate native fixture check displayed a composed frame at 9 seconds in the
+second clip, with a title/caption, in **0.56 seconds** while dragging on this
+machine. This is one measurement, not a performance guarantee. Native light
+and dark captures were inspected; the installed package is checked separately
+with the same fixture.
+
+![Playhead scrubbing and native preview zoom](images/scrub-zoom-0.7.1.png)
