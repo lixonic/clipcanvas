@@ -50,6 +50,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.on_overlay_draw = None
         self.canvas_rect = None
         self.preview_zoom = 1.0
+        self.preview_edge = 0
         self.pan_x = self.pan_y = 0.0
         self.on_view_changed = None
         self._pan_drag = None
@@ -230,7 +231,7 @@ class VideoCanvas(Gtk.DrawingArea):
         try:
             self._live = StreamPlayer(project, start, autoplay,
                 lambda sample: self._receive_sample(sample, generation), error, end,
-                volume=self._pipeline.get_property('volume'))
+                volume=self._pipeline.get_property('volume'), preview_edge=self.preview_edge)
         except Exception as problem:
             self._loaded = self.playing = self.composited = False
             self._notify(self.on_error, 'Live preview is unavailable: ' + str(problem))

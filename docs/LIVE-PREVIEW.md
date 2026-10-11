@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.7.1
+# Live preview, scrubbing and zoom — ClipCanvas 0.8.0
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -8,7 +8,9 @@ After an edit, press play again. No cloud service or upload is involved.
 The preview includes clip cuts/transitions, picture/audio fades, trim and speed,
 text/caption styles, image/video overlays and opacity, independent soundtrack
 placement, voice effects and the final audio limiter. Video overlays remain
-silent, as in export. Live frames are at most 640 pixels on their longest edge.
+silent, as in export. **Full resolution** uses the project canvas by default.
+The selector also provides **HD preview** (1280 pixels on the longest edge) and
+**Fast preview** (640). No option enlarges beyond the project canvas.
 Export still reads the originals at the chosen canvas resolution and quality.
 
 ## Drag the playhead and zoom the preview
@@ -38,10 +40,11 @@ inside an active clip, and complex overlays can still slow individual updates.
 
 ## Automatic frame rate
 
-The FPS dropdown is removed. The first main video clip supplies its original
+The FPS dropdown is removed. The first file-backed main video clip supplies its original
 average frame rate, including 30000/1001 (29.97) and 60000/1001 (59.94). Mixed-rate
 projects need one output rate: later clips follow the first. Reordering/removing
-that clip changes the project rate. Speed changes do not change output FPS.
+that video clip changes the project rate. Color cards are skipped; a cards-only
+project keeps its saved rate (30 for a new project). Speed changes do not change output FPS.
 Original FPS is retained with each clip; older projects obtain it from source
 metadata when opened, and the render worker probes it again before export.
 When metadata is unavailable/unknown, the saved project rate (30 for a new
@@ -124,3 +127,18 @@ and dark captures were inspected; the installed package is checked separately
 with the same fixture.
 
 ![Playhead scrubbing and native preview zoom](images/scrub-zoom-0.7.1.png)
+
+## Quality and color-card follow-up: 0.8.0
+
+The quality selector applies to live playback, composed scrub pictures, paused
+selection pictures and optional rendered previews. It is a per-window view
+setting, independent of project geometry, zoom and export; it restarts playback
+at the current position when changed. Full resolution can take more CPU and
+memory, especially at 4K. There is no hidden quality downgrade: select HD/Fast
+when smoothness is more useful than pixel inspection. Native editing frames use
+PNG; timeline/library thumbnails remain small for navigation.
+
+Color cards run through the same composition graph with silent audio, transitions,
+absolute layer/caption timing and independent soundtracks. A new seek cancels
+any obsolete paused-frame request so its callback cannot interrupt the newer
+playback. See [quality, cards and validation](QUALITY-CARDS.md).

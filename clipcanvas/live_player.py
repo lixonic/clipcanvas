@@ -15,7 +15,8 @@ class StreamPlayer:
     Matroska is only a pipe transport for raw I420 frames and PCM audio. No preview
     media file or video/audio encoder is involved. Both sinks share Gst's clock.
     """
-    def __init__(self, project, start, autoplay, sample, error, end, volume=1):
+    def __init__(self, project, start, autoplay, sample, error, end, volume=1, preview_edge=640):
+        self.preview_edge = preview_edge
         self.project = copy.deepcopy(project)
         self.total = model.project_duration(project)
         self.start = max(0, min(start, max(0, self.total-1/project['fps'])))
@@ -42,7 +43,7 @@ class StreamPlayer:
         self.thread.start()
 
     def _feed(self, error):
-        stream = engine.live_stream(self.project, self.start, self.cancel)
+        stream = engine.live_stream(self.project, self.start, self.cancel, preview_edge=self.preview_edge)
         source = self.pipeline.get_by_name('source')
         try:
             for data in stream:

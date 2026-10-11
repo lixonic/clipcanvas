@@ -1,17 +1,18 @@
-# ClipCanvas 0.7.1
+# ClipCanvas 0.8.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.7.1. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.8.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
 - [Canva UI study and native editor design](docs/UI-STUDY.md)
 - [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
 - [Contributing and build instructions](CONTRIBUTING.md)
+- [Preview quality, lossless masters and color cards](docs/QUALITY-CARDS.md)
 - [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
@@ -19,6 +20,8 @@ platform; a Windows app and installer have not been implemented yet.
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
 Version 0.7.1 adds continuous playhead scrubbing and preview zoom/pan.
+Version 0.8.0 adds full-resolution previews by default, a quality selector,
+lossless masters, color cards and visible clip dragging/drop gaps.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -26,24 +29,24 @@ positioned overlays and local speech captions are included. The inventory record
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
 
-![ClipCanvas playhead scrubbing and preview zoom](docs/images/scrub-zoom-0.7.1.png)
+![ClipCanvas full-resolution preview and color cards](docs/images/quality-cards-0.8.0.png)
 
 ## Install and open
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.7.1_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.8.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.7.1_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.8.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.7.1_all.deb
+   sudo apt install ./clipcanvas_0.8.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -59,7 +62,10 @@ separate application and does not change VLC.
    and Shorts, and square is 1:1. The **Canvas** menu remains above
    the preview. Frame rate follows the first source video automatically.
 2. **Add local videos.** Use **Add videos** in the media sidebar or the plus
-   action after the final timeline clip. Drag clips to reorder them. Search the
+   action after the final timeline clip. Drag clips to reorder them: a lifted
+   thumbnail follows your pointer, neighboring clips make room, and **Drop here**
+   marks the destination. Hold near the viewport edge to scroll the timeline.
+   Release commits one undoable move. Search the
    library by filename or filter it to videos/audio. Collapse the sidebar for
    more canvas space; drag the divider above the timeline to adjust its height.
 3. **Edit a selected clip.** Click **Edit** for source trim and playback speed,
@@ -113,12 +119,32 @@ separate application and does not change VLC.
    only change your view; they do not crop or resize the export.
    The first main clip supplies the frame rate automatically, including 29.97
    and 59.94. Mixed-rate projects follow that first clip; reordering updates it.
-   Live frames use a 640-pixel preview; export always uses original media.
+   The selector above the preview defaults to **Full resolution**, matching the
+   project canvas. **HD preview** caps the longest edge at 1280 pixels and
+   **Fast preview** at 640. Playback, scrubbing and prepared previews follow
+   that choice; export always uses original media at the project canvas size.
    Heavy projects or seeks deep into long clips can take time or stutter. Use
    **Project → Render smooth preview…** when you need a prepared playback file.
-10. **Export an MP4.** Choose where to save it with the native file chooser.
-    Choose **High quality** for most projects or **Maximum quality** when a
-    larger file is acceptable. Keep the app open until export finishes.
+10. **Export.** **Maximum quality · MP4** is selected by default for social
+    videos. Choose **Lossless master · MKV** to preserve the composed frames and
+    audio without lossy encoding; these files are very large. Choose the save
+    location with the native file chooser and keep the app open until finished.
+
+## Insert a color card between videos
+
+Select the preceding clip and press **+ Card** above the timeline. Choose a
+color with Ubuntu's native chooser, enter its duration, then **Insert card**.
+Alternatively, right-click a clip and choose **Insert color card before…** or
+**after…**. With no selection, the toolbar action inserts at the next clip
+boundary at/after the playhead (or at the end).
+
+Select a card and choose **Edit** to change its color and duration. Cards support
+reordering, edge trims, split, duplicate, delete, undo/redo and transitions at
+both joins. Cards have no source file or sound; soundtracks continue across them.
+You can create an entire video from cards with text/logos in **Layers**. Layer,
+caption and soundtrack times remain absolute when a card is inserted or resized;
+check their timing after changing the story. The card is saved in the project
+and included in recovery/portable collection without generating a media file.
 
 ## Add echo and adjust a voice track
 
@@ -235,8 +261,9 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.5.x and adds missing defaults on load.
-It saves project format 3. Use 0.6.x or newer to retain voice effects; 0.5.x may ignore them.
+This version reads projects from 0.1.x–0.7.x and adds missing defaults on load.
+It saves project format 4 for file-free cards. Use ClipCanvas 0.8 or newer to
+open projects saved by this version. Earlier files are migrated when opened.
 Shadows, rounded highlights and custom row order need 0.5.x or newer.
 Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
 include the media references, editable text, captions, styles and row layout.
@@ -245,7 +272,8 @@ The exported MP4 is a standalone video that you can share or upload.
 
 ## Video quality
 
-Exports are made from the original media, not from the smaller live preview.
+Exports are made from the original media at the project canvas size.
+Preview resolution and zoom never change export resolution or source files.
 Frame rate follows the first main clip; choose a canvas appropriate for your source. Increasing resolution
 does not restore detail that is absent in the original, and cropping landscape
 video into portrait necessarily removes part of the image.
@@ -255,11 +283,17 @@ scaling, transitions, or mixed audio. It is intended to preserve good visual
 quality, but even **Maximum quality** is not mathematically lossless. Social
 platforms may compress the finished MP4 again after upload.
 
+**Lossless master · MKV** uses FFV1 video and floating-point PCM audio. It adds
+no lossy encoding to the composed output. Source decoding, cropping, resizing,
+effects and the existing 8-bit YUV 4:2:0 composition still apply; it is not a
+bit-for-bit copy of the source or HDR/high-bit-depth mastering. See
+[quality and validation](docs/QUALITY-CARDS.md).
+
 ## Practical limits of this build
 
 - One base video sequence, with additional audio, text, image, and video layers.
-  A base video clip is required for preview/export; image-only slideshows are
-  not implemented. Overlay/caption timing stays absolute when base clips move
+  At least one video or color card is required for preview/export; use cards
+  with image layers for still scenes. Direct photo-as-main-clip import is pending. Overlay/caption timing stays absolute when base clips move
   or change length; check it after rearranging the story.
 - Live playback computes effects as it plays. CPU-heavy compositions can
   stutter, and deep seeks may need catch-up decoding. This is not a GPU/NLE engine.

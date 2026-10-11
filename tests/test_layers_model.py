@@ -32,7 +32,7 @@ class LayerProjectTests(unittest.TestCase):
         target = self.root / "video.clipcanvas"
         model.save_project(self.project, target)
         data = json.loads(target.read_text(encoding="utf-8"))
-        self.assertEqual(data["version"], 3)
+        self.assertEqual(data["version"], model.PROJECT_VERSION)
         self.assertEqual(data["layers"][1]["path"], self.image.name)
         self.assertEqual(data["layers"][2]["path"], self.overlay.name)
         self.assertEqual(model.load_project(target), original)
@@ -72,7 +72,7 @@ class LayerProjectTests(unittest.TestCase):
                 target = self.root / f"version-{version}.clipcanvas"
                 target.write_text(json.dumps(old), encoding="utf-8")
                 migrated = model.load_project(target)
-                self.assertEqual(migrated["version"], 3)
+                self.assertEqual(migrated["version"], model.PROJECT_VERSION)
                 self.assertEqual(migrated["clips"][0]["path"], str(self.source))
                 self.assertEqual(migrated["layers"], [])
                 self.assertEqual(migrated["captions"], [])

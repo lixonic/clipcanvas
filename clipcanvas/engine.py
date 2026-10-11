@@ -1,6 +1,6 @@
 """Offline FFmpeg media operations. All public functions are worker-safe.
 
-The render writes a temporary MP4 beside its destination and atomically replaces
+The render writes a temporary video beside its destination and atomically replaces
 the destination only after success. It never rewrites source media.
 """
 
@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import threading
 
-from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project
+from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card
 from . import audio_effects
 
 
@@ -358,7 +358,16 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
     return video
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False):
+def preview_dimensions(project, max_edge=640):
+    """0 means the full project canvas; never enlarge beyond that canvas."""
+    if isinstance(max_edge, bool) or not isinstance(max_edge, (int, float)) or not math.isfinite(max_edge) or max_edge < 0:
+        raise RenderError('Choose a valid preview resolution.')
+    width, height = int(project['width']), int(project['height'])
+    scale = min(1, max_edge/max(width, height)) if max_edge else 1
+    return max(2, round(width*scale/2)*2), max(2, round(height*scale/2)*2)
+
+
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640):
     # For live seeking, omit completed main clips. Keep the original global
     # timestamps for music, captions and overlays, including effect history.
     if origin:
@@ -367,8 +376,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
                             if row['start'] >= origin-0.0000001]
     width, height = int(project["width"]), int(project["height"])
     if preview:
-        scale = min(1.0, 640 / max(width, height))
-        width, height = max(2, round(width * scale / 2) * 2), max(2, round(height * scale / 2) * 2)
+        width, height = preview_dimensions(project, preview_edge)
     fps = float(project.get("fps", 30))
     args = []
     filters = []
@@ -378,10 +386,14 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     for index, clip in enumerate(clips):
         duration = clip_duration(clip)
         speed = clip.get("speed", 1)
-        metadata = probe(clip["path"])
-        if not metadata["has_video"]:
-            raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-        args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)), "-t", _fmt(clip["out"] - clip["in"]), "-i", clip["path"]]
+        if is_card(clip):
+            metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
+            args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(duration)}"]
+        else:
+            metadata = probe(clip["path"])
+            if not metadata["has_video"]:
+                raise RenderError(f"{Path(clip['path']).name} has no video stream.")
+            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)), "-t", _fmt(clip["out"] - clip["in"]), "-i", clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
         rotation = clip.get("rotation", 0)
@@ -445,7 +457,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
             audio = 'globalaudio'
     mix_labels = [audio]
-    for offset, track in enumerate(project.get("audio", [])):
+    for offset, track in enumerate([] if video_only else project.get("audio", [])):
         index = len(clips) + offset
         length = clip_duration(track)
         start = float(track.get("start", 0))
@@ -472,7 +484,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     return args, ";\n".join(filters), total
 
 
-def preview_frame(project, seconds, cancel=None):
+def preview_frame(project, seconds, cancel=None, preview_edge=640):
     """Read one composed RGB frame for interactive, silent playhead dragging.
 
     Skip completed clips and inactive layers/captions. Keep future clip joins
@@ -492,10 +504,9 @@ def preview_frame(project, seconds, cancel=None):
     project['audio'] = []
     for group in ('layers', 'captions'):
         project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
-    scale = min(1, 640/max(project['width'], project['height']))
-    width, height = [max(2, round(project[key]*scale/2)*2) for key in ('width', 'height')]
+    width, height = preview_dimensions(project, preview_edge)
     with tempfile.TemporaryDirectory(prefix='clipcanvas-frame-') as scratch:
-        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True)
+        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge)
         graph_path = Path(scratch)/'filters.txt'
         graph_path.write_text(graph, encoding='utf-8')
         picture = Path(scratch)/'picture.rgb'
@@ -512,7 +523,7 @@ def preview_frame(project, seconds, cancel=None):
         return {'pixels': pixels, 'width': width, 'height': height, 'position': seconds}
 
 
-def live_stream(project, start=0, cancel=None):
+def live_stream(project, start=0, cancel=None, preview_edge=640):
     """Yield a bounded, unencoded Matroska stream for immediate native playback.
 
     Raw I420 video and stereo PCM retain the export graph's effects/mix. The
@@ -531,7 +542,7 @@ def live_stream(project, start=0, cancel=None):
     origin = active[0]['start'] if active else 0
     binary, env = _tool('ffmpeg')
     with tempfile.TemporaryDirectory(prefix='clipcanvas-live-') as scratch:
-        args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin)
+        args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin, preview_edge=preview_edge)
         if cancel is not None and cancel.is_set():
             return
         graph_path = Path(scratch)/'filters.txt'
@@ -575,12 +586,13 @@ def live_stream(project, start=0, cancel=None):
                 watcher.join(timeout=4)
 
 
-def render(project, output, preview=False, progress=None, cancel=None, quality="high"):
+def render(project, output, preview=False, progress=None, cancel=None, quality="high", preview_edge=640):
     """Render synchronously; progress receives (fraction_0_to_1, message).
 
-    Call from a background worker. Preview uses a 640-pixel canvas and a fast
-    encoder. Quality choices: high (CRF 18), smaller (23), master (14).
-    Every mode re-encodes video; none promises bit-for-bit preservation.
+    Call from a background worker. Prepared preview uses preview_edge (640 by
+    default) and a fast encoder. Choices: high (CRF 18), smaller (23), master (14).
+    Lossless uses FFV1/float PCM in MKV, preserving the composed frames/audio.
+    Source decoding, scaling, compositing and 8-bit YUV conversion still apply.
     """
     project = copy.deepcopy(project)
     _source_rate(project)
@@ -588,8 +600,8 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         validate_project(project, check_files=True, require_clips=True)
     except ValueError as error:
         raise RenderError(str(error)) from error
-    if quality not in ("high", "smaller", "master"):
-        raise RenderError("Choose high, smaller, or master export quality.")
+    if quality not in ("high", "smaller", "master", "lossless"):
+        raise RenderError("Choose high, smaller, master or lossless export quality.")
     output = Path(output).expanduser().resolve()
     for item in media_items(project):
         source = Path(item["path"]).resolve()
@@ -605,21 +617,28 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         raise RenderCancelled("Export cancelled.")
     if progress:
         progress(0.0, "Preparing your video…")
-    handle, temporary = tempfile.mkstemp(prefix=".clipcanvas-", suffix=".mp4", dir=str(output.parent))
+    lossless = quality == 'lossless' and not preview
+    if lossless and output.suffix.lower() != '.mkv':
+        raise RenderError('Choose an .mkv filename for the lossless master.')
+    handle, temporary = tempfile.mkstemp(prefix=".clipcanvas-", suffix=".mkv" if lossless else ".mp4", dir=str(output.parent))
     os.close(handle)
     try:
         with tempfile.TemporaryDirectory(prefix="clipcanvas-render-") as scratch:
-            input_args, graph, seconds = _graph(project, preview, scratch=scratch, cancel=cancel)
+            input_args, graph, seconds = _graph(project, preview, scratch=scratch, cancel=cancel, preview_edge=preview_edge)
             graph_path = Path(scratch) / "filters.txt"
             graph_path.write_text(graph, encoding="utf-8")
-            crf = "28" if preview else {"high": "18", "smaller": "23", "master": "14"}[quality]
-            preset = "ultrafast" if preview else "medium"
+            if lossless:
+                encoding = ['-c:v', 'ffv1', '-level', '3', '-g', '1', '-slicecrc', '1',
+                            '-pix_fmt', 'yuv420p', '-c:a', 'pcm_f32le']
+            else:
+                crf = "18" if preview else {"high": "18", "smaller": "23", "master": "14"}[quality]
+                encoding = ['-c:v', 'libx264', '-preset', 'ultrafast' if preview else 'medium',
+                            '-crf', crf, '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                            '-b:a', '192k' if preview else '320k', '-movflags', '+faststart']
             arguments = ["-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
                          "-filter_complex_threads", "1"] + input_args + [
-                         "-filter_complex_script", str(graph_path), "-map", "[outvideo]", "-map", "[outaudio]",
-                         "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
-                         "-threads", str(min(4, os.cpu_count() or 2)), "-c:a", "aac", "-b:a", "192k" if preview else "320k",
-                         "-ar", "48000", "-ac", "2", "-t", _fmt(seconds), "-movflags", "+faststart",
+                         "-filter_complex_script", str(graph_path), "-map", "[outvideo]", "-map", "[outaudio]"] + encoding + [
+                         "-threads", str(min(4, os.cpu_count() or 2)), "-ar", "48000", "-ac", "2", "-t", _fmt(seconds),
                          "-max_muxing_queue_size", "2048", "-progress", "pipe:1", "-stats_period", "0.2", temporary]
             _execute(arguments, seconds, progress, cancel, Path(scratch) / "ffmpeg.log")
         if cancel is not None and cancel.is_set():
@@ -641,9 +660,9 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
 
 def _source_rate(project):
     """Resolve older projects too, without blocking the desktop thread."""
-    clips = project.get('clips', [])
-    if clips and isinstance(clips[0], dict) and clips[0].get('path'):
-        clips[0]['source_fps'] = probe(clips[0]['path'])['fps']
+    first = next((clip for clip in project.get('clips', []) if not is_card(clip)), None)
+    if first and first.get('path'):
+        first['source_fps'] = probe(first['path'])['fps']
     adapt_frame_rate(project)
 
 
@@ -662,7 +681,7 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
     if source == 'video':
         project['audio'] = []
         for clip in project.get('clips', []):
-            clip['volume'] = 1.0
+            clip['volume'] = 0.0 if is_card(clip) else 1.0
             clip.pop('audio_effects',None)
     try:
         validate_project(project, check_files=True, require_clips=True)

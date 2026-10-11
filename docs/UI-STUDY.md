@@ -265,3 +265,16 @@ Ctrl+wheel zooms; Shift+drag or middle-button drag pans an enlarged canvas.
 Fit resets the view. These controls do not add a permanent inspector or change
 export geometry. Light/dark native captures and zoomed layer positioning were
 checked; see [preview validation](LIVE-PREVIEW.md).
+
+## 10. Quality, card insertion and visible dragging: 0.8.0
+
+A native Full/HD/Fast selector sits beside preview Fit/zoom controls; Full is the
+default and uses the project canvas. Export defaults to Maximum MP4 and offers
+a clearly described lossless MKV master. Color cards enter through a visible
+**+ Card** timeline action or before/after clip context actions, then a native
+color chooser and duration control. Selecting a card opens the compact editor.
+
+Reordering now lifts the thumbnail beneath the pointer and shows an insertion
+gap/marker while adjacent clips make room. Viewport-edge scrolling supports long
+stories; only release changes the project. Native light/dark captures and
+regressions cover this workflow. See [quality/cards validation](QUALITY-CARDS.md).

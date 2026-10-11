@@ -259,7 +259,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertFalse(errors)
             preview = w.temp / (w.preview_key + '.mp4')
             info = engine.probe(preview)
-            self.assertEqual((info['width'], info['height']), (360, 640))
+            self.assertEqual((info['width'], info['height']), (1080, 1920))
             self.pump(lambda: w.canvas.position() > .15)
             w.select('clips', 1)
             self.assertFalse(w.canvas.playing)
@@ -271,6 +271,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertTrue(w.canvas.playing)
             w.canvas.pause()
             w.open_project(w.project_path)
+            self.pump(lambda:not w._scrub_settling and w.canvas.frame is not None)
             self.assertIsNotNone(w.canvas.frame)
             w.start_project(1920, 1080)
             self.assertIsNone(w.canvas.frame)
@@ -329,6 +330,86 @@ class DesktopWorkflowTests(unittest.TestCase):
         finally:
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_quality_picker_refreshes_still_live_and_export_defaults(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'quality-ui-recovery');w.error=lambda message:self.fail(message)
+        try:
+            w.start_project(960,540);w.import_paths([str(self.fixtures.root/'landscape.mp4')])
+            self.pump(lambda:not w.busy and not w._scrub_settling and w.canvas.frame is not None)
+            self.assertEqual(w.preview_quality.get_active_id(),'0')
+            self.assertEqual((w.canvas.frame.get_width(),w.canvas.frame.get_height()),(960,540))
+            before=copy.deepcopy(w.project);history=len(w.history)
+            w.preview_quality.set_active_id('640')
+            self.pump(lambda:not w._scrub_settling and w.canvas.frame.get_width()==640)
+            w.preview_quality.set_active_id('1280')
+            self.pump(lambda:not w._scrub_settling and w.canvas.frame.get_width()==960)
+            w.toggle_play();self.pump(lambda:w.canvas.live and w.canvas.position()>.1)
+            w.preview_quality.set_active_id('0')
+            self.pump(lambda:w.canvas.playing and w.canvas._live.preview_edge==0)
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+            seen=[]
+            def cancel_export():
+                dialog=next(d for d in Gtk.Window.list_toplevels() if isinstance(d,Gtk.Dialog) and d.get_title()=='Export your video')
+                seen.append(w.export_quality_combo.get_active_id());w.export_quality_combo.set_active_id('lossless');seen.append(w.export_quality_combo.get_active_text());dialog.response(Gtk.ResponseType.CANCEL);return False
+            GLib.timeout_add(50,cancel_export);w.export()
+            self.assertEqual(seen[0],'master');self.assertIn('MKV',seen[1])
+            w.canvas.pause();w.begin_scrub();w.end_scrub(.3);w.seek(.5)
+            self.pump(lambda:not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
+            self.assertFalse(w._scrub_settling)
+            self.assertAlmostEqual(w.canvas.position(),.5,delta=.1)
+        finally:w.cleanup();w.destroy()
+
+    def test_insert_edit_split_reorder_cards_with_visible_drag_and_undo(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'cards-ui-recovery');w.error=lambda message:self.fail(message)
+        try:
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')])
+            self.pump(lambda:not w.busy and len(w.thumbs)==2)
+            w.select('clips',0,seek=False)
+            def insert():
+                d=next(d for d in Gtk.Window.list_toplevels() if isinstance(d,Gtk.Dialog) and d.get_title()=='Insert color card')
+                color=Gdk.RGBA();color.parse('#cc4422');w.new_card_color.set_rgba(color);w.new_card_duration.set_value(2.5);d.response(Gtk.ResponseType.OK);return False
+            GLib.timeout_add(50,insert);w.card_button.clicked()
+            self.pump(lambda:not w._scrub_settling and w.canvas.composited)
+            self.assertTrue(model.is_card(w.project['clips'][1]));self.assertEqual(w.project['clips'][1]['color'],'#cc4422')
+            self.assertAlmostEqual(model.clip_duration(w.project['clips'][1]),2.5)
+            self.assertFalse(w.sound_button.get_sensitive())
+            names=[i.get_label() for i in w.context_menu('clips',1).get_children() if isinstance(i,Gtk.MenuItem)]
+            self.assertIn('Insert color card before…',names);self.assertNotIn('Extract audio',names);w.active_context_menu.popdown()
+            w.open_properties();color=Gdk.RGBA();color.parse('#2244cc');w.card_color.set_rgba(color);w.card_duration.set_value(4);w.apply_fields()
+            self.assertEqual(w.project['clips'][1]['color'],'#2244cc');self.assertEqual(model.clip_duration(w.project['clips'][1]),4)
+            before=copy.deepcopy(w.project);w.zoom_control.set_value(100)
+            self.pump(lambda:len(w.timeline.hit)>=3)
+            self.pump(lambda:not w._scrub_settling)
+            hit=next(h for h in w.timeline.hit if h[:2]==('clips',1));_,_,x,y,width,height=hit
+            w.timeline.press(w.timeline,SimpleNamespace(button=1,x=x+width/2,y=y+height/3))
+            self.assertEqual(w.timeline.drag['mode'],'edit')
+            w.timeline.motion(w.timeline,SimpleNamespace(x=110,y=y+height/3))
+            self.assertTrue(w.timeline.drag['active']);self.assertEqual(w.timeline.drag['target'],0)
+            self.assertEqual(w.project,before)
+            surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,w.timeline.get_allocated_width(),w.timeline.get_allocated_height())
+            w.timeline.draw(w.timeline,cairo.Context(surface))
+            self.assertEqual(w.project,before)
+            history=len(w.history);w.timeline.release(w.timeline,SimpleNamespace(button=1,x=110,y=y+height/3))
+            self.assertEqual(w.selected,('clips',0));self.assertTrue(model.is_card(w.project['clips'][0]));self.assertEqual(len(w.history),history+1)
+            w.undo();self.assertEqual(w.project,before)
+            w.select('clips',1,seek=False);w.playhead=model.timeline(w.project)[1]['start']+2;w.split_selected()
+            self.assertEqual([model.clip_duration(c) for c in w.project['clips'][1:3]],[2,2])
+            w.project_path=str(self.fixtures.root/'card-ui.clipcanvas');self.assertTrue(w.save())
+            saved=copy.deepcopy(w.project);w.open_project(w.project_path);self.assertEqual(w.project,saved)
+            # A held drag at the viewport edge scrolls without editing the model.
+            w.project['clips']=[model.new_card(color,10) for color in ('#aa2222','#22aa22','#2222aa')]
+            w.selected=('clips',0);w.changed();w.zoom_control.set_value(100)
+            self.pump(lambda:w.timeline_scroll.get_hadjustment().get_upper()>w.timeline_scroll.get_hadjustment().get_page_size())
+            self.pump(lambda:not w._scrub_settling)
+            adjust=w.timeline_scroll.get_hadjustment();adjust.set_value(0);self.pump(lambda:len(w.timeline.hit)==3)
+            _,_,x,y,width,height=next(h for h in w.timeline.hit if h[:2]==('clips',0))
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+width/3,y=y+20))
+            w.timeline.motion(None,SimpleNamespace(x=adjust.get_page_size()-8,y=y+20))
+            before=copy.deepcopy(w.project);self.pump(lambda:adjust.get_value()>20)
+            self.assertEqual(w.project,before)
+            w.timeline.release(None,SimpleNamespace(x=w.timeline.drag['pointer_x'],y=y+20))
+            self.assertEqual(w.timeline.drag_scroll_timer,0)
+        finally:w.cleanup();w.destroy()
 
     def test_clean_canvas_and_native_file_chooser(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'native-ui-recovery')

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.0 — 2026-10-11
+
+- Default native playback and paused pictures to the full project resolution.
+  Add Full / HD (1280) / Fast (640) preview choices, independent of zoom/export.
+  Prepared previews follow the chosen size and use CRF 18 instead of 28.
+  On-canvas editing frames now use PNG rather than JPEG.
+- Default the export dialog to Maximum quality MP4. Add a lossless FFV1 video /
+  floating-point PCM audio master in MKV, preserving the composed output without
+  lossy encoding. Scaling, effects and 8-bit YUV 4:2:0 conversion still apply.
+- Add native color cards with per-card duration, toolbar and before/after context
+  insertion, color/duration editing, trimming, split, duplicate, reorder and join
+  transitions. Cards can form a video without source clips and carry no sound.
+- Save format 4 projects for file-free scenes; migrate formats 1–3. Collection,
+  recovery, relinking, source protection and automatic FPS skip card file paths.
+- Lift a clip thumbnail under the pointer while dragging, make room at its target,
+  show a drop marker, and scroll near viewport edges. Commit one undoable reorder
+  on release. Audio and visual layer bodies also move visibly during dragging.
+- Cancel obsolete paused-frame callbacks on a newer seek so they cannot stop a
+  new playback generation. Keep source, timing and undo data unchanged by quality
+  or view controls. Add rendering/native regression coverage for these workflows.
+
 ## 0.7.1 — 2026-10-11
 
 - Drag the white playhead anywhere along its line, as well as the ruler, to

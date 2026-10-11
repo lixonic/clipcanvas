@@ -124,11 +124,11 @@ See [voice effects and validation](VOICE-EFFECTS.md).
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external provider/API integration is included in the 0.7.1 package. Local
+no external provider/API integration is included in the 0.8.0 package. Local
 speech recognition is included because the user explicitly requested it.
 
 Next selected work remains animation/effects, richer timeline/audio tools and
-caption refinements. Choose the next usable increment after reviewing 0.7.1;
+caption refinements. Choose the next usable increment after reviewing 0.8.0;
 keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering
@@ -173,3 +173,15 @@ Native Fit/25–400% controls, Ctrl+wheel zoom, and Shift/middle-button pan chan
 only the view and retain layer placement coordinates. The suite now passes
 76 local checks, including 13 native workflows; see [validation](LIVE-PREVIEW.md).
 Persistent seek caches/proxies and hardware decoding remain future work.
+
+## Quality, cards and drag feedback: 0.8.0
+
+Full project resolution is the default for native playback/paused pictures,
+with explicit HD/Fast choices. Maximum MP4 is the export default; an FFV1/float-PCM
+MKV master preserves composed output without lossy encoding. File-free color
+cards have editable color/duration and main-sequence editing/transitions. Format
+4 migrates formats 1–3 and retains source-only media collection/relinking.
+Lifted thumbnails, insertion gaps/markers and viewport-edge scrolling make a
+reorder visible before committing one undo step. See [validation](QUALITY-CARDS.md).
+High-bit-depth/HDR mastering, persistent preview caches and hardware acceleration
+remain separate work.

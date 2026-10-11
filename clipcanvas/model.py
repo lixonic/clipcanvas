@@ -1,8 +1,8 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Version 1 and 2 projects migrate on
-load. Visual layers use canvas-relative centers and sizes, so their placement
+possible. Saving never changes the media. Formats 1–3 migrate on load; format 4
+adds file-free color cards. Visual layers use canvas-relative centers and sizes, so their placement
 survives a canvas resize; text sizes are expressed in canvas pixels.
 """
 
@@ -22,7 +22,7 @@ from . import track_layout, audio_effects
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
-PROJECT_VERSION = 3
+PROJECT_VERSION = 4
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 MAX_TIMELINE_SECONDS = 86400 * 7
 
@@ -88,7 +88,7 @@ def media_items(project):
     Do not deduplicate items here: callers must update each path when saving
     or relinking. Collection deduplicates the source files separately.
     """
-    return list(project.get("clips", [])) + list(project.get("audio", [])) + [
+    return [item for item in project.get("clips", []) if not is_card(item)] + list(project.get("audio", [])) + [
         item for item in project.get("layers", []) if item.get("kind") in ("image", "video")]
 
 
@@ -114,6 +114,25 @@ def new_clip(path, metadata=None):
             "video_fade_in": 0.0, "video_fade_out": 0.0}
 
 
+def is_card(item):
+    return item.get('kind') == 'card'
+
+
+def item_name(item):
+    return 'Color card' if is_card(item) else Path(item['path']).name
+
+
+def new_card(color='#ffffff', duration=3.0):
+    """A file-free solid-color scene in the main, ripple timeline."""
+    return {'id': uuid.uuid4().hex, 'kind': 'card', 'color': color,
+            'duration': float(duration), 'in': 0.0, 'out': float(duration),
+            'speed': 1.0, 'volume': 0.0, 'fit': 'fill',
+            'fade_in': 0.0, 'fade_out': 0.0, 'position_x': .5, 'position_y': .5,
+            'rotation': 0, 'flip_x': False, 'flip_y': False,
+            'transition': 'none', 'transition_duration': .5,
+            'video_fade_in': 0.0, 'video_fade_out': 0.0}
+
+
 def new_audio(path, metadata=None):
     metadata = _metadata(path, metadata)
     if not metadata.get("has_audio", True):
@@ -135,8 +154,9 @@ def adapt_frame_rate(project):
     Old projects keep their stored rate until the first source has been probed.
     A fixed export needs one rate; later mixed-rate sources are resampled to it.
     """
-    if project.get('clips'):
-        fps = project['clips'][0].get('source_fps', 0)
+    first = next((item for item in project.get('clips', []) if not is_card(item)), None)
+    if first:
+        fps = first.get('source_fps', 0)
         if isinstance(fps, (int, float)) and not isinstance(fps, bool) and math.isfinite(fps) and 1 <= fps <= 240:
             project['fps'] = fps
     return project['fps']
@@ -259,7 +279,15 @@ def validate_project(project, check_files=True, require_clips=False):
             label = f"{'Clip' if group == 'clips' else 'Soundtrack'} {index + 1}"
             if not isinstance(item, dict):
                 raise ValueError(f"{label} is invalid.")
-            _media_path(item, label, check_files)
+            if group == 'clips' and is_card(item):
+                if not isinstance(item.get('color'), str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', item['color']):
+                    raise ValueError(f'{label} color must be a hex RGB color.')
+                if item.get('speed', 1) != 1 or item.get('volume', 0) != 0:
+                    raise ValueError('Color cards have a duration and no source sound or playback speed.')
+            else:
+                if group == 'clips' and item.get('kind', 'video') != 'video':
+                    raise ValueError(f'{label} must be a video or color card.')
+                _media_path(item, label, check_files)
             duration = _number(item.get("duration"), f"{label} source duration", 0.001, 86400 * 7)
             begin = _number(item.get("in", 0), f"{label} trim start", 0, duration)
             end = _number(item.get("out"), f"{label} trim end", 0, duration + 0.05)
@@ -329,7 +357,7 @@ def validate_project(project, check_files=True, require_clips=False):
         raise ValueError("The caption style is missing or invalid.")
     _text_style(style, "Caption")
     if require_clips and not project["clips"]:
-        raise ValueError("Add at least one video clip before creating a preview or export.")
+        raise ValueError("Add at least one video or color card before creating a preview or export.")
     return True
 
 
@@ -376,7 +404,7 @@ def load_project(path):
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, 2, PROJECT_VERSION):
+        if old_version not in (1, 2, 3, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
@@ -454,6 +482,8 @@ def detach_audio(project, clip_index):
     if isinstance(clip_index, bool) or not isinstance(clip_index, int) or not 0 <= clip_index < len(project["clips"]):
         raise ValueError("Select a video clip to extract its audio.")
     clip = project["clips"][clip_index]
+    if is_card(clip):
+        raise ValueError("Color cards have no audio to extract.")
     source_clip_id = clip.get("id") or uuid.uuid4().hex
     if any(track.get("source_clip_id") == source_clip_id for track in project["audio"]):
         raise ValueError("Audio has already been extracted from this clip. Select its soundtrack in the timeline.")
@@ -544,7 +574,9 @@ def trim_item(project, kind, index, edge, delta):
             item["start"] += (begin - item["in"]) / speed
         item["in"] = begin
     else:
-        item["out"] = min(item["duration"], max(item["in"] + minimum, item["out"] + delta * speed))
+        limit = MAX_TIMELINE_SECONDS if kind == 'clips' and is_card(item) else item['duration']
+        item["out"] = min(limit, max(item["in"] + minimum, item["out"] + delta * speed))
+        if kind == 'clips' and is_card(item):item['duration'] = max(item['duration'], item['out'])
     for key in AUDIO_FADES + ("video_fade_in", "video_fade_out"):
         if key in item:
             item[key] = min(item[key], clip_duration(item))
