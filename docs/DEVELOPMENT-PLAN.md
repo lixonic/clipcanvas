@@ -5,7 +5,7 @@ C44–C49 and AI/API/MCP integration. Work proceeds in usable, tested increments
 Selected features are not necessarily implemented. Ubuntu 0.2.0 established the
 first foundation increment; 0.3.0 adds native UI and audio workflows; 0.4.0 adds
 text/visual layers and local editable captions; 0.5.0 adds shared text presets,
-quick logo opacity and user-arranged timeline rows. Windows
+quick logo opacity and user-arranged timeline rows; 0.6.0 adds voice effects. Windows
 remains an intended, unvalidated platform.
 
 ## Product direction
@@ -96,6 +96,17 @@ Prepared previews remain usable after a display-only row move. See
 Animation presets, motion paths, animated caption packs, translation and
 image-only slideshow assembly remain pending.
 
+## Voice effects: 0.6.0
+
+An Audacity-inspired addition covers part of X05: per-track echo, amplification,
+bass/treble, high-pass/low-pass and compression. Right-click Voice effects opens
+native tabs with presets, bypass and isolated 12-second A/B audition. Parameters
+are validated and stored as optional format 3 fields; preview/export use one
+processing chain. Effects follow trims and speed, then track volume/fades;
+echo stays inside the item boundary. Extraction retains effects; split parts
+are independent. Original-video caption recognition bypasses voice effects.
+See [voice effects and validation](VOICE-EFFECTS.md).
+
 ## Remaining staged work
 
 | Increment | Feature groups | Acceptance checks |
@@ -113,11 +124,11 @@ image-only slideshow assembly remain pending.
 
 C20's automatic animation recommendations can initially use local presets. AI
 background separation, captions and voice cleanup may need optional local models;
-no external provider/API integration is included in the 0.5.0 package. Local
+no external provider/API integration is included in the 0.6.0 package. Local
 speech recognition is included because the user explicitly requested it.
 
 Next selected work remains animation/effects, richer timeline/audio tools and
-caption refinements. Choose the next usable increment after reviewing 0.5.0;
+caption refinements. Choose the next usable increment after reviewing 0.6.0;
 keep simple defaults and place advanced controls behind the main workflow.
 
 ## Windows engineering

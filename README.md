@@ -1,24 +1,25 @@
-# ClipCanvas 0.5.0
+# ClipCanvas 0.6.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.5.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.6.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
 - [Canva UI study and native editor design](docs/UI-STUDY.md)
 - [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
 - [Contributing and build instructions](CONTRIBUTING.md)
+- [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
-AI/API/MCP connections are deferred. Version 0.5.0 adds four shared editable
-text/caption styles, quick logo opacity controls, and Up/Down arrows to arrange
-timeline rows. Positioned text, image/video overlays and local speech captions
-are included. The inventory records what is still pending.
+AI/API/MCP connections are deferred. Version 0.6.0 adds non-destructive voice
+effects: echo, gain, tone filters and a compressor, with isolated A/B listening.
+Four editable text/caption styles, logo opacity, Up/Down timeline rows,
+positioned overlays and local speech captions are included. The inventory records what is still pending.
 
 This version focuses on local assembly and mixing. It does not include Canva's stock
 library, design templates, collaboration, or publishing services.
@@ -29,18 +30,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.5.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.6.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.5.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.6.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.5.0_all.deb
+   sudo apt install ./clipcanvas_0.6.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -104,6 +105,30 @@ separate application and does not change VLC.
 10. **Export an MP4.** Choose where to save it with the native file chooser.
     Choose **High quality** for most projects or **Maximum quality** when a
     larger file is acceptable. Keep the app open until export finishes.
+
+## Add echo and adjust a voice track
+
+Right-click a WAV, MP3 or other soundtrack in the timeline and choose
+**Voice effects…**. The same editor is available through the **Audio** controls,
+including attached video sound. Pick a starting preset (**Neutral**, **Narration**,
+**Telephone**, **Echo**) or adjust the tabs:
+
+- **Amplify:** gain from −24 to +24 dB, separate from the track volume.
+- **Tone:** bass/treble and optional high-pass/low-pass cutoffs; 0 turns a filter off.
+- **Echo:** enable echo, then set delay, first echo level, decay and repeat count.
+- **Compressor:** threshold, ratio, attack/release and make-up gain for voice levels.
+
+Use **Listen with effects** and **Without effects** to compare the first 12
+seconds of that edited track, then **Apply effects**. **Enable voice effects**
+provides bypass; the Neutral preset resets them. Cancel keeps the prior settings.
+Applied effects support undo/redo and save/reopen; the timeline shows **FX**.
+
+Press the main **Preview** to hear the complete mix. Preview/export share the
+same effect chain. Source waveforms remain a view of the original recording.
+No original file is rewritten. Echo stops at the trimmed track/video boundary;
+leave silence inside the track if the final words need room to echo. Splitting
+starts an independent effect chain in each part. These are track-wide effects,
+not selection-based waveform processing, plugin hosting or automatic noise removal.
 
 ## Add titles, logos, and visual layers
 
@@ -196,9 +221,9 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.4.x and adds missing defaults on load.
-It saves project format 3. Use 0.5.x or newer to retain shadows, rounded
-highlights and custom row order; 0.4.x may ignore these optional additions.
+This version reads projects from 0.1.x–0.5.x and adds missing defaults on load.
+It saves project format 3. Use 0.6.x or newer to retain voice effects; 0.5.x may ignore them.
+Shadows, rounded highlights and custom row order need 0.5.x or newer.
 Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
 include the media references, editable text, captions, styles and row layout.
 

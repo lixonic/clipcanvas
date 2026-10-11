@@ -18,7 +18,7 @@ import tempfile
 import uuid
 
 from .text_styles import effect_defaults
-from . import track_layout
+from . import track_layout, audio_effects
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
@@ -252,6 +252,7 @@ def validate_project(project, check_files=True, require_clips=False):
             if end - begin < 0.04:
                 raise ValueError(f"{label} must be at least 0.04 seconds long.")
             _number(item.get("volume", 1), f"{label} volume", 0, 2)
+            if 'audio_effects' in item:audio_effects.validate(item['audio_effects'])
             speed = _number(item.get("speed", 1), f"{label} playback speed", 0.25, 4)
             for key in AUDIO_FADES:
                 # Fades use seconds on the timeline, after changing speed. An
@@ -454,6 +455,7 @@ def detach_audio(project, clip_index):
     track = new_audio(clip["path"], metadata)
     for key in ("duration", "in", "out", "volume", "speed", "fade_in", "fade_out"):
         track[key] = clip.get(key, track[key])
+    if 'audio_effects' in clip:track['audio_effects']=copy.deepcopy(clip['audio_effects'])
     track.update({"start": rows[clip_index]["start"], "source_clip_id": source_clip_id,
                   "transition_fade_in": rows[clip_index - 1]["overlap"] if clip_index else 0.0,
                   "transition_fade_out": rows[clip_index]["overlap"]})

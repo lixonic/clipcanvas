@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0 — 2026-10-11
+
+- Added right-click Voice effects for WAV/MP3 and other soundtracks, plus attached
+  video sound: gain in dB, bass/treble, rumble/low-pass filters, echo and compressor.
+- Added Neutral, Narration, Telephone and Echo starting presets, editable native
+  tabs, bypass, and cancellable first-12-second listening with/without effects.
+- Shared the effect chain across isolated audition, prepared preview and export.
+  Echo repeats/decay use timeline milliseconds after speed conversion and stop
+  at the trimmed item/video boundary. Original source files remain untouched.
+- Saved validated optional voice settings in format 3 projects, with undo/redo,
+  independent split/duplicate settings, effect retention on extraction and FX
+  markers. Original-video caption recognition bypasses the applied voice effects.
+- This is track-wide processing; waveform-selection edits, automatic loudness
+  normalization, noise removal, pitch changing and external effect plugins remain
+  separate work. Windows packaging and provider/API/MCP work remain pending.
+
 ## 0.5.0 — 2026-10-10
 
 - Added four original shared text/caption presets: Clean, Outline, Shadow and

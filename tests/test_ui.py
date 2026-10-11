@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import cairo
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, GLib
 
 from clipcanvas.app import ClipCanvasWindow, CSS, file_chooser
 from clipcanvas import engine, model
@@ -465,6 +465,69 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.redo();self.assertEqual(w.project,moved)
             self.assertFalse(errors)
         finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+
+    def test_right_click_voice_effects_audition_cancel_apply_undo_and_save(self):
+        from clipcanvas import audio_effects
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'voice-ui-recovery')
+        errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
+        callback_errors=[];audition_paths=[]
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','music.wav')])
+            self.pump(lambda:not w.busy and bool(w.thumbs) and bool(w.waves))
+            w.project['clips'][0]['volume']=0;w.changed();w.seek(.3)
+            before=copy.deepcopy(w.project)
+            def cancel_dialog():
+                try:
+                    d=w.voice_dialog;d.presets.set_active_id('Echo')
+                    d.controls['gain_db'][0].set_value(6)
+                    d.response(Gtk.ResponseType.CANCEL)
+                except Exception as error:
+                    callback_errors.append(error)
+                    if w.voice_dialog:w.voice_dialog.response(Gtk.ResponseType.CANCEL)
+                return False
+            GLib.timeout_add(100,cancel_dialog)
+            menu=w.context_menu('audio',0)
+            entry=next(item for item in menu.get_children() if isinstance(item,Gtk.MenuItem) and item.get_label()=='Voice effects…')
+            menu.popdown();entry.activate()
+            self.assertEqual(w.project,before)
+            def apply_dialog():
+                try:
+                    d=w.voice_dialog;d.player.set_property('volume',0)
+                    d.presets.set_active_id('Narration');d.presets.set_active_id('Echo')
+                    d.controls['gain_db'][0].set_value(6)
+                    d.controls['echo_delay_ms'][0].set_value(200)
+                    d.listen.clicked();self.pump(lambda:d.audition_path is not None or d.audition_error is not None)
+                    self.assertIsNone(d.audition_error)
+                    wet=d.audition_path;audition_paths.append(wet);self.assertTrue(wet.is_file())
+                    wet_hash=wet.read_bytes()
+                    d.compare.clicked();self.pump(lambda:d.audition_path is not None or d.audition_error is not None)
+                    self.assertIsNone(d.audition_error);audition_paths.append(d.audition_path)
+                    self.assertNotEqual(d.audition_path.read_bytes(),wet_hash)
+                    d.response(Gtk.ResponseType.OK)
+                except Exception as error:
+                    callback_errors.append(error)
+                    if w.voice_dialog:w.voice_dialog.response(Gtk.ResponseType.CANCEL)
+                return False
+            GLib.timeout_add(100,apply_dialog);w.edit_voice_effects()
+            self.assertFalse(callback_errors,callback_errors)
+            self.assertTrue(all(not path.exists() for path in audition_paths))
+            effects=w.project['audio'][0]['audio_effects']
+            self.assertEqual(effects['gain_db'],6);self.assertEqual(effects['echo_delay_ms'],200)
+            self.assertTrue(audio_effects.active(w.project['audio'][0]))
+            self.assertAlmostEqual(w.playhead,.3)
+            after=copy.deepcopy(w.project);w.undo();self.assertEqual(w.project,before)
+            w.redo();self.assertEqual(w.project,after)
+            w.project_path=str(self.fixtures.root/'voice-effects.clipcanvas');self.assertTrue(w.save())
+            w.open_project(w.project_path);self.assertEqual(w.project,after)
+            w.preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            self.assertTrue(w.canvas.composited);self.assertFalse(errors)
+        finally:
+            if getattr(w,'voice_dialog',None):w.voice_dialog.destroy()
+            if getattr(w,'active_context_menu',None):w.active_context_menu.popdown()
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 

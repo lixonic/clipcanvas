@@ -20,6 +20,7 @@ import tempfile
 import threading
 
 from .model import clip_duration, media_items, project_duration, timeline, validate_project
+from . import audio_effects
 
 
 class RenderError(RuntimeError):
@@ -159,6 +160,20 @@ def _audio_fades(item, audible_length):
             filters.append(f"afade=t=in:st=0:d={_fmt(fade_in)}")
         if fade_out > 0:
             filters.append(f"afade=t=out:st={_fmt(audible_length-fade_out)}:d={_fmt(fade_out)}")
+    return filters
+
+
+def _processed_audio(item, length, audible_length=None, with_effects=True):
+    """The same trim/tempo/effect/volume/fade chain for render and audition.
+
+    Echo is bounded by the item's trimmed duration. It does not extend the
+    timeline or leak into the following clip. Delay is measured after speed.
+    """
+    filters=_tempo(item.get('speed',1))
+    filters.extend(['apad',f'atrim=duration={_fmt(length)}'])
+    if with_effects:filters.extend(audio_effects.filters(item))
+    filters.extend([f'atrim=duration={_fmt(length)}',f'volume={_fmt(item.get("volume",1))}'])
+    filters.extend(_audio_fades(item,length if audible_length is None else audible_length))
     return filters
 
 
@@ -393,9 +408,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
             parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
                      "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
-            parts.extend(_tempo(speed))
-            parts.extend(["apad", f"atrim=duration={_fmt(duration)}", f"volume={_fmt(clip.get('volume', 1))}"])
-            parts.extend(_audio_fades(clip, duration))
+            parts.extend(_processed_audio(clip,duration))
             filters.append(",".join(parts) + f"[a{index}]")
         else:
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={_fmt(duration)},asetpts=PTS-STARTPTS[a{index}]")
@@ -425,10 +438,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None):
         args += ["-threads", "1", "-ss", _fmt(track.get("in", 0)), "-t", _fmt(track["out"] - track.get("in", 0)), "-i", track["path"]]
         parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
                  "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
-        parts.extend(_tempo(track.get("speed", 1)))
-        parts.extend(["apad", f"atrim=duration={_fmt(length)}", f"volume={_fmt(track.get('volume', 1))}"])
         audible_length = max(0.0, min(length, total - start))
-        parts.extend(_audio_fades(track, audible_length))
+        parts.extend(_processed_audio(track,length,audible_length))
         # Give the delayed sample sequence an explicit zero origin. With tempo
         # conversion/padding, inherited timestamps can otherwise cause amix to
         # discard the leading silence and start this independent track early.
@@ -522,6 +533,7 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
         project['audio'] = []
         for clip in project.get('clips', []):
             clip['volume'] = 1.0
+            clip.pop('audio_effects',None)
     try:
         validate_project(project, check_files=True, require_clips=True)
     except ValueError as error:
@@ -563,6 +575,45 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
             os.unlink(temporary)
         except FileNotFoundError:
             pass
+
+
+def render_track_sample(item, output, with_effects=True, audible_length=None, seconds=12, cancel=None):
+    """Audition the first seconds of one edited audio item without its mix.
+
+    Writes a protected, atomic 48 kHz stereo WAV. The final mix limiter is
+    reproduced here for an isolated track; other tracks can affect it in a mix.
+    """
+    from . import model
+    item=copy.deepcopy(item)
+    project=model.new_project();project['audio']=[item]
+    validate_project(project,check_files=True)
+    metadata=probe(item['path'])
+    if not metadata['has_audio']:raise RenderError('This item has no audio to audition.')
+    output=Path(output).expanduser().resolve();source=Path(item['path']).resolve()
+    if source==output or (output.exists() and os.path.samefile(source,output)):
+        raise RenderError('An audition cannot replace its original audio.')
+    if not output.parent.is_dir() or output.is_dir():raise RenderError('Choose an audio filename in an existing folder.')
+    length=clip_duration(item)
+    audible_length=length if audible_length is None else max(0,min(length,audible_length))
+    seconds=min(float(seconds),audible_length)
+    if seconds<=0 or not math.isfinite(seconds):raise RenderError('This track has no audible section in the video.')
+    handle,temporary=tempfile.mkstemp(prefix='.clipcanvas-',suffix='.wav',dir=output.parent);os.close(handle)
+    try:
+        with tempfile.TemporaryDirectory(prefix='clipcanvas-audition-') as scratch:
+            filters=['aresample=48000','aformat=sample_fmts=fltp:channel_layouts=stereo','asetpts=PTS-STARTPTS']
+            filters.extend(_processed_audio(item,length,audible_length,with_effects))
+            filters.extend(['alimiter=limit=0.95:level=0:latency=1','apad',f'atrim=duration={_fmt(seconds)}'])
+            args=['-nostdin','-hide_banner','-loglevel','warning','-y','-threads','1',
+                  '-ss',_fmt(item.get('in',0)),'-t',_fmt(item['out']-item.get('in',0)),'-i',item['path'],
+                  '-map',f'0:{metadata["audio_index"]}','-vn','-filter_threads','1','-af',','.join(filters),
+                  '-c:a','pcm_s16le','-ar','48000','-ac','2','-t',_fmt(seconds),
+                  '-progress','pipe:1',temporary]
+            _execute(args,seconds,None,cancel,Path(scratch)/'audition.log')
+        if cancel is not None and cancel.is_set():raise RenderCancelled('Audition cancelled.')
+        os.replace(temporary,output);return str(output)
+    finally:
+        try:os.unlink(temporary)
+        except FileNotFoundError:pass
 
 
 def thumbnail(path, output, at=0, width=320, height=180):

@@ -19,7 +19,7 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 import cairo
 
-from . import model, engine, storage, track_layout
+from . import model, engine, storage, track_layout, audio_effects
 from . import __version__
 from .player import VideoCanvas
 
@@ -187,7 +187,7 @@ class Timeline(Gtk.DrawingArea):
             else:
                 rgb(cr,'#b5a0d4');cr.paint()
             rgb(cr,'#21172c',.70);cr.rectangle(x,y+53,w,26);cr.fill()
-            draw_text(cr,f'{i+1}  {Path(clip["path"]).name}',x+8,y+71,'#ffffff',11,True)
+            draw_text(cr,f'{i+1}  '+('FX · ' if audio_effects.active(clip) else '')+Path(clip['path']).name,x+8,y+71,'#ffffff',11,True)
             cr.restore()
             selected=self.owner.selected==('clips',i)
             rounded(cr,x,y,w,h);rgb(cr,colors['accent'] if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
@@ -207,7 +207,7 @@ class Timeline(Gtk.DrawingArea):
                     fraction=(audio['in']+(xx/max(w,1))*visible*audio.get('speed',1))/max(.01,audio['duration'])
                     amp=values[min(len(values)-1,max(0,int(fraction*len(values))))]
                     hh=max(2,amp*28);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+21-hh/2,2,hh);cr.fill()
-            rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,Path(audio['path']).name,x+7,y+13,'#ffffff',10)
+            rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,('FX · ' if audio_effects.active(audio) else '')+Path(audio['path']).name,x+7,y+13,'#ffffff',10)
             audible=max(0,min(visible,duration-audio['start']))
             fade_end=x+audible*self.scale
             for key,edge in [('fade_in','in'),('fade_out','out')]:
@@ -832,6 +832,8 @@ class ClipCanvasWindow(Gtk.Window):
         spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
         spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
         hint(sound,'Fades soften the beginning and end of the sound.')
+        hint(sound,audio_effects.summary(item))
+        sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
         if kind=='clips':
             self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
             self.extract_button.set_sensitive(self.extraction_available(item))
@@ -886,7 +888,9 @@ class ClipCanvasWindow(Gtk.Window):
             item=Gtk.MenuItem(label=title);item.set_sensitive(enabled)
             item.connect('activate',lambda _:callback());menu.append(item)
         action('Edit…',lambda:self.open_properties('Timing'))
-        if kind in ('clips','audio'):action('Volume and fades…',lambda:self.open_properties('Sound'))
+        if kind in ('clips','audio'):
+            action('Volume and fades…',lambda:self.open_properties('Sound'))
+            action('Voice effects…',self.edit_voice_effects)
         if kind=='layers':
             action('Bring forward',lambda:self.layer_tools.reorder(1),index+1<len(self.project['layers']))
             action('Send backward',lambda:self.layer_tools.reorder(-1),index>0)
@@ -904,6 +908,10 @@ class ClipCanvasWindow(Gtk.Window):
         if isinstance(event,(Gdk.Event,Gdk.EventButton)):menu.popup_at_pointer(event)
         else:menu.popup_at_widget(self.timeline,Gdk.Gravity.NORTH_WEST,Gdk.Gravity.SOUTH_WEST,None)
         return menu
+
+    def edit_voice_effects(self):
+        from .audio_effects_ui import edit_voice_effects
+        edit_voice_effects(self)
 
     def extraction_available(self,item):
         return (self.media_metadata.get(item['path'],{}).get('has_audio') is not False
@@ -1376,7 +1384,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def help(self):
         dialog=Gtk.MessageDialog(transient_for=self,modal=True,message_type=Gtk.MessageType.INFO,buttons=Gtk.ButtonsType.CLOSE,text='A simple way to make your video')
-        dialog.format_secondary_text('1. Choose your canvas, add videos and drag to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles.\n6. In Layers, add text, images/logos, or overlay video. Text has four editable style presets. Select a logo for opacity and Full video; drag on the canvas to position.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Select a timeline item and use Up / Down to arrange its row.\n9. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
+        dialog.format_secondary_text('1. Choose your canvas, add videos and drag to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles. Right-click Voice effects for echo, gain, tone and compression; compare with/without effects before applying.\n6. In Layers, add text, images/logos, or overlay video. Text has four editable style presets. Select a logo for opacity and Full video; drag on the canvas to position.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Select a timeline item and use Up / Down to arrange its row.\n9. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+O Open · Ctrl+Z Undo · Ctrl+Shift+Z Redo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows source frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
         dialog.run();dialog.destroy()
 
     def keypress(self,w,event):
