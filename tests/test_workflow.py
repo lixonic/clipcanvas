@@ -49,6 +49,22 @@ class WorkflowTests(unittest.TestCase):
             legacy['audio']=[{}];path.write_text(json.dumps(legacy))
             with self.assertRaises(ValueError):model.load_project(path)
 
+    def test_group_volume_changes_only_selected_sound_levels_and_rejects_bad_values(self):
+        p=model.new_project();p['clips']=[model.new_clip('/tmp/a.mp4',{'duration':5}),model.new_clip('/tmp/b.mp4',{'duration':9}),model.new_card('#123456',3)]
+        p['clips'][0].update({'volume':.4,'speed':2,'in':1,'fade_out':.3})
+        p['audio']=[model.new_audio('/tmp/a.wav',{'duration':4})];p['audio'][0].update(start=2,volume=.7,audio_effects={'echo_enabled':True})
+        p['layers']=[model.new_text('Keep this',0,3)];p['captions']=[model.new_caption('Keep words',1,2)]
+        selected={('clips',p['clips'][0]['id']),('clips',p['clips'][2]['id']),('audio',p['audio'][0]['id']),('layers',p['layers'][0]['id'])}
+        before=copy.deepcopy(p);muted=workflow.with_volume(p,selected,0)
+        expected=copy.deepcopy(before);expected['clips'][0]['volume']=0;expected['audio'][0]['volume']=0
+        self.assertEqual(muted,expected);self.assertEqual(p,before)
+        louder=workflow.with_volume(p,selected,1.5)
+        self.assertEqual(louder['clips'][0]['volume'],1.5);self.assertEqual(louder['audio'][0]['volume'],1.5)
+        self.assertEqual(louder['clips'][2]['volume'],0)
+        for value in (-1,2.01,True,float('nan'),'0'):
+            with self.assertRaises(ValueError):workflow.with_volume(p,selected,value)
+        self.assertEqual(p,before)
+
     def test_preferences_restart_valid_folders_and_invalid_file_fallback(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);media=root/'media';media.mkdir();projects=root/'projects';projects.mkdir()

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 — 2026-10-11
+
+- Apply volume to every selected video/audio item from the Sound panel, with
+  the target count shown in the control and Apply button. Group volume preserves
+  each item's trim, timing, speed, fades, voice effects and picture properties.
+- Add Mute/Unmute selected videos/audio context actions. Cards and visual/text
+  layers are excluded; video-only selection leaves soundtracks alone. Changes
+  have one undo step and persist in saved projects. Unmute restores remembered
+  levels within the current app session, otherwise normal volume.
+- Rebuild the inspector for the right-clicked item so a group panel opens with
+  that item's current volume, including when it is not the first selected clip.
+
 ## 0.9.0 — 2026-10-11
 
 - Imported video/audio/image assets live in a separate media library. Clicking

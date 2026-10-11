@@ -918,6 +918,16 @@ class ClipCanvasWindow(Gtk.Window):
         if self.selected_item():selection.add((self.selected[0],self.selected_item()['id']))
         return workflow.selected_items(self.project,selection)
 
+    def selected_sound_items(self):
+        return [(kind,index,item) for kind,index,item in self.selection_items()
+                if kind in ('clips','audio') and not model.is_card(item)]
+
+    def update_apply_label(self,*_):
+        count=len(self.selected_sound_items())
+        item=self.selected_item()
+        bulk=item and self.selected[0] in ('clips','audio') and not model.is_card(item) and count>1 and getattr(self,'properties_stack',None) and self.properties_stack.get_visible_child_name()=='Sound'
+        self.apply_button.set_label(f'Apply volume to {count} items' if bulk else 'Apply changes')
+
     def is_selected(self,kind,index):
         return self.selected==(kind,index) or (kind,self.project[kind][index]['id']) in self.selection
 
@@ -926,7 +936,7 @@ class ClipCanvasWindow(Gtk.Window):
         items=workflow.selected_items(self.project,self.selection)
         self.selected=items[0][:2] if items else None
         self.timeline.queue_draw();self.show_inspector();self.update_row_buttons()
-        self.set_status(f'{len(self.selection)} timeline items selected. Copy or Delete acts on the selection.')
+        self.set_status(f'{len(self.selection)} timeline items selected. Copy, Delete and Audio volume act on the selection.')
 
     def select_modified(self,kind,index,state):
         shift=state&Gdk.ModifierType.SHIFT_MASK;ctrl=state&Gdk.ModifierType.CONTROL_MASK
@@ -1037,6 +1047,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def show_inspector(self):
         old_page=getattr(self,'properties_page','Timing')
+        self.apply_button.set_label('Apply changes')
         for child in self.inspector.get_children():self.inspector.remove(child)
         item=self.selected_item();self.fields={};self.property_pages={}
         if item and self.selected[0] in ('layers','captions'):
@@ -1059,6 +1070,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.inspector.pack_start(heading,False,False,0)
         pages=Gtk.Stack();pages.set_hhomogeneous(False);pages.set_vhomogeneous(False)
         self.properties_stack=pages
+        pages.connect('notify::visible-child-name',self.update_apply_label)
         switcher=Gtk.StackSwitcher();switcher.set_stack(pages);switcher.set_halign(Gtk.Align.CENTER)
         self.inspector.pack_start(switcher,False,False,0);self.inspector.pack_start(pages,True,True,0)
         def page(name):
@@ -1100,18 +1112,27 @@ class ClipCanvasWindow(Gtk.Window):
             spin(picture,'video_fade_in','Fade picture in (s)',0,model.clip_duration(item))
             spin(picture,'video_fade_out','Fade picture out (s)',0,model.clip_duration(item))
         sound=page('Sound')
-        spin(sound,'volume','Volume (%)',0,200,1,100,default=1)
-        spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
-        spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
-        if self.preferences.get('last_audio_settings'):
-            sound.pack_start(button('Use last volume and fade settings',self.use_last_audio_settings),False,False,0)
-        hint(sound,'Fades soften the beginning and end of the sound.')
-        hint(sound,audio_effects.summary(item))
-        sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
+        count=len(self.selected_sound_items());bulk=count>1
+        spin(sound,'volume',f'Volume · {count} selected (%)' if bulk else 'Volume (%)',0,200,1,100,default=1)
+        if bulk:
+            levels={selected.get('volume',1) for _,_,selected in self.selected_sound_items()}
+            hint(sound,f'Applies volume to all {count} selected videos/audio tracks. Trims, fades, speed and voice effects stay unchanged.')
+            if len(levels)>1:hint(sound,'Volumes differ. The control starts at this clip’s level; Apply sets the same level for the selection.')
+            sound.pack_start(button('Mute selected items',lambda:self.apply_selected_volume(0)),False,False,0)
+            if self.preferences.get('last_audio_settings'):
+                sound.pack_start(button('Use last volume setting',self.use_last_audio_settings),False,False,0)
+        else:
+            spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
+            spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
+            if self.preferences.get('last_audio_settings'):
+                sound.pack_start(button('Use last volume and fade settings',self.use_last_audio_settings),False,False,0)
+            hint(sound,'Fades soften the beginning and end of the sound.')
+            hint(sound,audio_effects.summary(item))
+            sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
         if kind=='clips':
             self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
             self.extract_button.set_sensitive(self.extraction_available(item))
-            sound.pack_start(self.extract_button,False,False,4)
+            if not bulk:sound.pack_start(self.extract_button,False,False,4)
             transition=page('Transition')
             self.transition=Gtk.ComboBoxText()
             for key,title in TRANSITIONS:self.transition.append(key,title)
@@ -1135,6 +1156,7 @@ class ClipCanvasWindow(Gtk.Window):
                 update_overlap()
         self.inspector.show_all()
         if old_page in self.property_pages:pages.set_visible_child_name(old_page)
+        self.update_apply_label()
 
     def open_properties(self,page='Timing',anchor=None,rectangle=None):
         if not self.selected_item() or self.busy:return
@@ -1147,6 +1169,7 @@ class ClipCanvasWindow(Gtk.Window):
             rect=Gdk.Rectangle();rect.x=0;rect.y=0;rect.width=allocation.width;rect.height=allocation.height
             self.properties_popover.set_pointing_to(rect)
         if page in self.property_pages:self.properties_stack.set_visible_child_name(page)
+        self.update_apply_label()
         self.properties_popover.show_all();self.properties_popover.popup()
 
     def show_transition(self,index,rectangle=None):
@@ -1160,22 +1183,30 @@ class ClipCanvasWindow(Gtk.Window):
             self.selected=(kind,index);self.select_all(kind);self.selected=(kind,index)
         elif not self.is_selected(kind,index):self.select(kind,index,seek=False)
         else:self.selected=(kind,index)
+        self.show_inspector()
         menu=Gtk.Menu()
         def action(title,callback,enabled=True):
             item=Gtk.MenuItem(label=title);item.set_sensitive(enabled)
             item.connect('activate',lambda _:callback());menu.append(item)
         action('Edit card…' if model.is_card(self.selected_item()) else 'Edit…',lambda:self.open_properties('Timing'))
         card=model.is_card(self.selected_item())
+        sound_items=self.selected_sound_items();count=len(sound_items)
         if kind in ('clips','audio') and not card:
-            action('Volume and fades…',lambda:self.open_properties('Sound'))
-            action('Voice effects…',self.edit_voice_effects)
+            action(f'Volume for {count} selected items…' if count>1 else 'Volume and fades…',lambda:self.open_properties('Sound'))
+            if count>1:
+                target='videos' if all(k=='clips' for k,_,_ in sound_items) else 'audio tracks' if all(k=='audio' for k,_,_ in sound_items) else 'items'
+                action(f'Mute selected {target} ({count})',lambda:self.apply_selected_volume(0),any(item.get('volume',1)>0 for _,_,item in sound_items))
+                action(f'Unmute selected {target} ({count})',self.unmute_selection,any(item.get('volume',1)==0 for _,_,item in sound_items))
+            else:
+                action('Voice effects…',self.edit_voice_effects)
+                if kind=='audio':action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
         if kind=='layers':
             action('Bring forward',lambda:self.layer_tools.reorder(1),index+1<len(self.project['layers']))
             action('Send backward',lambda:self.layer_tools.reorder(-1),index>0)
         if kind=='clips':
             action('Insert color card before…',lambda:self.add_card(index))
             action('Insert color card after…',lambda:self.add_card(index+1))
-            if not card:action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
+            if not card and count<=1:action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
             if not card:action('Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
             action('Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
             action('Move left',lambda:self.move(-1),index>0)
@@ -1208,14 +1239,43 @@ class ClipCanvasWindow(Gtk.Window):
         return (not model.is_card(item) and self.media_metadata.get(item['path'],{}).get('has_audio') is not False
                 and not any(a.get('source_clip_id')==item['id'] for a in self.project['audio']))
 
+    def apply_selected_volume(self,volume):
+        if self.busy:return
+        items=self.selected_sound_items()
+        if not items:return
+        selection={(kind,item['id']) for kind,_,item in items}
+        try:candidate=workflow.with_volume(self.project,selection,volume)
+        except ValueError as error:self.error(str(error));return
+        if volume==0:
+            for _,_,item in items:
+                if item.get('volume',1)>0:self.mute_volumes[item['id']]=item['volume']
+        if candidate!=self.project:
+            self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed()
+        try:
+            remembered=self.preferences.get('last_audio_settings',{})
+            if not isinstance(remembered,dict):remembered={}
+            self.preferences.set('last_audio_settings',{**remembered,'volume':volume})
+        except OSError as error:self.set_status('Could not remember volume: '+str(error))
+        self.set_status(f'Volume set to {volume*100:g}% for {len(items)} selected item(s). Undo restores their previous levels.')
+
+    def unmute_selection(self):
+        if self.busy:return
+        items=self.selected_sound_items()
+        if not items:return
+        candidate=copy.deepcopy(self.project)
+        for kind,index,item in items:
+            if item.get('volume',1)==0:
+                candidate[kind][index]['volume']=self.mute_volumes.get(item['id'],1)
+        if candidate==self.project:return
+        try:model.validate_project(candidate,check_files=False)
+        except ValueError as error:self.error(str(error));return
+        self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed()
+        self.set_status(f'Selected items unmuted. Previously remembered levels are restored.')
+
     def toggle_mute(self):
-        item=self.selected_item()
-        if not item or self.busy:return
-        self.checkpoint()
-        if item['volume']>0:
-            self.mute_volumes[item['id']]=item['volume'];item['volume']=0
-        else:item['volume']=self.mute_volumes.get(item['id'],1)
-        self.changed()
+        items=self.selected_sound_items()
+        if any(item.get('volume',1)>0 for _,_,item in items):self.apply_selected_volume(0)
+        else:self.unmute_selection()
 
     def extract_audio(self):
         if self.busy or not self.selected or self.selected[0]!='clips':return
@@ -1237,6 +1297,8 @@ class ClipCanvasWindow(Gtk.Window):
     def apply_fields(self):
         original=self.selected_item()
         if not original:return
+        if self.selected[0] in ('clips','audio') and not model.is_card(original) and len(self.selected_sound_items())>1 and self.properties_stack.get_visible_child_name()=='Sound':
+            control,mult=self.fields['volume'];self.apply_selected_volume(control.get_value()/mult);return
         if model.is_card(original):self.apply_card_fields();return
         if self.selected[0] in ('layers','captions'):self.layer_tools.apply();return
         item=copy.deepcopy(original)

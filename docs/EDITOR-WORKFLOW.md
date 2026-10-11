@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.9.0
+# Desktop workflow — ClipCanvas 0.9.1
 
 ## Import, then place
 
@@ -39,8 +39,18 @@ Copy/paste preserves media, trim, effects, opacity and text. Pasted items receiv
 new IDs and independent settings. Audio/layers/captions retain their relative
 start offsets from the earliest copied item. Main-sequence clips insert at the
 next scene boundary at/after the playhead; the main sequence closes gaps.
-Groups delete/cut/paste in one undo step. This is group editing, not group dragging:
-dragging and duplicate/property commands still operate on the primary item.
+Groups delete/cut/paste in one undo step. Group volume is available too:
+**Shift+right-click → Mute selected videos** sets all selected video volumes to 0.
+Choose **Volume for N selected items**, enter a percentage, and use **Apply volume
+to N items** to set any shared level. In a group Sound panel, only volume changes;
+source trims, timing, speed, fades, picture properties and voice effects stay as
+saved for each item. Cards, text and image/video overlays have no sound control.
+Video-only selection leaves independent soundtracks untouched. Ctrl-selection
+can include both video and audio tracks, and Shift+right-click audio selects only
+soundtracks. A group change has one undo step and persists in a saved project.
+**Unmute selected** restores prior positive levels remembered during the current
+app session, or normal volume when there is no remembered level.
+Dragging, Duplicate and other property commands still operate on the primary item.
 Entries, text editors and numeric fields keep their own copy/paste/select/delete
 shortcuts. Context menus also handle Delete and clipboard shortcuts.
 
@@ -83,12 +93,15 @@ queued frames. Silent dragging seeks into the current clip at aligned source and
 composition frame boundaries, preserving picture fades and transition overlap.
 Full/HD/Fast only change preview resolution; export reads original sources.
 
-89 local automated checks pass, including 18 native GTK workflows and real offline
+91 local automated checks pass, including 19 native GTK workflows and real offline
 speech recognition. Added checks cover library-only imports followed by actual
 asset clicks, group selection/Delete/undo, clipboard identity/timing/effects,
 text-field shortcut isolation, separate wheel zoom, accepted-folder restoration,
 cancel/apply persistence, project/library collection/migration, presented-buffer
-playhead time, and deep scrubbing through speed, fades, overlays and transitions.
+playhead time, and deep scrubbing through speed, fades, overlays and transitions. The group-volume
+regression selects a non-first video, applies 0% via the real popup, checks all
+selected video levels and untouched soundtrack/other properties, then exercises
+undo/redo, menu mute/unmute, save/reopen and mixed video/audio selection.
 
 A local 640×360 moving source scrubbed at 6.5 seconds averaged 219 ms before and
 175 ms after aligned seeking (three reads each on this machine). This measures
@@ -103,3 +116,5 @@ reported live frame time and the playhead during a one-second Fast playback samp
 ![Native project and playback controls](images/editor-workflow-0.9.0.png)
 
 ![Selected main-sequence group](images/group-selection-0.9.0.png)
+
+![Volume for a video selection](images/group-volume-0.9.1.png)

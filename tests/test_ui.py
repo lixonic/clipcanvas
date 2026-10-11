@@ -915,5 +915,60 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_shift_right_click_bulk_volume_mute_unmute_undo_and_project_save(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'group-volume-recovery')
+        errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.waves))
+            w.cancel_scrub();w.project['clips'][0].update({'volume':.35,'in':.2,'out':1.3,'speed':1.5,'fade_out':.15})
+            w.project['clips'][1].update(volume=.8,video_fade_in=.1,transition='fade')
+            w.project['audio'][0].update(volume=.55,fade_in=.2,audio_effects={'echo_enabled':True})
+            w.project['clips'].append(model.new_card('#123456',.5));w.changed();before=copy.deepcopy(w.project)
+            # Start from a non-first clip; the panel must describe the clicked clip.
+            menu=w.context_menu('clips',1,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
+            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            self.assertIn('Mute selected videos (2)',actions)
+            self.assertIn('Volume for 2 selected items…',actions)
+            menu.popdown();actions['Volume for 2 selected items…'].activate()
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Sound')
+            self.assertEqual(w.apply_button.get_label(),'Apply volume to 2 items')
+            self.assertAlmostEqual(w.fields['volume'][0].get_value(),80)
+            self.assertNotIn('fade_in',w.fields)
+            history=len(w.history);w.fields['volume'][0].set_value(0);w.apply_button.clicked()
+            expected=copy.deepcopy(before)
+            for item in expected['clips']:
+                if not model.is_card(item):item['volume']=0
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            self.assertEqual(len(w.selection_items()),3)
+            w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
+            menu=w.context_menu('clips',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
+            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            menu.popdown();actions['Unmute selected videos (2)'].activate();self.assertEqual(w.project,before)
+            # Direct menu mute gives the same group operation.
+            menu=w.context_menu('clips',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
+            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            menu.popdown();actions['Mute selected videos (2)'].activate();self.assertEqual(w.project,expected)
+            history=len(w.history);w.apply_selected_volume(0);self.assertEqual(len(w.history),history)
+            w.project_path=str(self.fixtures.root/'group-muted.clipcanvas');self.assertTrue(w.save())
+            w.open_project(w.project_path);self.assertEqual(w.project,expected)
+            # Arbitrary Ctrl-selection can span video/audio, excluding other media.
+            w.select('clips',1,seek=False);w.select_modified('audio',0,Gdk.ModifierType.CONTROL_MASK)
+            w.open_properties('Sound');w.fields['volume'][0].set_value(25);w.apply_fields()
+            mixed=copy.deepcopy(expected);mixed['clips'][1]['volume']=.25;mixed['audio'][0]['volume']=.25
+            self.assertEqual(w.project,mixed)
+            w.select('audio',0,seek=False);w.open_properties('Sound')
+            self.assertEqual(w.apply_button.get_label(),'Apply changes');self.assertIn('fade_in',w.fields)
+            w.project['layers']=[model.new_text('Caption title',0,.5)]
+            w.select('clips',0,seek=False);w.select_modified('audio',0,Gdk.ModifierType.CONTROL_MASK)
+            w.select_modified('layers',0,Gdk.ModifierType.CONTROL_MASK);w.open_properties('Text')
+            self.assertEqual(w.apply_button.get_label(),'Apply changes')
+            self.assertFalse(errors)
+        finally:
+            if getattr(w,'active_context_menu',None):w.active_context_menu.popdown()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
 if __name__ == '__main__':
     unittest.main()

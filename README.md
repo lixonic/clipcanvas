@@ -1,11 +1,11 @@
-# ClipCanvas 0.9.0
+# ClipCanvas 0.9.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.9.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.9.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -26,6 +26,9 @@ lossless masters, color cards and visible clip dragging/drop gaps.
 Version 0.9.0 adds a saved media library (click assets to place timeline copies),
 group selection/copy/paste/Delete, Ctrl+wheel timeline zoom, remembered folders
 and audio settings, labelled Save/Open controls and a larger Play button.
+Version 0.9.1 adds group volume and a Mute selected videos/audio command.
+Shift+right-click a video, then Mute selected videos, or open group Volume,
+set 0% and Apply volume to all selected items.
 Playback time follows each displayed frame; silent scrub frames seek into the active source.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
@@ -40,18 +43,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.9.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.9.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.9.0_all.deb
+   sudo apt install ./clipcanvas_0.9.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -280,7 +283,11 @@ include the media references, editable text, captions, styles and row layout.
 
 Shift+right-click a video or audio item selects all items of that kind.
 Shift+click selects a range; Ctrl+click toggles individual items. Ctrl+A selects
-all timeline items, including layers/captions. Ctrl+C/X/V copies/cuts/pastes;
+all timeline items, including layers/captions. For group volume, Shift+right-click
+a video and choose **Mute selected videos**, or **Volume for selected items**,
+set the percentage and **Apply volume to N items**. Video-only selection leaves
+independent soundtracks alone; Ctrl-selection can include video and audio together.
+Ctrl+C/X/V copies/cuts/pastes;
 Delete removes the selection in one undo step. Text fields keep their text shortcuts.
 Ctrl+wheel over the timeline zooms around the pointer; over the canvas it zooms the preview.
 See the [workflow guide](docs/EDITOR-WORKFLOW.md) for placement and remembered audio settings.

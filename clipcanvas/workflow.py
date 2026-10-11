@@ -48,3 +48,14 @@ def paste_items(project, text, at, clip_index):
         return candidate, selection
     except (KeyError, TypeError, OverflowError, ValueError) as error:
         raise ValueError('The copied timeline items are invalid or exceed project limits.') from error
+
+
+def with_volume(project, selection, volume):
+    """Apply one level to selected video/audio, preserving all other edit data."""
+    model._number(volume, 'Selection volume', 0, 2)
+    candidate = copy.deepcopy(project)
+    for group, _, item in selected_items(candidate, selection):
+        if group in ('clips', 'audio') and not model.is_card(item):
+            item['volume'] = volume
+    model.validate_project(candidate, check_files=False)
+    return candidate
