@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.9.2
+# Desktop workflow — ClipCanvas 0.9.3
 
 ## Import, then place
 
@@ -107,8 +107,12 @@ playhead notifications accompany displayed decoded frames, and Pause discards
 queued frames. Silent dragging seeks into the current clip at aligned source and
 composition frame boundaries, preserving picture fades and transition overlap.
 Full/HD/Fast only change preview resolution; export reads original sources.
+Export stops the preview decoder and cancels pending scrub frames before the
+renderer starts, avoiding a second FFmpeg graph holding memory throughout the
+render. The displayed frame and playhead stay in place, and Play starts a new
+preview afterwards. See [export memory measurements](EXPORT-MEMORY.md).
 
-97 local automated checks pass, including 20 native GTK workflows and real offline
+98 local automated checks pass, including 21 native GTK workflows and real offline
 speech recognition. Added checks cover library-only imports followed by actual
 asset clicks, group selection/Delete/undo, clipboard identity/timing/effects,
 text-field shortcut isolation, separate wheel zoom, accepted-folder restoration,
@@ -117,6 +121,9 @@ playhead time, and deep scrubbing through speed, fades, overlays and transitions
 regression selects a non-first video, applies 0% via the real popup, checks all
 selected video levels and untouched soundtrack/other properties, then exercises
 undo/redo, menu mute/unmute, save/reopen and mixed video/audio selection.
+The export regression runs a real high-quality MP4 render after pausing the live
+preview, verifies the old preview worker has exited first, then checks replay,
+pending scrub cancellation and prepared-preview replay without project changes.
 
 A local 640×360 moving source scrubbed at 6.5 seconds averaged 219 ms before and
 175 ms after aligned seeking (three reads each on this machine). This measures

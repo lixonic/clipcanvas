@@ -1,3 +1,3 @@
 """ClipCanvas: a small, local video creator for Ubuntu."""
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"

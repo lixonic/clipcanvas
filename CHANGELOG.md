@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.3 — 2026-10-11
+
+- Stop and release the live preview before export or prepared-preview rendering.
+  Previously, a paused FFmpeg preview could retain its decoder/filter graph
+  and buffered frames throughout export, adding to the renderer’s memory use.
+- Cancel queued scrub requests and wait for their worker to exit before starting
+  the renderer. Keep the displayed picture, playhead and project unchanged;
+  Play recreates the preview after completion or cancellation.
+- Retain all export resolution, frame rate, encoding and quality settings. A
+  local 720p sample used 26% less combined FFmpeg memory and produced an
+  identical MP4. See [measurement and limits](docs/EXPORT-MEMORY.md).
+
 ## 0.9.2 — 2026-10-11
 
 - Place multiple sequential audio clips in one lane. Drag horizontally for

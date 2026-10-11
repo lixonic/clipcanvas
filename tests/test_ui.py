@@ -359,6 +359,58 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertAlmostEqual(w.canvas.position(),.5,delta=.1)
         finally:w.cleanup();w.destroy()
 
+    def test_export_releases_preview_and_pending_scrub_then_can_replay(self):
+        import threading
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'export-memory-recovery')
+        w.canvas._pipeline.set_property('volume',0);errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and bool(w.thumbs) and not w._scrub_settling and not w._drag_frame_busy)
+            w.preview();self.pump(lambda:w.canvas.live and w.canvas.frame is not None and w.canvas.position()>.1)
+            w.canvas.pause();live=w.canvas._live;before=copy.deepcopy(w.project);frame=w.canvas.frame;at=w.playhead
+            seen=[];execute=engine.render
+            def render(project,path,**options):
+                self.assertFalse(live.thread.is_alive(),'Paused preview FFmpeg must exit before export starts')
+                self.assertFalse(w.canvas.live);self.assertEqual(w.scrub_timer,0)
+                self.assertIs(w.canvas.frame,frame);self.assertEqual(w.playhead,at)
+                self.assertEqual(project,before);self.assertEqual(options['quality'],'high')
+                seen.append(path);return execute(project,path,**options)
+            output=self.fixtures.root/'released-preview-export.mp4'
+            with mock.patch.object(engine,'render',render):
+                w.render_job(str(output),False,lambda path:w.set_status('Export completed'),quality='high')
+                self.assertTrue(w.busy);self.pump(lambda:not w.busy)
+            self.assertEqual(seen,[str(output)]);self.assertTrue(output.is_file());self.assertEqual(w.project,before)
+            self.assertIsNone(w.preview_key);self.assertEqual(w.playhead,at)
+            w.toggle_play();self.pump(lambda:w.canvas.live and w.canvas.playing and w.canvas.position()>at)
+            w.canvas.pause();w.seek(.5);self.assertTrue(w.scrub_timer)
+            # Starting export cancels a scheduled seek before it can spawn a
+            # second preview decoder after export has already begun.
+            completed=threading.Event();entered=threading.Event()
+            def cancel_render(project,path,**options):
+                self.assertEqual(w.scrub_timer,0);self.assertFalse(w.canvas.live);entered.set()
+                completed.wait(timeout=5)
+                raise engine.RenderCancelled('Cancelled')
+            with mock.patch.object(engine,'render',cancel_render):
+                w.render_job(str(output),False,lambda path:self.fail('Cancelled export must not finish'))
+                self.pump(entered.is_set)
+                deadline=time.monotonic()+.15;self.pump(lambda:time.monotonic()>=deadline)
+                self.assertEqual(w.scrub_timer,0);self.assertFalse(w.canvas.live)
+                completed.set();self.pump(lambda:not w.busy)
+            self.assertEqual(w.project,before);self.assertFalse(errors)
+            w.toggle_play();self.pump(lambda:w.canvas.live and w.canvas.playing)
+            w.render_preview();self.pump(lambda:not w.busy and w.preview_key and w.canvas.frame is not None)
+            # Export must clear the prepared-preview key as well, so Play can
+            # recreate a valid player after it was stopped for export.
+            with mock.patch.object(engine,'render',side_effect=engine.RenderCancelled('Cancelled')):
+                w.render_job(str(output),False,lambda path:None)
+                self.pump(lambda:not w.busy)
+            self.assertIsNone(w.preview_key);w.toggle_play();self.pump(lambda:w.canvas.live and w.canvas.playing)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_insert_edit_split_reorder_cards_with_visible_drag_and_undo(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'cards-ui-recovery');w.error=lambda message:self.fail(message)
         try:

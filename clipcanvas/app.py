@@ -1746,7 +1746,11 @@ class ClipCanvasWindow(Gtk.Window):
     def render_job(self,path,preview,done,quality='high'):
         try:model.validate_project(self.project)
         except Exception as e:self.error(str(e));return
-        self.canvas.pause();self.update_play_button(False);self.set_busy(True);snapshot=copy.deepcopy(self.project)
+        # Pausing retains the decoder/filter graph and its queued frames. Stop
+        # it before export, but leave the displayed picture and playhead intact.
+        live=self.canvas._live
+        self.cancel_scrub();self.canvas.stop();self.preview_key=None
+        self.update_play_button(False);self.set_busy(True);snapshot=copy.deepcopy(self.project)
         if self.project_path:snapshot['_project_path']=str(Path(self.project_path).resolve())
         self.cancel_event=threading.Event();preview_edge=self.canvas.preview_edge
         dialog=Gtk.Dialog(title='Preparing preview' if preview else 'Exporting video',transient_for=self,modal=True)
@@ -1772,7 +1776,15 @@ class ClipCanvasWindow(Gtk.Window):
             else:done(path)
             return False
         def work():
-            try:engine.render(snapshot,path,preview=preview,progress=progress,cancel=self.cancel_event,quality=quality,preview_edge=preview_edge);error=None
+            try:
+                # Wait in the worker, not GTK, until the former live decoder and
+                # any cancelled scrub frame have released their FFmpeg process.
+                if live:
+                    live.thread.join(timeout=8)
+                    if live.thread.is_alive():raise engine.RenderError('The preview is still stopping. Please try exporting again.')
+                try:self.frame_pool.submit(lambda:None).result(timeout=8)
+                except TimeoutError:raise engine.RenderError('The preview frame is still stopping. Please try exporting again.') from None
+                engine.render(snapshot,path,preview=preview,progress=progress,cancel=self.cancel_event,quality=quality,preview_edge=preview_edge);error=None
             except Exception as e:error=e
             GLib.idle_add(finish,error)
         self.pool.submit(work)

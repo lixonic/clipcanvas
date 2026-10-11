@@ -204,3 +204,12 @@ lane, vertical dragging, overlap feedback and sample-accurate snapping. Splits,
 clipboard groups and row ordering retain lane membership. Preserve all per-clip
 processing and migrate prior projects to format 6; verify lane-only placement
 with byte-identical rendered sound. See [validation](AUDIO-LANES.md).
+
+### Export memory follow-up — 0.9.3
+
+Release the live preview decoder/filter graph and cancel queued scrub work before
+starting export. Wait outside GTK for their processes to exit; keep the frame,
+playhead, project and export quality unchanged, and recreate playback afterwards.
+Validate actual export and cancellation/replay, plus combined FFmpeg peak RSS
+and identical MP4 output on a generated sample. See [measurements](EXPORT-MEMORY.md).
+Bounded segment rendering for larger compositions remains future work.
