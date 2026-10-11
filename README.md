@@ -1,11 +1,11 @@
-# ClipCanvas 0.9.1
+# ClipCanvas 0.9.2
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.9.1. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.9.2. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -13,6 +13,7 @@ platform; a Windows app and installer have not been implemented yet.
 - [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
 - [Contributing and build instructions](CONTRIBUTING.md)
 - [Media library, shortcuts, settings and project workflow](docs/EDITOR-WORKFLOW.md)
+- [Shared audio lanes, placement and validation](docs/AUDIO-LANES.md)
 - [Preview quality, lossless masters and color cards](docs/QUALITY-CARDS.md)
 - [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
@@ -29,6 +30,8 @@ and audio settings, labelled Save/Open controls and a larger Play button.
 Version 0.9.1 adds group volume and a Mute selected videos/audio command.
 Shift+right-click a video, then Mute selected videos, or open group Volume,
 set 0% and Apply volume to all selected items.
+Version 0.9.2 adds multiple audio clips per lane, vertical dragging, drop previews
+and a Move to audio lane menu. Audio splits stay in the original lane.
 Playback time follows each displayed frame; silent scrub frames seek into the active source.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
@@ -43,18 +46,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.1_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.2_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.9.1_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.9.2_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.9.1_all.deb
+   sudo apt install ./clipcanvas_0.9.2_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -94,7 +97,13 @@ separate application and does not change VLC.
    WAV is supported, including 16-bit PCM, 24-bit PCM, and 32-bit floating-point
    audio. Add separate layers for music, voice-over, and effects. Select a layer
    and open **Edit** for its start time, source trim, and speed. Drag its body to
-   change when it starts. Soundtracks stop at the video end and do not extend
+   change when it starts. Drag vertically into another Audio lane to place
+   multiple clips beside one another. Snap aligns a clip to another clip's end.
+   A lifted waveform and Drop here marker show the destination; an overlap is
+   rejected without changing your edit. Right-click → **Move to audio lane**
+   can keep the current time or append after that lane's last clip. The menu
+   labels the resulting time. Drag into **new lane** for simultaneous music or
+   voices. Soundtracks stop at the video end and do not extend
    the composition.
 6. **Mix and fade sound.** Right-click a clip or soundtrack and choose **Volume
    and fades…**, or use the selected item's **Audio** button. Enter volume and
@@ -204,7 +213,8 @@ Layer sizes and positions follow the canvas when switching aspect ratio.
 
 Select any timeline video, audio, overlay or caption, then use **Up / Down**
 above the timeline to arrange its row. All base clips share the Video row and
-all caption cues share the Captions row; each soundtrack/overlay has its own row.
+all caption cues share the Captions row. Multiple sequential audio clips can
+share a lane; each visual overlay has its own row. Up/Down moves a whole lane.
 Row order is saved with the project and supports undo/redo. It changes display
 order only: playback timing, clip sequence and visual stacking stay unchanged.
 Use **Bring forward / Send backward** separately to change visual stacking.
@@ -274,8 +284,8 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.8.x and adds missing defaults on load.
-It saves project format 5 for the separate media library. Use ClipCanvas 0.9 or newer to
+This version reads projects from 0.1.x–0.9.1 and adds missing defaults on load.
+It saves project format 6 for shared audio lanes and the media library. Use ClipCanvas 0.9.2 or newer to
 open projects saved by this version. Earlier files are migrated when opened.
 Shadows, rounded highlights and custom row order need 0.5.x or newer.
 Apps older than 0.4 cannot read layers and captions. Portable copies and recovery

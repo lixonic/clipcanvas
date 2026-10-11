@@ -44,7 +44,7 @@ class WorkflowTests(unittest.TestCase):
             legacy=model.new_project();legacy['version']=4;legacy.pop('assets')
             legacy['audio']=[model.new_audio(source,{'duration':4})]
             path.write_text(json.dumps(legacy));loaded=model.load_project(path)
-            self.assertEqual(loaded['version'],5);self.assertEqual(loaded['assets'][0]['kind'],'audio')
+            self.assertEqual(loaded['version'],model.PROJECT_VERSION);self.assertEqual(loaded['assets'][0]['kind'],'audio')
             self.assertEqual(loaded['assets'][0]['path'],str(source))
             legacy['audio']=[{}];path.write_text(json.dumps(legacy))
             with self.assertRaises(ValueError):model.load_project(path)

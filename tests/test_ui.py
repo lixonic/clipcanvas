@@ -481,9 +481,13 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.pump(lambda: len(w.timeline.hit) == 2)
             _, _, x, y, width, height = next(
                 hit for hit in w.timeline.hit if hit[:2] == ('clips', 1))
-            w.timeline.press(None, SimpleNamespace(button=3, x=x+width/2,
-                                                   y=y+height/2))
-            self.assertAlmostEqual(w.playhead, .7)
+            with mock.patch.object(w,'seek',wraps=w.seek) as seek:
+                w.timeline.press(None, SimpleNamespace(button=3, x=x+width/2,
+                                                       y=y+height/2))
+                seek.assert_not_called()
+            # The paused 25-fps stream may present the next frame while GTK
+            # opens the menu; that must not be mistaken for a selection seek.
+            self.assertAlmostEqual(w.playhead, .7, delta=1/w.project['fps']+.001)
             extract = next(item for item in w.active_context_menu.get_children()
                            if isinstance(item, Gtk.MenuItem)
                            and item.get_label() == 'Extract audio')
@@ -678,6 +682,108 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+
+    def test_shared_audio_lanes_drag_split_menu_clipboard_and_save(self):
+        from clipcanvas import track_layout
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'shared-lane-recovery')
+        errors=[];w.error=errors.append;w.canvas._pipeline.set_property('volume',0)
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/'landscape.mp4'),str(self.fixtures.root/'music.wav')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and bool(w.thumbs) and bool(w.waves))
+            a=w.project['audio'][0];a.update(out=.5,volume=.35,fade_in=.1,audio_effects={'echo_enabled':True,'echo_delay_ms':200})
+            b=model.new_audio(self.fixtures.root/'music.wav');b.update(start=.5,**{'in':1,'out':1.5,'volume':.7,'fade_out':.1})
+            music=model.new_audio(self.fixtures.root/'music.wav');music.update(volume=.2)
+            w.project['audio'].extend([b,music]);w.changed();w.zoom(100)
+            w.snap_check.set_active(False);w.select('audio',1,seek=False)
+            self.pump(lambda:len(w.timeline.hit)==4)
+            before=copy.deepcopy(w.project);history=len(w.history)
+            _,_,x,y,width,height=next(h for h in w.timeline.hit if h[:2]==('audio',1))
+            target_y=next(r[3] for r in track_layout.rows(w.project) if r[0]=='audio:'+a['lane_id'])
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+20,y=y+20))
+            w.timeline.motion(None,SimpleNamespace(x=x+20,y=target_y+20))
+            self.assertTrue(w.timeline.drag['active']);self.assertTrue(w.timeline.drag['drop_valid'])
+            self.assertEqual(w.timeline.drag['lane_id'],a['lane_id'])
+            self.assertEqual(w.project,before)
+            w.timeline.draw(w.timeline,cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32,1200,400)))
+            w.timeline.release(None,SimpleNamespace(x=x+20,y=target_y+20))
+            expected=copy.deepcopy(before);expected['audio'][1]['lane_id']=a['lane_id']
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            self.pump(lambda:len(w.timeline.hit)==4 and next(h[3] for h in w.timeline.hit if h[:2]==('audio',0))==next(h[3] for h in w.timeline.hit if h[:2]==('audio',1)))
+            self.assertEqual(len([r for r in track_layout.rows(w.project) if r[1]=='audio']),2)
+            w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
+            # An overlapping drop is red/invalid and commits no history.
+            self.pump(lambda:len(w.timeline.hit)==4)
+            _,_,x,y,_,_=next(h for h in w.timeline.hit if h[:2]==('audio',1))
+            history=len(w.history)
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+20,y=y+20))
+            w.timeline.motion(None,SimpleNamespace(x=x-30,y=y+20))
+            self.assertFalse(w.timeline.drag['drop_valid'])
+            w.timeline.release(None,SimpleNamespace(x=x-30,y=y+20))
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history)
+            # The menu appends on a occupied lane, with the new start visible.
+            menu=w.context_menu('audio',2)
+            submenu=next(c for c in menu.get_children() if c.get_label()=='Move to audio lane').get_submenu()
+            append=next(c for c in submenu.get_children() if c.get_label().startswith('Audio 1 · after last clip'))
+            menu.popdown();append.activate()
+            self.assertEqual(w.project['audio'][2]['start'],1)
+            self.assertEqual(w.project['audio'][2]['lane_id'],a['lane_id'])
+            w.undo();self.assertEqual(w.project,expected)
+            # Drag a clip back out into the new-lane area without retiming.
+            w.select('audio',1,seek=False)
+            self.pump(lambda:len(w.timeline.hit)==4)
+            _,_,x,y,_,_=next(h for h in w.timeline.hit if h[:2]==('audio',1))
+            new_y=w.timeline.new_audio_row_y()
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+20,y=y+20))
+            w.timeline.motion(None,SimpleNamespace(x=x+20,y=new_y+20))
+            self.assertTrue(w.timeline.drag['drop_valid'])
+            w.timeline.release(None,SimpleNamespace(x=x+20,y=new_y+20))
+            self.assertNotEqual(w.project['audio'][1]['lane_id'],a['lane_id']);self.assertEqual(w.project['audio'][1]['start'],.5)
+            w.undo();self.assertEqual(w.project,expected)
+            # Both parts of a split remain in one row and remain editable.
+            w.select('audio',1,seek=False);w.playhead=.75;w.split_selected()
+            self.assertEqual(w.project['audio'][1]['lane_id'],w.project['audio'][2]['lane_id'])
+            self.assertEqual(len([r for r in track_layout.rows(w.project) if r[1]=='audio']),2)
+            w.select('audio',0,seek=False);order_before=copy.deepcopy(w.project)
+            w.row_up_button.clicked()
+            self.assertEqual(track_layout.rows(w.project)[0][0],'audio:'+a['lane_id'])
+            self.assertEqual(w.project['audio'],order_before['audio'])
+            w.select('audio',1,seek=False);w.duplicate()
+            self.assertNotEqual(w.project['audio'][1]['lane_id'],w.project['audio'][2]['lane_id'])
+            self.assertTrue(model.validate_project(w.project));w.undo()
+            # Asset clicks reuse a selected lane only when the playhead fits.
+            snapshot=copy.deepcopy(w.project);asset=next(i for i,a in enumerate(w.project['assets']) if a['kind']=='audio')
+            w.select('audio',0,seek=False);w.playhead=1;w.add_asset(asset)
+            self.assertEqual(w.project['audio'][-1]['lane_id'],a['lane_id'])
+            self.assertEqual(w.project['audio'][-1]['start'],1)
+            w.undo();self.assertEqual(w.project,snapshot)
+            w.select('audio',0,seek=False);w.playhead=.1;w.add_asset(asset)
+            self.assertNotEqual(w.project['audio'][-1]['lane_id'],a['lane_id'])
+            w.undo();self.assertEqual(w.project,snapshot)
+            saved=copy.deepcopy(w.project);w.project_path=str(self.fixtures.root/'shared-lanes.clipcanvas')
+            self.assertTrue(w.save());w.open_project(w.project_path);self.assertEqual(w.project,saved)
+            # Delete the first member: its lane remains for the other clips.
+            w.select('audio',0,seek=False);w.remove()
+            self.assertEqual(track_layout.rows(w.project)[0][0],'audio:'+a['lane_id'])
+            # Sample-accurate WAV edges can sit between video frames. Snapping
+            # must retain that exact boundary, not round down into an overlap.
+            left=copy.deepcopy(a);left['out']=.513
+            right=copy.deepcopy(b);right['start']=.9
+            w.project['audio']=[left,right];w.changed();w.snap_check.set_active(True)
+            self.pump(lambda:len(w.timeline.hit)==3)
+            _,_,x,y,_,_=next(h for h in w.timeline.hit if h[:2]==('audio',1))
+            target_y=next(h[3] for h in w.timeline.hit if h[:2]==('audio',0))
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+20,y=y+20))
+            to_x=x+20+(.52-.9)*w.timeline.scale
+            w.timeline.motion(None,SimpleNamespace(x=to_x,y=target_y+20))
+            self.assertTrue(w.timeline.drag['drop_valid'])
+            w.timeline.release(None,SimpleNamespace(x=to_x,y=target_y+20))
+            self.assertAlmostEqual(w.project['audio'][1]['start'],.513,places=9)
+            self.assertEqual(w.project['audio'][1]['lane_id'],a['lane_id'])
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
 
     def test_timeline_row_arrows_move_tracks_without_retiming(self):
         from clipcanvas import track_layout

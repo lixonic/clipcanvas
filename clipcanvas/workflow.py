@@ -2,7 +2,7 @@
 import copy
 import json
 import uuid
-from . import model
+from . import model, track_layout
 
 GROUPS = ('clips', 'audio', 'layers', 'captions')
 CLIPBOARD_PREFIX = 'ClipCanvas timeline\n'
@@ -44,9 +44,20 @@ def paste_items(project, text, at, clip_index):
         for track in candidate['audio']:
             if ('audio', track['id']) in selection and track.get('source_clip_id') in new_ids:
                 track['source_clip_id'] = new_ids[track['source_clip_id']]
+        # Preserve copied lane groupings. A paste over an existing clip gets a
+        # new lane for that whole copied group rather than hiding waveforms.
+        pasted_audio=[item for item in candidate['audio'] if ('audio',item['id']) in selection]
+        occupied={item['id'] for item in project['audio']}
+        new_lanes={}
+        for item in pasted_audio:
+            lane=item.get('lane_id',item['id'])
+            existing={**candidate,'audio':[a for a in candidate['audio'] if a['id'] in occupied]}
+            if not track_layout.audio_fits(existing,item):new_lanes.setdefault(lane,uuid.uuid4().hex)
+        for item in pasted_audio:
+            lane=item.get('lane_id',item['id']);item['lane_id']=new_lanes.get(lane,lane)
         model.validate_project(candidate, check_files=False)
         return candidate, selection
-    except (KeyError, TypeError, OverflowError, ValueError) as error:
+    except (KeyError, TypeError, OverflowError, ZeroDivisionError, ValueError) as error:
         raise ValueError('The copied timeline items are invalid or exceed project limits.') from error
 
 
@@ -58,4 +69,12 @@ def with_volume(project, selection, volume):
         if group in ('clips', 'audio') and not model.is_card(item):
             item['volume'] = volume
     model.validate_project(candidate, check_files=False)
+    return candidate
+
+
+def with_audio_placement(project, index, start, lane_id):
+    """Move one audio clip without changing its trim, fades, effects or source."""
+    candidate=copy.deepcopy(project)
+    candidate['audio'][index].update(start=start,lane_id=lane_id)
+    model.validate_project(candidate,check_files=False)
     return candidate

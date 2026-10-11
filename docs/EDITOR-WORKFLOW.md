@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.9.1
+# Desktop workflow — ClipCanvas 0.9.2
 
 ## Import, then place
 
@@ -14,6 +14,21 @@ The library deduplicates imported files by path/type and is searchable/filterabl
 Unused imported assets are saved, recovered and collected in portable copies too.
 A missing unused library file does not prevent exporting available timeline media.
 Relink missing media updates its library and timeline references.
+
+## Shared audio lanes
+
+Several sequential audio clips can share one Audio row. Drag a waveform into a
+gap on another lane; **Snap** aligns it to another clip's end. The lifted waveform
+follows the pointer and **Drop here** marks the destination. A red overlap marker
+means the drop would cover another clip and will be rejected. Simultaneous music,
+speech and effects use separate lanes; the bottom **new lane** area creates one.
+
+Right-click → **Move to audio lane** lists destinations. **Keep time** preserves
+the current start; **after last clip (time)** appends when that time is occupied.
+Splitting keeps both parts in the same lane. Up/Down moves the whole lane;
+deleting its first clip leaves the remaining clips in place. Clicking an audio
+asset adds it to the selected audio lane when the playhead has enough room,
+otherwise to a separate lane. See [audio lane details](AUDIO-LANES.md).
 
 ## Selection and shortcuts
 
@@ -81,7 +96,7 @@ also has **Save project as**, portable collection, relinking and crash recovery.
 captions/styles, canvas and timeline row order. Originals remain separate local
 files; collect a portable copy before moving between computers.
 
-Project format 5 migrates formats 1–4. Projects saved by 0.9 need 0.9 or newer.
+Project format 6 migrates formats 1–5. Projects saved by 0.9.2 need 0.9.2 or newer.
 If upgrading an open app, save your work, close it and reopen ClipCanvas to load
 the new installed code.
 
@@ -93,7 +108,7 @@ queued frames. Silent dragging seeks into the current clip at aligned source and
 composition frame boundaries, preserving picture fades and transition overlap.
 Full/HD/Fast only change preview resolution; export reads original sources.
 
-91 local automated checks pass, including 19 native GTK workflows and real offline
+97 local automated checks pass, including 20 native GTK workflows and real offline
 speech recognition. Added checks cover library-only imports followed by actual
 asset clicks, group selection/Delete/undo, clipboard identity/timing/effects,
 text-field shortcut isolation, separate wheel zoom, accepted-folder restoration,

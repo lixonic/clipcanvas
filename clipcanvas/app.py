@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote, urlparse
 
@@ -170,6 +171,7 @@ class Timeline(Gtk.DrawingArea):
         visuals=self.owner.project.get('layers',[]);captions=self.owner.project.get('captions',[])
         duration=max([duration]+[i['end'] for i in visuals+captions])
         height=max(y+h+18 for _,_,_,y,h in track_layout.rows(self.owner.project))
+        if self.owner.project['audio']:height+=60
         self.set_size_request(max(800,int(duration*self.scale+170)),max(220,height))
         self.queue_draw()
 
@@ -178,7 +180,10 @@ class Timeline(Gtk.DrawingArea):
         colors=ui_theme.palette(self)
         rgb(cr,colors['background']); cr.paint()
         duration=model.project_duration(p)
-        positions={(kind,index):(y,h) for _,kind,index,y,h in track_layout.rows(p)}
+        layout=track_layout.rows(p)
+        positions={(kind,index):(y,h) for _,kind,index,y,h in layout}
+        audio_positions={key:(y,h) for key,kind,_,y,h in layout if kind=='audio'}
+        for i,item in enumerate(p['audio']):positions[('audio',i)]=audio_positions[track_layout.key_for('audio',item)]
         video_y,video_h=positions[('clips',None)]
         step=1 if self.scale>65 else 5 if self.scale>15 else 10
         for sec in range(0, int(max(duration,(a.width-100)/self.scale))+step,step):
@@ -207,12 +212,35 @@ class Timeline(Gtk.DrawingArea):
                 draw_text(cr,'Drop here',x+8,y-7,colors['accent'],11,True)
             else:self.paint_clip(cr,clip,i,x,y,w,h,self.owner.is_selected('clips',i))
             self.hit.append(('clips',i,x,y,w,h))
-        for i,audio in enumerate(p['audio']):
+        for number,(key,_,_,y,h) in enumerate((row for row in layout if row[1]=='audio'),1):
+            draw_text(cr,f'AUDIO {number}',12,y+26,colors['muted'],size=10,bold=True)
+        audio_moving=self.drag and self.drag.get('active') and self.drag.get('kind')=='audio' and not self.drag.get('edge')
+        if p['audio']:
+            new_y=self.new_audio_row_y()
+            rounded(cr,100,new_y,max(300,a.width-115),42,7);rgb(cr,colors['surface'],.5);cr.fill_preserve()
+            rgb(cr,colors['border']);cr.set_dash([5,4]);cr.set_line_width(1);cr.stroke();cr.set_dash([])
+            draw_text(cr,'Drag audio here for a new lane',112,new_y+26,colors['muted'],11)
+        if audio_moving:
+            d=self.drag;item=p['audio'][d['index']];drop_y=d.get('drop_y')
+            if drop_y is not None:
+                drop_x=100+self.audio_drag_start(d)*self.scale;drop_w=max(12,model.clip_duration(item)*self.scale)
+                color=colors['accent'] if d.get('drop_valid') else '#e45b5b'
+                rounded(cr,100,drop_y,max(300,a.width-115),42,7);rgb(cr,color,.09);cr.fill()
+                rounded(cr,drop_x,drop_y,drop_w,42,7);rgb(cr,color,.2);cr.fill_preserve()
+                cr.set_dash([5,4]);cr.set_line_width(2);rgb(cr,color);cr.stroke();cr.set_dash([])
+                draw_text(cr,'Drop here' if d.get('drop_valid') else 'Overlap · choose a gap',drop_x+7,drop_y-6,color,11,True)
+        audio_order=list(range(len(p['audio'])))
+        if audio_moving:audio_order.remove(self.drag['index']);audio_order.append(self.drag['index'])
+        for i in audio_order:
+            audio=p['audio'][i]
             y,_=positions[('audio',i)];x=100+audio['start']*self.scale
-            if self.drag and self.drag.get('active') and self.drag.get('kind')=='audio' and self.drag['index']==i and not self.drag['edge']:x=100+max(0,audio['start']+self.drag['delta'])*self.scale
+            lifted=audio_moving and self.drag['index']==i
+            if lifted:
+                x=100+self.audio_drag_start(self.drag)*self.scale
+                y=self.drag['pointer_y']-self.drag['grab_y']-5
             visible=model.clip_duration(audio)
             w=max(12,visible*self.scale)
-            draw_text(cr,f'AUDIO {i+1}',12,y+26,colors['muted'],size=10,bold=True)
+            if lifted:rounded(cr,x+4,y+6,w,42,7);rgb(cr,'#000000',.35);cr.fill()
             cr.save();rounded(cr,x,y,w,42,7);cr.clip();rgb(cr,'#8150c6');cr.paint()
             values=self.owner.waves.get(audio['path'],[])
             if values:
@@ -221,7 +249,7 @@ class Timeline(Gtk.DrawingArea):
                     amp=values[min(len(values)-1,max(0,int(fraction*len(values))))]
                     hh=max(2,amp*28);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+21-hh/2,2,hh);cr.fill()
             rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,('FX · ' if audio_effects.active(audio) else '')+Path(audio['path']).name,x+7,y+13,'#ffffff',10)
-            audible=max(0,min(visible,duration-audio['start']))
+            audible=max(0,min(visible,duration-(self.audio_drag_start(self.drag) if lifted else audio['start'])))
             fade_end=x+audible*self.scale
             for key,edge in [('fade_in','in'),('fade_out','out')]:
                 value=audio.get(key,0)
@@ -233,7 +261,7 @@ class Timeline(Gtk.DrawingArea):
                     cr.line_to(x+fade,y) if edge=='in' else cr.line_to(fade_end,y+42)
                     cr.line_to(x,y) if edge=='in' else cr.line_to(fade_end,y)
                     cr.close_path();rgb(cr,'#ffffff',.22);cr.fill()
-                if self.owner.is_selected('audio',i) and audible>0:
+                if self.owner.is_selected('audio',i) and audible>0 and not lifted:
                     hx=x+fade if edge=='in' else fade_end-fade
                     cr.arc(hx,y+4,4,0,math.tau);rgb(cr,'#ffffff');cr.fill()
                     self.fade_hits.append((i,edge,hx,y+4,7))
@@ -242,7 +270,7 @@ class Timeline(Gtk.DrawingArea):
                 rgb(cr,colors['background'],.7);cr.rectangle(cutoff,y,x+w-cutoff,42);cr.fill()
             cr.restore()
             if self.owner.is_selected('audio',i):
-                rounded(cr,x,y,w,42,7);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
+                rounded(cr,x,y,w,42,7);rgb(cr,'#e45b5b' if lifted and not self.drag.get('drop_valid') else colors['accent']);cr.set_line_width(3);cr.stroke()
             self.hit.append(('audio',i,x,y,w,42))
             if self.owner.is_selected('audio',i) and w >= 24:
                 for edge in (x+3,x+w-5):
@@ -312,6 +340,25 @@ class Timeline(Gtk.DrawingArea):
         d=self.drag
         return sum(x>100+(row['start']+row['duration']/2)*self.scale for i,row in enumerate(model.timeline(self.owner.project)) if i!=d['index'])
 
+    def new_audio_row_y(self):
+        return max(y+h+12 for _,_,_,y,h in track_layout.rows(self.owner.project))
+
+    def audio_drag_start(self,d):
+        if abs(d['delta'])<1e-9:return d['start']
+        return max(0,min(max(0,model.project_duration(self.owner.project)-.04),d['start']+d['delta']))
+
+    def audio_drop_target(self,y):
+        for key,kind,_,top,height in track_layout.rows(self.owner.project):
+            if kind=='audio' and top-6<=y<=top+height+6:return key[6:],top
+        top=self.new_audio_row_y()
+        if top-6<=y<=top+48:return self.drag['new_lane_id'],top
+        return None,None
+
+    def update_audio_drop(self):
+        d=self.drag;lane,y=self.audio_drop_target(d['pointer_y'])
+        item=self.owner.project['audio'][d['index']]
+        d.update(lane_id=lane,drop_y=y,drop_valid=lane is not None and track_layout.audio_fits(self.owner.project,item,self.audio_drag_start(d),lane))
+
     def stop_drag_scroll(self):
         if self.drag_scroll_timer:GLib.source_remove(self.drag_scroll_timer);self.drag_scroll_timer=0
 
@@ -326,7 +373,15 @@ class Timeline(Gtk.DrawingArea):
         if change:
             d['pointer_x']+=change;d['delta']=self.drag_delta(d['pointer_x'])
             if d['kind']=='clips' and not d['edge']:d['target']=self.reorder_target(d['pointer_x'])
+            if d['kind']=='audio' and not d['edge']:self.update_audio_drop()
             self.queue_draw()
+        if d['kind']=='audio' and not d['edge']:
+            vertical=self.owner.timeline_scroll.get_vadjustment();old_y=vertical.get_value();page_y=vertical.get_page_size()
+            viewport_y=d['pointer_y']-old_y
+            step_y=-12 if viewport_y<40 else 12 if viewport_y>page_y-25 else 0
+            vertical.set_value(max(0,min(vertical.get_upper()-page_y,old_y+step_y)))
+            if vertical.get_value()!=old_y:
+                d['pointer_y']+=vertical.get_value()-old_y;self.update_audio_drop();self.queue_draw()
         return True
 
     def query_tooltip(self,widget,x,y,keyboard,tooltip):
@@ -399,9 +454,11 @@ class Timeline(Gtk.DrawingArea):
                 if state&(Gdk.ModifierType.SHIFT_MASK|Gdk.ModifierType.CONTROL_MASK):return True
                 edge='left' if width>=24 and event.x-x<8 else 'right' if width>=24 and x+width-event.x<8 else None
                 self.drag={'mode':'edit','kind':kind,'index':i,'x':event.x,'y':event.y,'edge':edge,
-                           'grab_x':event.x-x,'pointer_x':event.x,'pointer_y':event.y,'target':i,'active':False,
+                           'grab_x':event.x-x,'grab_y':event.y-y,'pointer_x':event.x,'pointer_y':event.y,'target':i,'active':False,
+                           'new_lane_id':uuid.uuid4().hex,
                            'boundary':x if edge=='left' else x+width+(3 if kind=='clips' else 0),
                            'start':self.owner.project[kind][i].get('start',0),'delta':0}
+                if kind=='audio' and not edge:self.update_audio_drop()
                 return True
 
     def motion(self,w,event):
@@ -413,8 +470,9 @@ class Timeline(Gtk.DrawingArea):
                 self.owner.set_status(f'Audio fade {self.drag["edge"]}: {value:.2f} s');return True
             self.drag['delta']=self.drag_delta(event.x)
             self.drag.update(pointer_x=event.x,pointer_y=event.y)
-            if abs(event.x-self.drag['x'])>=4:self.drag['active']=True
+            if abs(event.x-self.drag['x'])>=4 or (self.drag['kind']=='audio' and not self.drag['edge'] and abs(event.y-self.drag['y'])>=4):self.drag['active']=True
             if self.drag['kind']=='clips' and not self.drag['edge']:self.drag['target']=self.reorder_target(event.x)
+            if self.drag['kind']=='audio' and not self.drag['edge']:self.update_audio_drop()
             if self.drag['active'] and not self.drag_scroll_timer:self.drag_scroll_timer=GLib.timeout_add(50,self.drag_scroll)
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'grabbing'))
             self.queue_draw()
@@ -430,6 +488,7 @@ class Timeline(Gtk.DrawingArea):
 
     def drag_delta(self,x):
         d=self.drag
+        if d['kind']=='audio' and not d['edge'] and abs(x-d['x'])<3:return 0
         delta=(x-d['x'])/self.scale
         if d['edge']:at=(d['boundary']-100)/self.scale
         elif d['kind'] in ('audio','layers','captions'):at=d['start']
@@ -448,7 +507,11 @@ class Timeline(Gtk.DrawingArea):
             marks=[m for m in marks if abs(m-at)>1e-6]
             if marks:
                 nearest=min(marks,key=lambda m:abs(m-value))
-                if abs(nearest-value)*self.scale<=8:value=nearest
+                if abs(nearest-value)*self.scale<=8:
+                    value=nearest
+                    # WAV boundaries need not fall on a video frame. Rounding
+                    # an exact audio join down would create an overlap.
+                    if d['kind']=='audio':return value-at
         return round(value*self.owner.project['fps'])/self.owner.project['fps']-at
 
     def release(self,w,event):
@@ -465,8 +528,11 @@ class Timeline(Gtk.DrawingArea):
             self.owner.changed();return True
         release_x=event.x
         if d['kind']=='clips' and not d['edge']:d['target']=self.reorder_target(release_x)
-        delta=self.drag_delta(release_x);self.drag=None;self.queue_draw()
-        if abs(event.x-d['x'])<3:return
+        delta=self.drag_delta(release_x)
+        if d['kind']=='audio' and not d['edge']:
+            d.update(delta=delta,pointer_y=getattr(event,'y',d['pointer_y']));self.update_audio_drop()
+        self.drag=None;self.queue_draw()
+        if abs(event.x-d['x'])<3 and not (d['kind']=='audio' and not d['edge'] and abs(d['pointer_y']-d['y'])>=3):return
         kind,i=d['kind'],d['index']
         if kind in ('layers','captions'):
             item=self.owner.project[kind][i];candidate=copy.deepcopy(self.owner.project);edited=candidate[kind][i]
@@ -487,14 +553,20 @@ class Timeline(Gtk.DrawingArea):
             if project==self.owner.project:return
             self.owner.checkpoint();self.owner.project=project
         elif kind=='audio':
-            self.owner.checkpoint()
-            self.owner.project[kind][i]['start']=max(0,min(max(0,model.project_duration(self.owner.project)-.04),d['start']+delta))
+            if not d['drop_valid']:
+                self.owner.set_status('Choose an audio lane with enough space, or drop into the new-lane area. Overlapping sounds need separate lanes.');return True
+            try:project=workflow.with_audio_placement(self.owner.project,i,self.audio_drag_start(d),d['lane_id'])
+            except ValueError as error:self.owner.set_status(str(error));return True
+            if project==self.owner.project:return True
+            self.owner.checkpoint();self.owner.project=project
         else:
             target=d['target']
             if target==i:return True
             self.owner.checkpoint()
             clips=self.owner.project['clips'];clip=clips.pop(i);clips.insert(target,clip);self.owner.selected=(kind,target)
         self.owner.changed()
+        if kind=='audio' and not d['edge']:
+            self.owner.reveal_timeline_selection();self.owner.set_status('Audio placed in the lane. Its trim, volume, fades and voice effects are preserved.')
 
 class ClipCanvasWindow(Gtk.Window):
     def __init__(self,recovery_dir=None,preferences_dir=None):
@@ -692,13 +764,13 @@ class ClipCanvasWindow(Gtk.Window):
         self.duplicate_button=ui_theme.icon_button('edit-copy-symbolic',self.duplicate,'Duplicate selected item')
         self.remove_button=ui_theme.icon_button('edit-delete-symbolic',self.remove,'Remove selected item')
         for item in (self.duplicate_button,self.remove_button):tlbar.pack_start(item,False,False,0)
-        self.row_up_button=ui_theme.icon_button('go-up-symbolic',lambda:self.move_timeline_row(-1),'Move selected timeline row up',label='Up')
-        self.row_down_button=ui_theme.icon_button('go-down-symbolic',lambda:self.move_timeline_row(1),'Move selected timeline row down',label='Down')
+        self.row_up_button=ui_theme.icon_button('go-up-symbolic',lambda:self.move_timeline_row(-1),'Move selected timeline lane up',label='Up')
+        self.row_down_button=ui_theme.icon_button('go-down-symbolic',lambda:self.move_timeline_row(1),'Move selected timeline lane down',label='Down')
         for item in (self.row_up_button,self.row_down_button):tlbar.pack_start(item,False,False,0)
         self.card_button=ui_theme.icon_button('list-add-symbolic',self.add_card,'Insert a color card after the selected clip, or at the playhead',label='Card')
         tlbar.pack_start(self.card_button,False,False,0)
         self.snap_check=Gtk.CheckButton(label='Snap');self.snap_check.set_active(True);tlbar.pack_start(self.snap_check,False,False,8)
-        self.timeline_hint=label('Shift+right-click selects videos or audio · Ctrl+C/V copies/pastes','dim-label');self.timeline_hint.set_ellipsize(Pango.EllipsizeMode.END);tlbar.pack_start(self.timeline_hint,True,True,8)
+        self.timeline_hint=label('Drag audio between lanes · Shift+right-click selects all · Ctrl+C/V copies/pastes','dim-label');self.timeline_hint.set_ellipsize(Pango.EllipsizeMode.END);tlbar.pack_start(self.timeline_hint,True,True,8)
         self.zoom_control=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,6,140,1)
         self.zoom_control.set_value(28);self.zoom_control.set_draw_value(False);self.zoom_control.set_size_request(120,-1)
         self.zoom_control.connect('value-changed',lambda s:self.zoom(s.get_value()))
@@ -904,7 +976,11 @@ class ClipCanvasWindow(Gtk.Window):
                 metadata=metadata or engine.probe(path)
                 item=model.new_clip(path,metadata) if kind=='video' else model.new_audio(path,metadata)
                 group='clips' if kind=='video' else 'audio'
-                if group=='audio':item['start']=self.playhead
+                if group=='audio':
+                    item['start']=self.playhead
+                    if self.selected and self.selected[0]=='audio' and self.selected_item():
+                        lane=self.selected_item().get('lane_id',self.selected_item()['id'])
+                        if track_layout.audio_fits(self.project,item,lane_id=lane):item['lane_id']=lane
             candidate=copy.deepcopy(self.project);candidate[group].append(item);model.validate_project(candidate,check_files=False)
         except Exception as error:self.error(str(error));return
         self.checkpoint();self.project=candidate;self.selected=(group,len(candidate[group])-1);self.selection={(group,item['id'])}
@@ -1004,12 +1080,12 @@ class ClipCanvasWindow(Gtk.Window):
         if order is None:return
         self.checkpoint();self.project['timeline_order']=order
         self.refresh();self.reveal_timeline_selection()
-        self.set_status('Timeline row moved. Playback timing and visual stacking are unchanged.')
+        self.set_status('Timeline lane moved. All clips in the lane move together; playback timing is unchanged.')
 
     def reveal_timeline_selection(self):
         selected=self.selected
         def reveal():
-            if self.closed or self.selected!=selected:return False
+            if self.closed or self.selected!=selected or self.timeline.drag:return False
             row=next((r for r in track_layout.rows(self.project) if r[0]==self.selected_row_key()),None)
             if row:
                 vertical=self.timeline_scroll.get_vadjustment();vertical.clamp_page(row[3]-5,row[3]+row[4]+5)
@@ -1211,6 +1287,20 @@ class ClipCanvasWindow(Gtk.Window):
             action('Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
             action('Move left',lambda:self.move(-1),index>0)
             action('Move right',lambda:self.move(1),index+1<len(self.project['clips']))
+        if kind=='audio':
+            lane_menu=Gtk.Menu();entry=Gtk.MenuItem(label='Move to audio lane');entry.set_submenu(lane_menu);menu.append(entry)
+            audio=self.selected_item();current=track_layout.key_for('audio',audio)
+            for number,(key,_,_,_,_) in enumerate((row for row in track_layout.rows(self.project) if row[1]=='audio'),1):
+                if key==current:continue
+                lane=key[6:];start=audio['start']
+                fits=track_layout.audio_fits(self.project,audio,lane_id=lane)
+                if not fits:
+                    start=max(item['start']+model.clip_duration(item) for item in self.project['audio'] if track_layout.key_for('audio',item)==key)
+                title=f'Audio {number} · keep time' if fits else f'Audio {number} · after last clip ({time_text(start)})'
+                target=Gtk.MenuItem(label=title)
+                target.connect('activate',lambda _,l=lane,s=start:self.move_audio_to_lane(l,s));lane_menu.append(target)
+            target=Gtk.MenuItem(label='New audio lane · keep time')
+            target.connect('activate',lambda _:self.move_audio_to_lane(uuid.uuid4().hex,audio['start']));lane_menu.append(target)
         menu.append(Gtk.SeparatorMenuItem())
         action('Split at playhead',self.split_selected,kind!='captions')
         action('Copy · Ctrl+C',self.copy_selection)
@@ -1229,6 +1319,14 @@ class ClipCanvasWindow(Gtk.Window):
         if isinstance(event,(Gdk.Event,Gdk.EventButton)):menu.popup_at_pointer(event)
         else:menu.popup_at_widget(self.timeline,Gdk.Gravity.NORTH_WEST,Gdk.Gravity.SOUTH_WEST,None)
         return menu
+
+    def move_audio_to_lane(self,lane_id,start):
+        if self.busy or not self.selected or self.selected[0]!='audio':return
+        try:candidate=workflow.with_audio_placement(self.project,self.selected[1],start,lane_id)
+        except ValueError as error:self.set_status(str(error));return
+        if candidate==self.project:return
+        self.checkpoint();self.project=candidate;self.changed();self.reveal_timeline_selection()
+        self.set_status(f'Audio placed in the lane at {time_text(start)}. Undo restores its previous placement.')
 
     def edit_voice_effects(self):
         if self.selected_item() and model.is_card(self.selected_item()):return
@@ -1334,8 +1432,8 @@ class ClipCanvasWindow(Gtk.Window):
     def duplicate(self):
         item=self.selected_item()
         if not item:return
-        import uuid
         self.checkpoint();kind,i=self.selected;clone=copy.deepcopy(item);clone['id']=str(uuid.uuid4())
+        if kind=='audio':clone['lane_id']=clone['id']
         self.project[kind].insert(i+1,clone);self.selected=(kind,i+1);self.selection={(kind,clone['id'])};self.changed()
 
     def remove(self):

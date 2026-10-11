@@ -1,8 +1,8 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Formats 1–4 migrate on load; format 5
-adds a separate, saved media library alongside file-free color cards. Visual layers use canvas-relative centers and sizes, so their placement
+possible. Saving never changes the media. Formats 1–5 migrate on load; format 6
+adds shared audio lane identities to the saved media library and color cards. Visual layers use canvas-relative centers and sizes, so their placement
 survives a canvas resize; text sizes are expressed in canvas pixels.
 """
 
@@ -22,7 +22,7 @@ from . import track_layout, audio_effects
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
-PROJECT_VERSION = 5
+PROJECT_VERSION = 6
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 MAX_TIMELINE_SECONDS = 86400 * 7
 
@@ -145,7 +145,8 @@ def new_audio(path, metadata=None):
     if not metadata.get("has_audio", True):
         raise ValueError("This file has no audio track.")
     duration = float(metadata["duration"])
-    return {"id": uuid.uuid4().hex, "path": str(Path(path).expanduser().resolve()),
+    identity=uuid.uuid4().hex
+    return {"id": identity, "lane_id": identity, "path": str(Path(path).expanduser().resolve()),
             "duration": duration, "in": 0.0, "out": duration, "start": 0.0,
             "volume": 1.0, "speed": 1.0, "fade_in": 0.0, "fade_out": 0.0,
             "transition_fade_in": 0.0, "transition_fade_out": 0.0}
@@ -325,9 +326,11 @@ def validate_project(project, check_files=True, require_clips=False):
                     _number(item.get(key, 0.5), f"{label} crop position", 0, 1)
             else:
                 _number(item.get("start", 0), f"{label} timeline start", 0, 86400 * 7)
+                _text(item.get('lane_id',item['id']), f'{label} audio lane', 128, allow_empty=False)
                 source_clip_id = item.get("source_clip_id")
                 if source_clip_id is not None and (not isinstance(source_clip_id, str) or not source_clip_id):
                     raise ValueError(f"{label} has an invalid source clip reference.")
+    track_layout.validate_audio_lanes(project)
     layers = project.get("layers")
     if not isinstance(layers, list) or len(layers) > 500:
         raise ValueError("Use a valid list of no more than 500 visual layers.")
@@ -421,7 +424,7 @@ def load_project(path):
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, 2, 3, 4, PROJECT_VERSION):
+        if old_version not in (1, 2, 3, 4, 5, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
@@ -459,6 +462,7 @@ def load_project(path):
                                      "transition_fade_out": 0.0})
                 for key, value in defaults.items():
                     item.setdefault(key, value)
+                if group=='audio':item.setdefault('lane_id',item['id'])
         layers = project.get("layers")
         if isinstance(layers, list):
             for item in layers:
@@ -578,6 +582,8 @@ def split_item(project, kind, index, at):
     if kind == "clips":
         item["transition"] = "none"  # Keep the original outgoing effect on the right.
     else:
+        item.setdefault('lane_id',item['id'])
+        right['lane_id']=item['lane_id']
         right["start"] = at
     # Fades belong to the original item's outer edges, not the new middle cut.
     for key in ("fade_out", "transition_fade_out", "video_fade_out"):

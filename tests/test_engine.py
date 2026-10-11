@@ -68,6 +68,21 @@ class EngineIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(engine.probe(self.root / "cut-then-transition.mp4")["duration"],
                                model.project_duration(p), delta=0.07)
 
+    def test_shared_audio_lane_preserves_rendered_mix(self):
+        from clipcanvas import workflow
+        p=self.project(count=2)
+        for start,end,volume in ((0,.6,.35),(1,.7,.6),(0,3.5,.15)):
+            track=model.new_audio(self.root/'music.wav');track.update(start=start,out=end,volume=volume)
+            p['audio'].append(track)
+        p['audio'][0].update(fade_in=.1,audio_effects={'echo_enabled':True,'echo_delay_ms':200})
+        p['audio'][1]['fade_out']=.2
+        before=self.root/'separate-audio.wav';after=self.root/'shared-audio.wav'
+        engine.render_audio(p,before)
+        placed=workflow.with_audio_placement(p,1,1,p['audio'][0]['lane_id'])
+        engine.render_audio(placed,after)
+        self.assertEqual(before.read_bytes(),after.read_bytes(),'Lane placement alone must not alter the rendered sound')
+        self.assertEqual(model.project_duration(p),model.project_duration(placed))
+
     def test_layered_audio_offsets_and_levels(self):
         p = self.project(count=1)
         for start, volume in ((0.25, 0.3), (0.75, 0.2)):

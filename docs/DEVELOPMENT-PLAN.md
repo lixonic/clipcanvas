@@ -196,3 +196,11 @@ input-seek silent scrubbing while preserving source/output frame alignment and
 fades/joins. Format 5 migrates prior projects and collects unused assets too.
 See [workflow validation](EDITOR-WORKFLOW.md). Hardware decoding/caching and
 Windows/provider work remain separate increments.
+
+### Shared audio lanes — 0.9.2
+
+Use stable lane IDs independent of clip IDs, with sequential audio clips per
+lane, vertical dragging, overlap feedback and sample-accurate snapping. Splits,
+clipboard groups and row ordering retain lane membership. Preserve all per-clip
+processing and migrate prior projects to format 6; verify lane-only placement
+with byte-identical rendered sound. See [validation](AUDIO-LANES.md).

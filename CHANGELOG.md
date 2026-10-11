@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.2 — 2026-10-11
+
+- Place multiple sequential audio clips in one lane. Drag horizontally for
+  timing and vertically between lanes, with a lifted waveform, destination
+  marker, overlap feedback and viewport edge scrolling. Drop into the new-lane
+  area to separate simultaneous sounds. Each move has one undo step.
+- Right-click → Move to audio lane offers the current time when it fits, or
+  appends after the target lane's last clip with the resulting time in its label.
+- Audio splits retain their lane. Up/Down moves the complete lane. Deleting its
+  first clip keeps its row identity/order for the remaining clips. New copies
+  join the selected audio lane when the playhead has room; overlapping duplicates
+  and pasted groups use separate lanes while preserving their timing.
+- Format 6 saves lane membership and migrates formats 1–5 without changing
+  existing audio timing, effects or row order. Lane placement alone leaves the
+  rendered sound byte-identical.
+
 ## 0.9.1 — 2026-10-11
 
 - Apply volume to every selected video/audio item from the Sound panel, with
