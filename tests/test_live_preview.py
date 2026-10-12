@@ -86,6 +86,47 @@ class LiveStreamTests(unittest.TestCase):
         cancel.set();self.assertEqual(list(stream),[])
         self.assertFalse(any(path.exists() for path in added))
 
+    def test_deep_live_seek_keeps_picture_and_complete_voice_effect_history(self):
+        from unittest import mock
+        source=self.root/'long-audible.mp4'
+        subprocess.run([self.ffmpeg,'-v','error','-f','lavfi','-i','testsrc2=s=160x90:r=30:d=18',
+                        '-f','lavfi','-i','sine=f=430:r=48000:d=18',
+                        '-c:v','libx264','-threads','1','-c:a','aac',str(source)],env=self.env,check=True)
+        p=model.new_project(160,90)
+        p['clips']=[model.new_clip(source),model.new_clip(self.root/'landscape.mp4')]
+        p['clips'][0].update({'in':.2,'speed':1.5,'volume':.6,'fade_in':2,'fade_out':2,
+                             'video_fade_in':2,'video_fade_out':2,
+                             'transition':'fade','transition_duration':.8})
+        fx=audio_effects.preset('Echo');fx.update(compressor_enabled=True,echo_delay_ms=190)
+        p['clips'][0]['audio_effects']=fx
+        track=model.new_audio(source);track.update(start=.3,volume=.2)
+        track['audio_effects']=audio_effects.preset('Echo');p['audio']=[track]
+        p['layers']=[model.new_text('Deep seek',7,12)]
+        p['layers'][0]['font_size']=12
+        p['layers'][0]['animation'].update(enter='fade',duration=.3)
+        p['captions']=[model.new_caption('Tail',10,12)];p['caption_style']['font_size']=12
+        original=copy.deepcopy(p);graph_builder=engine._graph
+        full=self.stream_file(p,0,'deep-live-full.mkv')
+        for start in (8,10.8,11.4):
+            with self.subTest(start=start):
+                seeked=self.stream_file(p,start,f'deep-live-{start}.mkv')
+                self.assertEqual(self.pixels(full,start+.1),self.pixels(seeked,.1))
+                self.assertEqual(self.pcm(full,start,.2),self.pcm(seeked,0,.2))
+        args,graph,_=graph_builder(p,True,self.root,picture_start=8)
+        inputs=[i for i,value in enumerate(args) if value=='-i']
+        # The first picture seeks deeply; its independent audio input retains
+        # the trimmed source origin. Later clip and music indices must follow.
+        self.assertGreater(float(args[args.index('-ss')+1]),11)
+        self.assertEqual(args[inputs[0]+1],args[inputs[1]+1])
+        self.assertIn('[1:1]aresample',graph)
+        self.assertIn('[2:0]scale',graph)
+        self.assertIn('[3:1]aresample',graph)
+        with mock.patch.object(engine,'_graph',side_effect=lambda *a,**kw:graph_builder(*a,**dict(kw,picture_start=None))):
+            reference=self.stream_file(p,8,'deep-live-reference.mkv')
+        optimized=self.root/'deep-live-8.mkv'
+        self.assertEqual(self.pcm(reference,0,.2),self.pcm(optimized,0,.2))
+        self.assertEqual(p,original)
+
     def test_video_overlay_opacity_speed_and_freeze_survive_seek(self):
         p=self.project()
         overlay=model.new_visual(self.root/'portrait.mp4','video',1.7,4)

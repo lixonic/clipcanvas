@@ -44,9 +44,11 @@ class VideoCanvas(Gtk.DrawingArea):
         self.position_x = 0.5
         self.position_y = 0.5
         self.playing = False
+        self.loading = False
         self.on_position = None
         self.on_error = None
         self.on_end = None
+        self.on_loading = None
         self.on_overlay_draw = None
         self.canvas_rect = None
         self.preview_zoom = 1.0
@@ -221,6 +223,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = start
         self._last_duration = 0
         self.playing = autoplay
+        self._set_loading(True)
         self._start_frame_updates()
         def error(message):
             if generation == self._generation:
@@ -230,6 +233,7 @@ class VideoCanvas(Gtk.DrawingArea):
             if generation == self._generation:
                 self._finish_frames()
                 self.playing = False
+                self._set_loading(False)
                 self._last_position=self.duration()
                 self._notify(self.on_position, self.duration(), self.duration())
                 self._notify(self.on_end)
@@ -238,7 +242,8 @@ class VideoCanvas(Gtk.DrawingArea):
                 lambda sample: self._receive_sample(sample, generation), error, end,
                 volume=self._pipeline.get_property('volume'), preview_edge=self.preview_edge)
         except Exception as problem:
-            self._loaded = self.playing = self.composited = False
+            self.stop()
+            self.composited = False
             self._notify(self.on_error, 'Live preview is unavailable: ' + str(problem))
 
     def play(self):
@@ -286,6 +291,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = 0.0
         self._last_duration = 0.0
         self._pending_seek = None
+        self._set_loading(False)
 
     def seek(self, seconds):
         if self._destroyed or not self._loaded:
@@ -381,6 +387,9 @@ class VideoCanvas(Gtk.DrawingArea):
             self._last_position=min(duration, (self._live.start if self._live else 0)+pts)
             if self._live:self._live.last_position=self._last_position
             self._notify(self.on_position,self._last_position,duration)
+        # Startup ends when GTK commits the current generation's picture,
+        # rather than when a streaming thread merely receives its preroll.
+        self._set_loading(False)
         self.queue_draw()
         return GLib.SOURCE_REMOVE
 
@@ -391,10 +400,12 @@ class VideoCanvas(Gtk.DrawingArea):
             error, debug = message.parse_error()
             _LOG.warning("Preview playback failed: %s (%s)", error.message, debug)
             self.pause()
+            self._set_loading(False)
             self._notify(self.on_error, "Preview playback failed: " + error.message)
         elif message.type == Gst.MessageType.EOS:
             self._finish_frames()
             self.playing = False
+            self._set_loading(False)
             self._last_position = self.duration()
             self._notify(self.on_position, self._last_position, self._last_duration)
             self._notify(self.on_end)
@@ -427,6 +438,11 @@ class VideoCanvas(Gtk.DrawingArea):
                 callback(*args)
             except Exception:
                 _LOG.exception("Preview callback failed")
+
+    def _set_loading(self, loading):
+        if self.loading != bool(loading):
+            self.loading = bool(loading)
+            self._notify(self.on_loading, self.loading)
 
     @staticmethod
     def _text(cr, text, x, y, width, size, color, bold=False):

@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.9.4
+# Live preview, scrubbing and zoom — ClipCanvas 0.10.1
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -65,7 +65,7 @@ and error callbacks cannot replace the new generation. The worker reaps FFmpeg
 and removes its temporary workspace. Seeking skips completed main clips while
 retaining global layer/caption timing and soundtrack processing history.
 
-Playback is CPU-based. Complex projects can stutter; long active clips and
+Playback is CPU-based. Complex projects can stutter; overlay videos and
 soundtrack effect history can take catch-up decoding after a seek. A large set
 of caption sprites also adds startup work. GPU acceleration, adaptive proxies,
 a media cache and a persistent interactive timeline engine remain separate improvements.
@@ -205,3 +205,12 @@ zoom; at higher zoom one antialiased ruler pixel differed by one color level due
 to clipping. This measures timeline paint CPU time with generated thumbnails and
 waveforms, excluding video decoding, compositor/display latency and audio. It is
 not a playback-FPS or pointer-to-preview latency guarantee.
+
+## Starting playback after seeking — 0.10.1
+
+Play now input-seeks the active main video near the playhead, preserving the
+composition frame grid, fades and outgoing join. An independent audio input
+retains the clip's trimmed history for echo and other voice effects. Loading
+preview appears until the current generation's first picture is committed;
+Pause remains available during startup. Full-resolution preview and export
+settings are unchanged. See [startup measurements and limits](PLAYBACK-STARTUP.md).

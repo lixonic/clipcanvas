@@ -593,7 +593,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     total = project_duration(project) + origin
     clips = project['clips']
     skip=0
-    if video_only and picture_start is not None:
+    if not audio_only and picture_start is not None:
         limit=max(0,rows[0]['duration']-rows[0]['overlap']-2/fps)
         from fractions import Fraction
         source_fps=fps if is_card(clips[0]) else probe(clips[0]['path'])['fps']
@@ -605,6 +605,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         speed = clip.get("speed", 1)
         seek=skip if index==0 else 0
         remaining=duration-seek
+        video_input=args.count('-i')
         if is_card(clip):
             metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
             args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(remaining)}"]
@@ -631,7 +632,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={width}:{height}:(iw-ow)*{x}:(ih-oh)*{y}"
-        picture = [f"[{index}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
+        picture = [f"[{video_input}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
         if seek:picture.append(f"setpts=PTS+{_fmt(seek)}/TB")
@@ -647,7 +648,15 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         if video_only:
             continue
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
-            parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
+            audio_input=video_input
+            if seek:
+                # Video can input-seek near the playhead. Audio keeps the
+                # complete trimmed history for echo/compression and envelopes.
+                # This second input only decodes audio, not the old pictures.
+                audio_input=args.count('-i')
+                args += ['-threads','1','-ss',_fmt(clip.get('in',0)),
+                         '-t',_fmt(clip['out']-clip.get('in',0)),'-i',clip['path']]
+            parts = [f"[{audio_input}:{metadata['audio_index']}]aresample=48000",
                      "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
             parts.extend(_processed_audio(clip,duration))
             filters.append(",".join(parts) + f"[a{index}]")
@@ -682,7 +691,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             audio = 'globalaudio'
     mix_labels = [audio]
     for offset, track in enumerate([] if video_only else project.get("audio", [])):
-        index = len(clips) + offset
+        index = args.count('-i')
         length = clip_duration(track)
         start = float(track.get("start", 0))
         metadata = probe(track["path"])
@@ -770,7 +779,8 @@ def live_stream(project, start=0, cancel=None, preview_edge=640):
     origin = active[0]['start'] if active else 0
     binary, env = _tool('ffmpeg')
     with tempfile.TemporaryDirectory(prefix='clipcanvas-live-') as scratch:
-        args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin, preview_edge=preview_edge)
+        args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin,
+                                    preview_edge=preview_edge, picture_start=start)
         if cancel is not None and cancel.is_set():
             return
         graph_path = Path(scratch)/'filters.txt'

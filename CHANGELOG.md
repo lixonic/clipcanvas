@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.1 — 2026-10-12
+
+- Seek the active video input close to the playhead when starting live playback.
+  Previously Play after seeking decoded every earlier picture in that clip.
+  Retain complete trimmed audio history for echo, compression, tempo and fades;
+  an audible active clip uses a separate audio input. Keep future transitions,
+  video fades, overlays and captions on the original composition frame grid.
+- Show Loading preview until GTK commits the first picture for the current
+  playback generation. Pause responds during startup; stale frames/errors cannot
+  clear a newer loading state. Release startup resources on decoder failure.
+- Add full-resolution startup benchmarks and regression checks comparing deep
+  seeks with complete-stream pictures and PCM audio, including echo/compression,
+  speed, source trim, fades and transitions. Preview resolution and export
+  quality settings are unchanged. See [measurements and limits](docs/PLAYBACK-STARTUP.md).
+
 ## 0.10.0 — 2026-10-12
 
 - Add illustrated transition tiles for None, Dissolve, Slide, Circle Wipe,

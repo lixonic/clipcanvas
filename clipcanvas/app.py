@@ -749,6 +749,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.canvas=VideoCanvas();self.canvas.set_size_request(320,200)
         self.canvas.on_position=self.on_position;self.canvas.on_error=self.playback_error
         self.canvas.on_end=lambda:self.update_play_button(False)
+        self.canvas.on_loading=self.playback_loading
         self.canvas.on_overlay_draw=self.draw_layers
         self.view_lock=False
         self.preview_zoom_combo=Gtk.ComboBoxText()
@@ -921,6 +922,7 @@ class ClipCanvasWindow(Gtk.Window):
     def update_play_button(self,playing):
         self.play_button.set_label('Pause' if playing else 'Play')
         self.play_button.set_image(ui_theme.icon('media-playback-pause-symbolic' if playing else 'media-playback-start-symbolic',Gtk.IconSize.LARGE_TOOLBAR))
+        if self.canvas.live:self.playback_loading(self.canvas.loading)
 
     def toggle_library(self):
         if self.library.get_visible():self.library.hide()
@@ -1627,8 +1629,14 @@ class ClipCanvasWindow(Gtk.Window):
         if self.clock_label.get_text()!=text:self.clock_label.set_text(text)
         self.timeline.redraw_playhead(before,seconds)
 
+    def playback_loading(self,loading):
+        if loading and self.canvas.playing:self.preview_label.set_text('Loading preview…')
+        elif self.canvas.live:self.preview_label.set_text('Live preview' if self.canvas.playing else 'Paused preview')
+        elif self.preview_label.get_text() in ('Loading preview…','Live preview','Paused preview'):
+            self.preview_label.set_text('Press play to preview')
+
     def playback_error(self,message):
-        self.update_play_button(False);self.set_status(message)
+        self.update_play_button(False);self.preview_label.set_text('Preview unavailable');self.set_status(message)
 
     def toggle_play(self):
         if self.busy or not self.project['clips']:return
@@ -1721,7 +1729,6 @@ class ClipCanvasWindow(Gtk.Window):
             self.canvas.load_project(self.project,seconds,autoplay=playing)
             self._position_target=None
             self.update_play_button(playing)
-            self.preview_label.set_text('Live preview')
         return False
 
     def source_scrub_frame(self,serial,seconds):
@@ -1772,7 +1779,6 @@ class ClipCanvasWindow(Gtk.Window):
         start=0 if self.playhead>=model.project_duration(self.project)-.1 else self.playhead
         self.canvas.load_project(self.project,start,autoplay=True)
         self.update_play_button(self.canvas.playing)
-        self.preview_label.set_text('Live preview')
         self.set_status('Live playback. If your project stutters, use Project → Render smooth preview.')
 
     def render_preview(self):
