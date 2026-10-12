@@ -61,7 +61,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._generation = 0
         self._latest_frame = None
         self._frame_lock = threading.Lock()
-        self._idle_id = 0
+        self._frame_tick_id = 0
         self._last_position = 0.0
         self._last_duration = 0.0
         self._pending_seek = None
@@ -202,6 +202,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = self._last_duration = 0.0
         self._pending_seek = None
         self.playing = bool(autoplay)
+        self._start_frame_updates()
         result = self._pipeline.set_state(Gst.State.PLAYING if autoplay else Gst.State.PAUSED)
         if result == Gst.StateChangeReturn.FAILURE:
             self.playing = False
@@ -220,6 +221,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = start
         self._last_duration = 0
         self.playing = autoplay
+        self._start_frame_updates()
         def error(message):
             if generation == self._generation:
                 self.stop()
@@ -269,6 +271,9 @@ class VideoCanvas(Gtk.DrawingArea):
         self.playing = False
         self._freeze_frame = False
         self._generation += 1
+        if self._frame_tick_id:
+            self.remove_tick_callback(self._frame_tick_id)
+            self._frame_tick_id = 0
         if self._live is not None:
             self._live.stop()
             self._live = None
@@ -302,12 +307,8 @@ class VideoCanvas(Gtk.DrawingArea):
             self._pending_seek = seconds
 
     def position(self):
-        if self._live is not None:
-            return self._last_position
-        if not self._destroyed and self._loaded:
-            ok, value = self._pipeline.query_position(Gst.Format.TIME)
-            if ok and value >= 0:
-                self._last_position = value / Gst.SECOND
+        # Playback position belongs to the picture presented by GTK. A pipeline
+        # query can advance while that picture is still waiting to be painted.
         return self._last_position
 
     def duration(self):
@@ -344,18 +345,24 @@ class VideoCanvas(Gtk.DrawingArea):
             payload = (generation, buffer.extract_dup(0, size), width, height, stride, pts)
             with self._frame_lock:
                 self._latest_frame = payload
-                # Retain only the newest frame if GTK is busy. There is never
-                # a growing queue of idle callbacks or decoded frame buffers.
-                if not self._idle_id and not self._destroyed:
-                    self._idle_id = GLib.idle_add(self._deliver_frame)
+                # One pending frame, consumed at GTK's update phase before
+                # either the picture or timeline is painted. Streaming threads
+                # never queue independent idle deliveries between widget draws.
         except Exception:
             _LOG.exception("Could not decode a preview frame")
         return Gst.FlowReturn.OK
 
+    def _start_frame_updates(self):
+        if not self._frame_tick_id and not self._destroyed:
+            self._frame_tick_id = self.add_tick_callback(self._frame_tick)
+
+    def _frame_tick(self, widget, clock):
+        self._deliver_frame()
+        return GLib.SOURCE_CONTINUE
+
     def _deliver_frame(self):
         with self._frame_lock:
             payload, self._latest_frame = self._latest_frame, None
-            self._idle_id = 0
         if self._destroyed or self._freeze_frame or payload is None or payload[0] != self._generation:
             return GLib.SOURCE_REMOVE
         _, pixels, width, height, stride, pts = payload
@@ -364,9 +371,10 @@ class VideoCanvas(Gtk.DrawingArea):
             width, height, stride,
         )
         if pts is not None:
-            self._last_position=min(self.duration(), (self._live.start if self._live else 0)+pts)
+            duration = self.duration()
+            self._last_position=min(duration, (self._live.start if self._live else 0)+pts)
             if self._live:self._live.last_position=self._last_position
-            self._notify(self.on_position,self._last_position,self.duration())
+            self._notify(self.on_position,self._last_position,duration)
         self.queue_draw()
         return GLib.SOURCE_REMOVE
 
@@ -390,8 +398,9 @@ class VideoCanvas(Gtk.DrawingArea):
     def _tick(self):
         if self._destroyed:
             return GLib.SOURCE_REMOVE
-        if self._loaded and not self._live:
-            self._notify(self.on_position, self.position(), self.duration())
+        # Refresh file duration only; both live and prepared-preview playheads
+        # are driven by the frame timestamp in the shared GTK update phase.
+        if self._loaded and not self._live:self.duration()
         return GLib.SOURCE_CONTINUE
 
     @staticmethod
@@ -480,9 +489,6 @@ class VideoCanvas(Gtk.DrawingArea):
             GLib.source_remove(self._timer_id)
             self._timer_id = 0
         with self._frame_lock:
-            if self._idle_id:
-                GLib.source_remove(self._idle_id)
-                self._idle_id = 0
             self._latest_frame = None
         self._sink.disconnect(self._sample_handler)
         self._sink.disconnect(self._preroll_handler)

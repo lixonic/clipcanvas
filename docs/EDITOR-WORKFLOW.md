@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.9.3
+# Desktop workflow — ClipCanvas 0.9.4
 
 ## Import, then place
 
@@ -103,7 +103,9 @@ the new installed code.
 ## Preview timing and validation
 
 Play/Pause now has a large labelled primary button below the preview. Live
-playhead notifications accompany displayed decoded frames, and Pause discards
+playhead notifications accompany displayed decoded frames in the same GTK
+frame-clock update phase. Only old/new timeline line strips redraw during playback;
+thumbnail tiles and waveform bars outside that damage are skipped. Pause discards
 queued frames. Silent dragging seeks into the current clip at aligned source and
 composition frame boundaries, preserving picture fades and transition overlap.
 Full/HD/Fast only change preview resolution; export reads original sources.
@@ -112,7 +114,7 @@ renderer starts, avoiding a second FFmpeg graph holding memory throughout the
 render. The displayed frame and playhead stay in place, and Play starts a new
 preview afterwards. See [export memory measurements](EXPORT-MEMORY.md).
 
-98 local automated checks pass, including 21 native GTK workflows and real offline
+99 local automated checks pass, including 22 native GTK workflows and real offline
 speech recognition. Added checks cover library-only imports followed by actual
 asset clicks, group selection/Delete/undo, clipboard identity/timing/effects,
 text-field shortcut isolation, separate wheel zoom, accepted-folder restoration,
@@ -124,6 +126,9 @@ undo/redo, menu mute/unmute, save/reopen and mixed video/audio selection.
 The export regression runs a real high-quality MP4 render after pausing the live
 preview, verifies the old preview worker has exited first, then checks replay,
 pending scrub cancellation and prepared-preview replay without project changes.
+The paint-cycle regression compares actual preview/timeline draw frame counters
+for both live and prepared frames, checks newest-frame coalescing, and verifies
+that query clocks, paused frames and stale generations cannot advance the line.
 
 A local 640×360 moving source scrubbed at 6.5 seconds averaged 219 ms before and
 175 ms after aligned seeking (three reads each on this machine). This measures

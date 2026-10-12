@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.4 — 2026-10-12
+
+- Present the newest decoded preview picture and its timeline position together
+  in GTK’s frame-clock update phase, before widgets paint. Both live and prepared
+  previews use picture timestamps; the file-preview query timer no longer moves
+  the line independently. Pending frames remain bounded to one.
+- Redraw only the old and new playhead strips during playback. Cull thumbnail
+  tiles, waveform bars, clips, captions and joins outside the dirty area while
+  preserving all interaction targets. Item drags keep their complete repaint.
+- Avoid redundant canvas redraws and unchanged clock-label updates. Native tests
+  compare preview/timeline paint frame counters, newest-frame coalescing, pause
+  and generation guards. Project data and export quality stay unchanged.
+
 ## 0.9.3 — 2026-10-11
 
 - Stop and release the live preview before export or prepared-preview rendering.

@@ -213,3 +213,12 @@ playhead, project and export quality unchanged, and recreate playback afterwards
 Validate actual export and cancellation/replay, plus combined FFmpeg peak RSS
 and identical MP4 output on a generated sample. See [measurements](EXPORT-MEMORY.md).
 Bounded segment rendering for larger compositions remains future work.
+
+### Shared display timing — 0.9.4
+
+Promote the newest pending preview picture and timeline timestamp in one GTK
+frame-clock update, including prepared previews. Repaint only old/new playhead
+strips and skip drawing offscreen thumbnail tiles and waveform samples. Retain
+interaction geometry, drag repaint, pause/generation guards and export quality.
+Verify matching preview/timeline paint frame counters and pixel/hit equivalence
+of timeline damage painting. See [validation](LIVE-PREVIEW.md).

@@ -1,11 +1,11 @@
-# ClipCanvas 0.9.3
+# ClipCanvas 0.9.4
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.9.3. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.9.4. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -35,6 +35,8 @@ Version 0.9.2 adds multiple audio clips per lane, vertical dragging, drop previe
 and a Move to audio lane menu. Audio splits stay in the original lane.
 Version 0.9.3 releases paused preview decoders and pending scrub work before
 export, reducing simultaneous memory use without changing export quality.
+Version 0.9.4 updates the preview and white playhead in the same GTK display
+cycle and redraws only their changed timeline areas during playback.
 Playback time follows each displayed frame; silent scrub frames seek into the active source.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
@@ -49,18 +51,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.3_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.4_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.9.3_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.9.4_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.9.3_all.deb
+   sudo apt install ./clipcanvas_0.9.4_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.

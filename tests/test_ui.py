@@ -1061,6 +1061,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.start_project(320,180)
             canvas=w.canvas;canvas._live=SimpleNamespace(start=5,total=10,last_position=5,stop=lambda:None)
             canvas._loaded=True
+            canvas._start_frame_updates()
             picture=Gst.Sample.new(Gst.Buffer.new_wrapped(bytes(4*2*3)),Gst.Caps.from_string('video/x-raw,format=RGB,width=4,height=2'),None,None)
             picture.get_buffer().pts=int(.625*Gst.SECOND)
             canvas._receive_sample(picture)
@@ -1069,6 +1070,51 @@ class DesktopWorkflowTests(unittest.TestCase):
             # No timer/query clock may advance the line past this visible frame.
             canvas._tick();self.assertAlmostEqual(w.playhead,5.625)
             canvas._live=None
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_preview_and_playhead_paint_together_for_live_and_prepared_frames(self):
+        from gi.repository import Gst
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'shared-paint-recovery')
+        try:
+            w.start_project(320,180);w.project['clips']=[model.new_card('#16384a',10)];w.refresh();w.cancel_scrub()
+            canvas=w.canvas;draws=[]
+            def drawn(kind):
+                def record(widget,cr):
+                    draws.append((kind,widget.get_frame_clock().get_frame_counter(),w.playhead,canvas.position(),bytes(canvas.frame.get_pixels())[0] if canvas.frame else None))
+                return record
+            canvas.connect_after('draw',drawn('preview'));w.timeline.connect_after('draw',drawn('timeline'))
+            def sample(at,color):
+                picture=Gst.Sample.new(Gst.Buffer.new_wrapped(bytes([color])*24),
+                    Gst.Caps.from_string('video/x-raw,format=RGB,width=4,height=2'),None,None)
+                picture.get_buffer().pts=int(at*Gst.SECOND);return picture
+            for live in (True,False):
+                with self.subTest(live=live):
+                    canvas.stop();canvas.frame=None;canvas._last_duration=10;w.playhead=0
+                    if live:canvas._live=SimpleNamespace(start=2,total=10,last_position=2,stop=lambda:None,pause=lambda:None)
+                    canvas._loaded=True;draws.clear()
+                    # A busy UI retains the newest picture only. The streaming
+                    # callback must not change either displayed state yet.
+                    for at,color in ((.25,25),(.5,50),(.625,62)):canvas._receive_sample(sample(at,color))
+                    self.assertIsNone(canvas.frame);self.assertEqual(w.playhead,0)
+                    canvas._start_frame_updates();target=2.625 if live else .625
+                    def matched():
+                        previews={row[1]:row for row in draws if row[0]=='preview' and abs(row[2]-target)<1e-8}
+                        return any(row[0]=='timeline' and row[1] in previews and row[2:]==previews[row[1]][2:] for row in draws)
+                    self.pump(matched)
+                    self.assertEqual(bytes(canvas.frame.get_pixels())[0],62)
+                    self.assertAlmostEqual(canvas.position(),target)
+                    # A query-clock timer cannot move a prepared-preview line
+                    # away from its painted picture either.
+                    with mock.patch.object(canvas._pipeline,'query_position',side_effect=AssertionError('Use presented frame time')):
+                        canvas._tick();self.assertAlmostEqual(canvas.position(),target)
+                    canvas.playing=True;canvas.pause();canvas._receive_sample(sample(.9,90))
+                    deadline=time.monotonic()+.05;self.pump(lambda:time.monotonic()>=deadline)
+                    self.assertAlmostEqual(w.playhead,target);self.assertEqual(bytes(canvas.frame.get_pixels())[0],62)
+                    canvas.stop();self.assertEqual(canvas._frame_tick_id,0)
+                    canvas._receive_sample(sample(1,100),canvas._generation-1)
+                    self.assertIsNone(canvas._latest_frame)
         finally:
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)

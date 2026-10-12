@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.9.0
+# Live preview, scrubbing and zoom — ClipCanvas 0.9.4
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -160,3 +160,48 @@ Fast is a resolution setting, not hardware acceleration. Decoding/compositing ha
 finite latency, especially with many layers or high-resolution sources. See
 [workflow validation and timing](EDITOR-WORKFLOW.md). Ctrl+wheel zooms the surface
 under the pointer: timeline time scale or canvas magnification independently.
+
+## Display timing and drawing work — 0.9.4
+
+The newest pending RGB picture and its timestamp are now promoted in GTK’s
+[frame-clock update callback](https://docs.gtk.org/gtk3/method.Widget.add_tick_callback.html),
+before the preview and timeline paint. Previously an idle callback delivered
+pictures independently of the drawing cycle. Prepared-file previews also use
+the painted picture’s timestamp, without a competing position-query timer.
+The pending picture stays bounded to one; pause drops it and a stop/seek clears
+its playback generation. No interpolation moves the line beyond a held frame.
+
+During playback the timeline invalidates only 17-pixel strips around the old
+and new white-line positions. Thumbnail tiling and waveform bars are limited
+to the dirty clip; offscreen clips, captions and joins skip painting. Geometry
+and all click, trim, fade and transition targets are still rebuilt. Item drags
+and ordinary edits keep their full repaint. Clock labels only change when their
+formatted time changes; the player owns its single canvas repaint. There is no
+large timeline bitmap cache or additional media render. Export settings and
+project timing are unchanged.
+
+The suite has 99 checks, including 22 native GTK workflows. The new native
+regression records preview and timeline draw frame counters and verifies that
+both paint the same newest picture timestamp in a common refresh, for live and
+prepared playback. It also checks coalescing, pause, stale-generation rejection,
+and that query clocks cannot move a prepared-preview line independently.
+
+This reduces UI drawing delay; CPU decoding/compositing and display refresh
+latency still exist. Full-resolution preview may stutter on complex projects.
+HD/Fast remains an explicit preview-only choice and does not change export.
+
+A local Cairo benchmark on 2026-10-12 used a generated four-minute timeline with
+40 clips, four waveform tracks and 40 captions, a 1600×440 visible viewport,
+and 60 measured redraws after warm-up per mode:
+
+| Timeline scale | Previous full redraw, median | Optimized full redraw | Moving playhead strips |
+|---|---:|---:|---:|
+| 28 pixels/second | 76.250 ms | 33.395 ms | 2.574 ms |
+| 140 pixels/second | 216.943 ms | 28.084 ms | 2.638 ms |
+
+The full visible pixels and all clip/join/fade/add hit targets matched the prior
+implementation. Incremental pixels matched a complete repaint exactly at normal
+zoom; at higher zoom one antialiased ruler pixel differed by one color level due
+to clipping. This measures timeline paint CPU time with generated thumbnails and
+waveforms, excluding video decoding, compositor/display latency and audio. It is
+not a playback-FPS or pointer-to-preview latency guarantee.
