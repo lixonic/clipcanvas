@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.2
+# ClipCanvas 0.10.3
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.2. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.3. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -20,6 +20,7 @@ platform; a Windows app and installer have not been implemented yet.
 - [Dragging/seeking improvements and measured limits](docs/SEEK-PERFORMANCE.md)
 - [Play startup improvements and measurements](docs/PLAYBACK-STARTUP.md)
 - [Full-resolution transition performance](docs/TRANSITION-PERFORMANCE.md)
+- [Animation playback and audio validation](docs/ANIMATION-AUDIO.md)
 - [Transitions, layer animation and attached sound effects](docs/EFFECTS.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
@@ -50,6 +51,9 @@ the active clip from its beginning. Audio retains its echo/voice-effect history;
 the Play button responds immediately and shows Loading preview until a picture arrives.
 Version 0.10.2 replaces slow per-pixel wipes and Flow with native compositing
 and reusable lossless masks, retaining full-resolution preview and export quality.
+Version 0.10.3 replaces costly per-pixel text/caption animation processing with
+native operations to keep live video and sound flowing together. Audio files,
+settings, preview resolution and export quality are retained.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -63,18 +67,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.2_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.3_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.2_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.3_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.2_all.deb
+   sudo apt install ./clipcanvas_0.10.3_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.

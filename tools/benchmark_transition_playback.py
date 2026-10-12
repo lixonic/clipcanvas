@@ -22,7 +22,10 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 
-def measure(project, effect, timeout=30):
+def measure(project, effect, timeout=30, window=None, audio_probe=False):
+    audio_sink = ('audio/x-raw,format=S16LE,rate=48000,channels=2 ! '
+                  'appsink name=audio emit-signals=true sync=true max-buffers=1 drop=false'
+                  if audio_probe else 'fakesink sync=true')
     pipeline = Gst.parse_launch(
         'appsrc name=source block=true max-bytes=1048576 caps=video/x-matroska '
         '! matroskademux name=demux '
@@ -30,9 +33,10 @@ def measure(project, effect, timeout=30):
         '! videoconvert ! video/x-raw,format=RGB,pixel-aspect-ratio=1/1 '
         '! appsink name=picture emit-signals=true sync=true max-buffers=1 drop=true '
         'demux.audio_0 ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 '
-        '! audioconvert ! audioresample ! fakesink sync=true')
+        '! audioconvert ! audioresample ! '+audio_sink)
     cancel = threading.Event()
     samples, errors = [], []
+    audio_samples = []
     begun = time.perf_counter()
 
     def sample(sink):
@@ -46,6 +50,15 @@ def measure(project, effect, timeout=30):
         return Gst.FlowReturn.OK
 
     pipeline.get_by_name('picture').connect('new-sample', sample)
+    if audio_probe:
+        def audio(sink):
+            value=sink.emit('pull-sample')
+            if value is not None:
+                buffer=value.get_buffer()
+                audio_samples.append((buffer.pts/Gst.SECOND,time.perf_counter()-begun,
+                                      any(buffer.extract_dup(0,buffer.get_size()))))
+            return Gst.FlowReturn.OK
+        pipeline.get_by_name('audio').connect('new-sample',audio)
     source = pipeline.get_by_name('source')
 
     def feed():
@@ -86,16 +99,23 @@ def measure(project, effect, timeout=30):
     if errors or len(samples) < 2:
         raise RuntimeError('; '.join(errors) or 'No preview pictures received.')
     row = model.timeline(project)[0]
-    start, end = row['duration']-row['overlap'], row['duration']
+    start, end = window or (row['duration']-row['overlap'],row['duration'])
     gaps = [(point[1]-previous[1])*1000 for previous, point in zip(samples, samples[1:])
             if start-.1 <= point[0] <= end+.1]
-    return {'effect': effect, 'frames': len(samples),
+    result = {'effect': effect, 'frames': len(samples),
             'first_picture_ms': round(samples[0][1]*1000, 2),
             'transition_max_gap_ms': round(max(gaps), 2),
             'transition_median_gap_ms': round(statistics.median(gaps), 2),
             'transition_pts': [round(start, 3), round(end, 3)],
             'large_gaps': [[round(point[0],3),round((point[1]-previous[1])*1000,2)]
                            for previous,point in zip(samples,samples[1:]) if point[1]-previous[1]>.06]}
+    if audio_probe:
+        if len(audio_samples)<2:raise RuntimeError('Audio sink did not receive the mix.')
+        first=audio_samples[0]
+        result.update(audible_audio_buffers=sum(point[2] for point in audio_samples),
+                      max_audio_lateness_ms=round(max(max(0,(point[1]-first[1])-(point[0]-first[0]))
+                                                      for point in audio_samples)*1000,2))
+    return result
 
 
 def main():

@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.10.2_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.10.3_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.10.2_all.deb
+sudo apt install ./clipcanvas_0.10.3_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -41,3 +41,7 @@ need 0.10.0 or newer; media, sound cues and animation settings remain editable.
 Version 0.10.2 accelerates Circle Wipe, Colour Wipe, Line Wipe and Flow with native
 compositing and reusable lossless geometry masks. Preview resolution and export
 quality are retained. See [transition measurements](../../docs/TRANSITION-PERFORMANCE.md).
+
+Version 0.10.3 fixes audio starvation during animated text/caption playback using
+native opacity, wipe and blur operations. Audio settings and video quality remain
+unchanged. See [animation/audio validation](../../docs/ANIMATION-AUDIO.md).

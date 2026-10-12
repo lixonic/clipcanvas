@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.3 — 2026-10-12
+
+- Fix live audio starvation when text/caption animations make full-resolution
+  video rendering fall behind. Replace interpreted per-pixel RGBA animation
+  processing with native opacity lookup tables, alpha clipping and blur
+  blending. Evaluate animation timing once at relevant frame boundaries.
+  Preserve easing, directions, word effects, placement and preview/export
+  quality. Keep the original RGB under transparent wipe edges.
+- Reset blur coefficients on each component when a later caption is sharp.
+  Generate sparse commands for entry/exit and matching intervals, avoiding
+  frame arrays for the whole timeline. Cancellation remains responsive.
+- Verify all six general and three word animations retain byte-identical PCM
+  audio, attached WAV files, echo effects and saved settings. Add native UI
+  checks for animation-only edits and full-resolution video/audio delivery
+  benchmarks. See [animation/audio validation](docs/ANIMATION-AUDIO.md).
+
 ## 0.10.2 — 2026-10-12
 
 - Replace interpreted per-pixel transition expressions in Circle Wipe,

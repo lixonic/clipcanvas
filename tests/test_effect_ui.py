@@ -142,6 +142,34 @@ class NativeEffectTests(unittest.TestCase):
             finally:
                 self.finish(window)
 
+    def test_animation_only_apply_preserves_sound_files_and_timeline_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);sound=sound_effects.generate('pop',root/'cue.wav')
+            window=ClipCanvasWindow(recovery_dir=root/'recovery')
+            try:
+                window.start_project(320,180);window.project['clips']=[model.new_card('#111111',5)]
+                window.project['audio']=[model.new_audio(sound)]
+                window.project['layers']=[model.new_text('Title',0,3)]
+                window.project['captions']=[model.new_caption('First words',0,2),model.new_caption('Next words',2,4)]
+                for group in ('layers','captions'):
+                    for index,item in enumerate(window.project[group]):
+                        item['sound_effect'].update(preset='file',path=str(sound),volume=.2+index*.1,trigger='both')
+                audio=copy.deepcopy(window.project['audio'])
+                for group in ('layers','captions'):
+                    sounds=[copy.deepcopy(item['sound_effect']) for item in window.project[group]]
+                    window.select(group,0,seek=False);window.open_properties('Animate')
+                    tools=window.layer_tools;tools.animation_editor.enter.set_active_id('rise')
+                    if group=='captions':tools.all_caption_animation.set_active(True)
+                    with mock.patch.object(window,'seek'):tools.apply()
+                    self.assertEqual(window.project['audio'],audio)
+                    self.assertEqual([item['sound_effect'] for item in window.project[group]],sounds)
+                    self.assertTrue(all(item['animation']['enter']=='rise' for item in window.project[group]))
+                    self.assertEqual(tools.sound_editor.read(),sounds[0])
+                    reopened=model.load_project(model.save_project(window.project,root/'sound.clipcanvas'))
+                    self.assertEqual(reopened['audio'],audio)
+                    self.assertEqual([item['sound_effect'] for item in reopened[group]],sounds)
+            finally:self.finish(window)
+
     def test_relink_nested_layer_and_caption_sound_requires_audio(self):
         with tempfile.TemporaryDirectory() as directory:
             window=ClipCanvasWindow(recovery_dir=Path(directory)/'recovery')

@@ -112,3 +112,8 @@ As of 0.10.2, Circle Wipe, Colour Wipe, Line Wipe and Flow use native compositin
 in live playback, composed scrub frames and exports. Lossless geometry masks
 are reused on disk, without reducing source resolution. See
 [transition performance and limits](TRANSITION-PERFORMANCE.md).
+
+Version 0.10.3 keeps animated text/caption playback from starving the live audio
+stream by replacing interpreted per-pixel opacity, wipe and blur processing with
+native operations. Sound files and settings are retained. See
+[animation/audio validation](ANIMATION-AUDIO.md).

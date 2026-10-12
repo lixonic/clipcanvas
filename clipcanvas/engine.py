@@ -287,29 +287,16 @@ def _cue_expressions(project, variable='t'):
     return result
 
 
-def _element_motion(filters, source, output, item, width, height, values=None, blurred=None, caption=False):
+def _element_motion(filters, source, output, item, width, height, values=None, blurred=None, caption=False,
+                    fps=30, length=None, scratch=None, cues=None, project=None, cancel=None):
     """Animate a sprite with global-time expressions; preserve source resolution."""
     from . import animations
     values = values or animations.expressions(item)
     placement = animations.placement_expressions(item)
-    current = source
-    if blurred is not None:
-        weight = _expression_time(values['blur'], 'T')
-        mixed = output+'soft'
-        filters.append(f"[{source}][{blurred}]blend=all_expr='A*(1-({weight}))+B*({weight})'[{mixed}]")
-        current = mixed
+    from . import element_render
+    current = element_render.append(filters,source,output+'native',item,width,height,fps,length,scratch,
+                                    blurred,cues,project,cancel)
     parts = [f'[{current}]format=rgba']
-    alpha = values['opacity']
-    if not caption:
-        alpha = f'({alpha})*({placement["opacity"]})'
-    wipe = values['wipe']
-    if alpha != '1' or wipe != '1':
-        a = _expression_time(alpha, 'T')
-        if wipe != '1':
-            progress = _expression_time(wipe, 'T')
-            comparison = _expression_time(values['mask'], 'T') if 'mask' in values else _wipe_mask(item, progress)
-            a += f'*({comparison})'
-        parts.append(f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({a})'")
     motion_scale = values['scale']
     ratio_w, ratio_h = '1', '1'
     if item.get('_match_to'):
@@ -386,7 +373,8 @@ def _animated_visual(project, item, number, args, filters, width, height, fps, l
         else:
             inputs = [source]
     placement = _element_motion(filters, inputs[0], f'visual{number}', item, width, height,
-                                blurred=inputs[1] if blur else None)
+                                blurred=inputs[1] if blur else None,fps=fps,length=length,scratch=scratch,
+                                project=project,cancel=cancel)
     return placement
 
 
@@ -531,7 +519,8 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
                 filters.append(f'[{index}:v]fps={_fmt(fps)},format=rgba,settb=AVTB,setpts=PTS-STARTPTS[{source}]')
                 inputs.append(source)
             item = visuals.caption_item(project, '')
-            placement = _element_motion(filters, inputs[0], f'captionmotion{lane_number}', item, width, height, values, inputs[1] if blur else None)
+            placement = _element_motion(filters, inputs[0], f'captionmotion{lane_number}', item, width, height, values, inputs[1] if blur else None,
+                                        fps=fps,length=total,scratch=scratch,cues=cues,project=project,cancel=cancel)
             label = f'captioned{lane_number}'
             filters.append(f'[{video}][captionmotion{lane_number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto[{label}]')
             video = label
