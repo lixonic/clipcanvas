@@ -1,6 +1,6 @@
 # ClipCanvas overhaul: implementation plan
 
-Updated 10 October 2026. The user selected all C01–C60 and X01–X10, then deferred
+Updated 12 October 2026. The user selected all C01–C60 and X01–X10, then deferred
 C44–C49 and AI/API/MCP integration. Work proceeds in usable, tested increments.
 Selected features are not necessarily implemented. Ubuntu 0.2.0 established the
 first foundation increment; 0.3.0 adds native UI and audio workflows; 0.4.0 adds
@@ -222,3 +222,20 @@ strips and skip drawing offscreen thumbnail tiles and waveform samples. Retain
 interaction geometry, drag repaint, pause/generation guards and export quality.
 Verify matching preview/timeline paint frame counters and pixel/hit equivalence
 of timeline damage painting. See [validation](LIVE-PREVIEW.md).
+
+
+### Effects and reusable seeking — 0.10.0
+
+C15/C16 now include the nine illustrated choices from the supplied screenshots,
+direction/colour controls and compact native join buttons. C17 includes six
+entry/exit effects plus three text/caption word styles, and C52 includes four
+original attached sound cues and local-file selection. Matching editable layers
+use explicit keys. Custom motion paths, coordinated/group animation and a stock
+music catalogue remain separate work. Format 7 retains effects and own-file
+sounds through recovery, relinking and portable collection.
+
+Dragging/paused seeking reuses one native decoder and two source frames for
+ordinary scenes, preserving full resolution. Transitions and overlay videos
+keep the composed renderer. See [effects](EFFECTS.md) and
+[seek measurements](SEEK-PERFORMANCE.md). The prior timeline paint benchmark
+only measured drawing; it did not establish interactive seek performance.

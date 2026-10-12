@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.0 — 2026-10-12
+
+- Add illustrated transition tiles for None, Dissolve, Slide, Circle Wipe,
+  Colour Wipe, Line Wipe, Match & Move, Flow and Stack. Direction and colour
+  controls appear where applicable, alongside a shared duration slider/spin.
+  Compact white join buttons use the bowtie symbol; inactive joins reveal a
+  plus on hover. Existing project transition keys retain their old rendering.
+- Add Rise, Pan, Fade, Pop, Wipe and Blur on entry and exit for text, images and
+  overlay video. Editable titles/captions also support Reveal, Highlight and
+  Snake word animations. Caption animation can be applied to every cue.
+  Match & Move tweens explicitly paired identical editable elements across
+  neighboring scenes; flattened video objects cannot be matched separately.
+- Attach original procedural Pop, Crisp pop, Click and Whoosh sound cues or
+  local WAV/MP3 audio to a layer's appearance/disappearance. Compose many cues
+  into one float PCM input using bounded blocks, retaining headroom and
+  avoiding a decoder/delay buffer per caption. Relinking and portable projects
+  include custom sound files; original-video speech excludes element sounds.
+- Reuse one native decoder for ordinary paused seeks and continuous dragging,
+  with two buffered source frames for nearby forward movement. Timed text and
+  images draw through the shared native renderer; transitions and overlay
+  videos use the composed renderer. Suppress obsolete seek results, shorten
+  click scheduling to 20 ms and release the seek decoder before export.
+- Save format 7 with animation, transition and attached sound settings; migrate
+  formats 1–6. Add real frame/audio, native editing, portability, resource and
+  seek regression checks. See [effects](docs/EFFECTS.md) and
+  [seek measurements](docs/SEEK-PERFORMANCE.md).
+
 ## 0.9.4 — 2026-10-12
 
 - Present the newest decoded preview picture and its timeline position together

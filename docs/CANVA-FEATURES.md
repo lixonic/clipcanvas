@@ -15,7 +15,7 @@ in this installer. See [the staged plan](DEVELOPMENT-PLAN.md).
 
 ## Canvas and composition
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C01 | Social-video canvas presets | Basic | Start landscape, portrait, or square projects. | Existing presets |
 | C02 | Resize an existing project | Pro | Adapt the composition to another size; current timeline has conversion restrictions. | Basic: change preset |
@@ -28,7 +28,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 
 ## Clip assembly and timeline
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Partial: videos and still-image layers; animated GIF/slideshow assembly pending |
 | C08 | Arrange clips in sequence | Basic | Drag clips into story order; the main track closes gaps. | Existing: lifted drag thumbnail, insertion gap/marker and edge scrolling |
@@ -43,11 +43,11 @@ Sources: [Import requirements](https://www.canva.com/help/upload-formats-require
 
 ## Transitions and motion
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
-| C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Basic: four effects; clickable join controls |
-| C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Partial: duration with actual overlap feedback; direction choices pending |
-| C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | New work |
+| C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Implemented: nine illustrated choices from the supplied screenshots; compact join controls; Match & Move pairs editable layers |
+| C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Implemented: duration slider/spin, actual overlap feedback, direction and colour where applicable |
+| C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | Implemented subset: Rise/Pan/Fade/Pop/Wipe/Blur on entry/exit; Reveal/Highlight/Snake for text/captions |
 | C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | Existing: independent layer start/end and draggable timeline timing |
 | C19 | Custom motion paths | Basic | Record a visual element's route by dragging it. | New work |
 | C20 | Magic Animate | Pro | Automatically recommend/apply coordinated motion across a design. | New work |
@@ -56,7 +56,7 @@ Sources: [Transitions](https://www.canva.com/features/video-transitions/), [elem
 
 ## Titles and captions
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C21 | Text titles and labels | Basic / premium fonts vary | Add and format positioned text over video. | Existing: editable Unicode titles, installed fonts, size, bold/italic, alignment, color and four shared presets |
 | C22 | Text effects | Basic / effect or asset varies | Add outlines, shadows, backgrounds, and other styles. | Partial: Clean/Outline/Shadow/Highlight presets, editable outlines, shadows and rounded line backgrounds; other effects pending |
@@ -69,7 +69,7 @@ Sources: [Text and overlays](https://www.canva.com/video-editor/ai/), [text effe
 
 ## Audio editing and mixing
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C27 | Import personal soundtracks, including WAV | Basic | Use WAV, MP3, M4A, OGG, or WebM audio. | Existing; WAV verified |
 | C28 | Layer music, speech, and sound effects | Basic | Position multiple audio clips in separate tracks. | Existing: sequential clips can share a lane; simultaneous sounds use separate lanes |
@@ -88,7 +88,7 @@ Sources: [Audio formats](https://www.canva.com/help/upload-formats-requirements-
 
 ## Picture and sound enhancement
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C39 | Video filter presets | Basic | Apply a look and adjust its strength. | New work |
 | C40 | Basic color and light adjustments | Basic | Tune brightness, contrast, saturation, temperature, tint, highlights, and shadows. | New work |
@@ -100,7 +100,7 @@ Sources: [Video filters](https://www.canva.com/features/video-filters/), [adjust
 
 ## AI creation and assisted editing
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C44 | Magic Video | Varies; limited free AI / expanded paid access | Assemble supplied clips/photos from a prompt with styling and music. | Deferred: outside current milestone |
 | C45 | Highlights | Varies; marketed with Pro | Find promising excerpts in longer footage. | Deferred: outside current milestone |
@@ -113,11 +113,11 @@ Sources: [Magic Video, Highlights, and generated video](https://www.canva.com/vi
 
 ## Templates, assets, branding, and capture
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C50 | Ready-made video templates | Basic + Pro libraries | Start from layouts with established timing and transitions. | New work |
 | C51 | Stock footage, photos, graphics, stickers | Basic + Pro assets | Fill visual gaps with a searchable media collection. | New work |
-| C52 | Music and sound-effect libraries | Basic + Pro assets; license limits | Find audio without importing your own. | New work |
+| C52 | Music and sound-effect libraries | Basic + Pro assets; license limits | Find audio without importing your own. | Implemented subset: original local Pop/Crisp pop/Click/Whoosh cues attached to elements; own WAV/MP3; music/stock catalogue pending |
 | C53 | Brand Kit and reusable brand styles | Pro for expanded kit | Keep logos, fonts, colors, and templates consistent. | New work |
 | C54 | Webcam and screen capture | Basic; screen capture desktop-only | Record source material directly into the Canva workflow. | New work |
 
@@ -125,7 +125,7 @@ Sources: [Customizable video templates](https://www.canva.com/video-editor/templ
 
 ## Export, publishing, and collaboration
 
-| ID | Feature | Canva access | What it does | ClipCanvas 0.9.4 |
+| ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C55 | MP4 download | Basic; content-license conditions | Export a finished video; watermark-free with eligible own/free content. | Existing |
 | C56 | Animated GIF download | Basic; duration limits vary | Export a short silent animation. | New work |
@@ -166,7 +166,7 @@ Fit/zoom/pan. See [live preview](LIVE-PREVIEW.md).
 Version 0.8.0 adds full-resolution preview by default, explicit quality choices,
 lossless masters, file-free color cards and visible drag/drop placement. See
 [quality and cards](QUALITY-CARDS.md).
-More audio tools, animation/effects and Windows packaging remain pending.
+Version 0.10.0 adds illustrated transitions, layer entry/exit motion, word animations, attached sound cues and a reusable native seek decoder. See [effects and validation](EFFECTS.md). More audio tools, custom motion paths, coordinated scene animation and Windows packaging remain pending.
 Generative AI and MCP support are deferred. Extracted audio is independent;
 linked clip/audio editing and automatic retiming remain separate work.
 

@@ -170,7 +170,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.composited = True
         self._last_position, self._last_duration = picture['position'], duration
         self.frame = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(picture['pixels']),
-            GdkPixbuf.Colorspace.RGB, False, 8, picture['width'], picture['height'], picture['width']*3)
+            GdkPixbuf.Colorspace.RGB, False, 8, picture['width'], picture['height'], picture.get('stride',picture['width']*3))
         self.queue_draw()
 
     def set_aspect(self, width, height):
@@ -228,6 +228,7 @@ class VideoCanvas(Gtk.DrawingArea):
                 self._notify(self.on_error, message)
         def end():
             if generation == self._generation:
+                self._finish_frames()
                 self.playing = False
                 self._last_position=self.duration()
                 self._notify(self.on_position, self.duration(), self.duration())
@@ -244,6 +245,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._freeze_frame = False
         if self._destroyed or not self._loaded:
             return
+        self._start_frame_updates()
         if self.duration() > 0 and self.position() >= self.duration() - 0.05:
             self.seek(0)
         if self._live is not None:
@@ -341,7 +343,11 @@ class VideoCanvas(Gtk.DrawingArea):
                 stride = width * 3
             if width <= 0 or height <= 0 or size < stride * (height - 1) + width * 3:
                 return Gst.FlowReturn.OK
-            pts=buffer.pts/Gst.SECOND if buffer.pts!=Gst.CLOCK_TIME_NONE else None
+            timestamp=buffer.pts
+            segment=sample.get_segment()
+            if segment is not None and timestamp!=Gst.CLOCK_TIME_NONE:
+                timestamp=segment.to_stream_time(Gst.Format.TIME,timestamp)
+            pts=timestamp/Gst.SECOND if timestamp!=Gst.CLOCK_TIME_NONE else None
             payload = (generation, buffer.extract_dup(0, size), width, height, stride, pts)
             with self._frame_lock:
                 self._latest_frame = payload
@@ -387,6 +393,7 @@ class VideoCanvas(Gtk.DrawingArea):
             self.pause()
             self._notify(self.on_error, "Preview playback failed: " + error.message)
         elif message.type == Gst.MessageType.EOS:
+            self._finish_frames()
             self.playing = False
             self._last_position = self.duration()
             self._notify(self.on_position, self._last_position, self._last_duration)
@@ -394,6 +401,16 @@ class VideoCanvas(Gtk.DrawingArea):
         elif message.type == Gst.MessageType.ASYNC_DONE and self._pending_seek is not None:
             requested, self._pending_seek = self._pending_seek, None
             self.seek(requested)
+
+    def _finish_frames(self):
+        # Present the final queued picture before committing the end position.
+        # Otherwise the next GTK tick can move the line back one frame after EOS.
+        self._deliver_frame()
+        self._freeze_frame=True
+        with self._frame_lock:self._latest_frame=None
+        if self._frame_tick_id:
+            self.remove_tick_callback(self._frame_tick_id)
+            self._frame_tick_id=0
 
     def _tick(self):
         if self._destroyed:

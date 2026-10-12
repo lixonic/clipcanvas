@@ -6,6 +6,7 @@ import gi
 gi.require_version('Gtk','3.0')
 from gi.repository import Gtk,Gdk,GLib,Pango,GdkPixbuf
 from . import model,engine,ui_theme
+from .effect_ui import AnimationEditor,SoundEditor,page_tabs
 
 
 def row_box(vertical=True,spacing=8):
@@ -187,15 +188,16 @@ class LayerTools:
         w.pool.submit(work)
 
     def show_properties(self):
+        self.stop_sound_preview()
         w=self.owner;item=w.selected_item();kind=w.selected[0];self.controls={};w.fields={};w.property_pages={}
         for child in w.inspector.get_children():w.inspector.remove(child)
         w.context_title.set_text(item.get('text','').replace('\n',' ')[:45] or Path(item.get('path','')).name)
         for button in (w.edit_button,w.apply_button,w.duplicate_button,w.remove_button):button.set_sensitive(True)
-        w.picture_button.set_sensitive(kind=='layers');w.sound_button.set_sensitive(False);w.split_button.set_sensitive(kind=='layers')
+        w.picture_button.set_sensitive(kind=='layers');w.sound_button.set_sensitive(True);w.split_button.set_sensitive(kind=='layers')
         title=Gtk.Label(label='Caption' if kind=='captions' else 'Text' if item['kind']=='text' else 'Visual layer',xalign=0)
         title.get_style_context().add_class('section');w.inspector.pack_start(title,False,False,0)
         stack=Gtk.Stack();stack.set_hhomogeneous(False);stack.set_vhomogeneous(False);w.properties_stack=stack
-        switch=Gtk.StackSwitcher();switch.set_stack(stack);w.inspector.pack_start(switch,False,False,0);w.inspector.pack_start(stack,True,True,0)
+        tab_slot=row_box();w.inspector.pack_start(tab_slot,False,False,0);w.inspector.pack_start(stack,True,True,0)
         def page(name):
             box=row_box();box.set_border_width(12);stack.add_titled(box,name,name);w.property_pages[name]=len(w.property_pages);return box
         timing=page('Timing');self.spin(timing,'start','Appears at (s)',item.get('start',0),0,86400,.05);self.spin(timing,'end','Disappears at (s)',item.get('end',3),.04,86400,.05)
@@ -217,7 +219,20 @@ class LayerTools:
             for key,title,value,low,high,step,mult in [('x','Horizontal (%)',item['x'],0,100,1,100),('y','Vertical (%)',item['y'],0,100,1,100),('width','Width (%)',item['width'],.1,200,1,100),('height','Height (%)',item['height'],.1,200,1,100),('rotation','Rotation (°)',item.get('rotation',0),-360,360,1,1),('opacity','Opacity (%)',item.get('opacity',1),0,100,1,100)]:
                 self.spin(picture,key,title,value*mult,low,high,step,mult)
             ordering=row_box(False);ordering.pack_start(action('Send backward',lambda:self.reorder(-1)),True,True,0);ordering.pack_start(action('Bring forward',lambda:self.reorder(1)),True,True,0);picture.pack_start(ordering,False,False,0)
+        animate=page('Animate')
+        self.animation_editor=AnimationEditor(item.get('animation'),text=kind=='captions' or item.get('kind')=='text',
+                                             match_id=item.get('match_id','') if kind=='layers' and item.get('kind') in ('text','image') else None)
+        animate.pack_start(self.animation_editor,False,False,0)
+        self.all_caption_animation=None
+        if kind=='captions':
+            self.all_caption_animation=Gtk.CheckButton(label='Apply animation to all captions')
+            animate.pack_start(self.all_caption_animation,False,False,0)
+        sound=page('Sound');self.sound_editor=SoundEditor(w,item.get('sound_effect'));sound.pack_start(self.sound_editor,False,False,0)
+        tab_slot.pack_start(page_tabs(stack),False,False,0)
         w.inspector.show_all();stack.set_visible_child_name('Timing')
+
+    def stop_sound_preview(self):
+        if hasattr(self,'sound_editor'):self.sound_editor.stop_preview()
 
     def spin(self,parent,key,title,value,low,high,step=.1,mult=1):
         line=row_box(False);label=Gtk.Label(label=title,xalign=0);line.pack_start(label,True,True,0)
@@ -242,11 +257,16 @@ class LayerTools:
         if kind=='captions' or item['kind']=='text':
             buffer=self.text.get_buffer();item['text']=buffer.get_text(buffer.get_start_iter(),buffer.get_end_iter(),True)
             if kind=='layers':self.read_style(item)
+        item['animation']=self.animation_editor.read();item['sound_effect']=self.sound_editor.read()
+        if self.animation_editor.match_id is not None:item['match_id']=self.animation_editor.match_id.get_text().strip()
         candidate=copy.deepcopy(w.project);candidate[kind][index]=item
+        if kind=='captions' and self.all_caption_animation.get_active():
+            candidate['caption_style']['animation']=copy.deepcopy(item['animation'])
+            for cue in candidate['captions']:cue['animation']=copy.deepcopy(item['animation'])
         if kind=='captions':self.read_style(candidate['caption_style'])
         try:model.validate_project(candidate,check_files=False)
         except ValueError as e:w.error(str(e));return
-        w.checkpoint();w.project=candidate;w.properties_popover.popdown()
+        self.sound_editor.stop_preview();w.checkpoint();w.project=candidate;w.properties_popover.popdown()
         if item.get('kind')=='video':self.assets.pop(item['id'],None);self.load_asset(item)
         w.changed();w.seek(item['start'])
 

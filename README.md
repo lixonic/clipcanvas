@@ -1,11 +1,11 @@
-# ClipCanvas 0.9.4
+# ClipCanvas 0.10.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.9.4. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -17,6 +17,8 @@ platform; a Windows app and installer have not been implemented yet.
 - [Export memory use and validation](docs/EXPORT-MEMORY.md)
 - [Preview quality, lossless masters and color cards](docs/QUALITY-CARDS.md)
 - [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
+- [Dragging/seeking improvements and measured limits](docs/SEEK-PERFORMANCE.md)
+- [Transitions, layer animation and attached sound effects](docs/EFFECTS.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
 
@@ -37,6 +39,9 @@ Version 0.9.3 releases paused preview decoders and pending scrub work before
 export, reducing simultaneous memory use without changing export quality.
 Version 0.9.4 updates the preview and white playhead in the same GTK display
 cycle and redraws only their changed timeline areas during playback.
+Version 0.10.0 adds the nine illustrated transitions, six entry/exit animations,
+Reveal/Highlight/Snake text animations, attached original sound cues and own WAV/MP3
+effects. Repeated dragging/seeking reuses a native decoder at the chosen resolution.
 Playback time follows each displayed frame; silent scrub frames seek into the active source.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
@@ -51,18 +56,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.9.4_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.9.4_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.9.4_all.deb
+   sudo apt install ./clipcanvas_0.10.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -93,7 +98,8 @@ separate application and does not change VLC.
    closed. Click **Apply changes** to keep the entered settings. Video and audio
    speed ranges from 0.25× to 4× and preserves audio pitch.
 4. **Choose a transition at the join.** Click the round join button between two
-   clips, choose an effect and duration, then **Apply changes**. A cut also has a
+   clips, choose an illustrated effect and duration, then **Apply changes**.
+   Direction and colour controls appear for effects that use them. A cut also has a
    join button. Transitions overlap the neighboring clips and shorten the total
    running time. The popover displays the actual overlap, limited to half of
    either adjacent clip. The final clip's plus button adds videos; it is not an
@@ -136,8 +142,9 @@ separate application and does not change VLC.
    preview MP4 is prepared. Press Space to pause/resume; drag the ruler or white
    playhead line to seek. Frames update while you hold and move the line,
    including transitions, captions and overlays. Dragging pauses sound; playback
-   resumes on release if it was playing before. Paused scrubbing loads only a
-   picture, without waiting for the audio mix.
+   resumes on release if it was playing before. Paused scrubbing reuses a native decoder for ordinary scenes and draws
+   timed text/images directly, without waiting for the audio mix. Transitions
+   and overlay videos use the composed frame renderer.
    Above the preview, use **− / Fit / +** for 25–400% magnification relative to
    Fit. **Ctrl+wheel** zooms; **Shift+drag** or middle-button drag pans when
    enlarged. Choose **Fit** to center the complete canvas again. These controls

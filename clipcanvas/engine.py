@@ -20,7 +20,7 @@ import tempfile
 import threading
 
 from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card
-from . import audio_effects
+from . import audio_effects, transitions
 
 
 class RenderError(RuntimeError):
@@ -238,25 +238,183 @@ def _execute(arguments, seconds, progress, cancel, log_path):
             process.stdout.close()
 
 
-def _caption_stream(project, scratch, width, height, total, cancel=None):
+def _word_stream(project, item, scratch, width, height, prefix, soften=False, cancel=None):
+    """One decoder, one bounded sprite per word state, never a canvas PNG movie."""
+    from . import animations, visuals
+    import cairo
+    length = float(item['end'])-float(item['start'])
+    steps = max(1, animations.text_steps(item))
+    sequence = ['ffconcat version 1.0']
+    plain = dict(item, rotation=0, opacity=1)
+    for step in range(steps):
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled('Export cancelled.')
+        sprite = dict(plain, _text_effect=animations.normalise(item.get('animation'))['text_effect'], _text_step=step)
+        path = Path(scratch)/f'{prefix}-{step}.png'
+        visuals.rasterize(project, sprite, path, (width, height))
+        if soften:
+            visuals.soften(cairo.ImageSurface.create_from_png(str(path))).write_to_png(str(path))
+        sequence += [f"file '{path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(length/steps)}']
+    sequence += [f"file '{path.as_posix()}'", 'option framerate 1000']
+    target = Path(scratch)/f'{prefix}.ffconcat'
+    target.write_text('\n'.join(sequence)+'\n', encoding='utf-8')
+    return target
+
+
+def _caption_lanes(project):
+    """Keep the decoder count proportional to simultaneous captions, not cues."""
+    lanes = []
+    for cue in sorted(project.get('captions', []), key=lambda item: (item['start'], item['end'])):
+        lane = next((items for items in lanes if items[-1]['end'] <= cue['start']), None)
+        if lane is None:
+            lane = []
+            lanes.append(lane)
+        lane.append(cue)
+    return lanes
+
+
+def _cue_expressions(project, variable='t'):
+    from . import animations, visuals
+    result = {key: base for key, base in (('dx', '0'), ('dy', '0'), ('opacity', '1'), ('scale', '1'), ('wipe', '1'), ('blur', '0'), ('mask', '1'))}
+    for cue in reversed(project.get('captions', [])):
+        item = visuals.caption_item(project, cue['text'], cue)
+        values = animations.expressions(item, variable)
+        if values['wipe'] != '1':
+            values['mask'] = _wipe_mask(item, values['wipe'])
+        for key, expression in values.items():
+            if expression != result[key] or expression not in ('0', '1'):
+                result[key] = f'if(gte({variable},{_fmt(cue["start"])})*lt({variable},{_fmt(cue["end"])}),{expression},{result[key]})'
+    return result
+
+
+def _element_motion(filters, source, output, item, width, height, values=None, blurred=None, caption=False):
+    """Animate a sprite with global-time expressions; preserve source resolution."""
+    from . import animations
+    values = values or animations.expressions(item)
+    placement = animations.placement_expressions(item)
+    current = source
+    if blurred is not None:
+        weight = _expression_time(values['blur'], 'T')
+        mixed = output+'soft'
+        filters.append(f"[{source}][{blurred}]blend=all_expr='A*(1-({weight}))+B*({weight})'[{mixed}]")
+        current = mixed
+    parts = [f'[{current}]format=rgba']
+    alpha = values['opacity']
+    if not caption:
+        alpha = f'({alpha})*({placement["opacity"]})'
+    wipe = values['wipe']
+    if alpha != '1' or wipe != '1':
+        a = _expression_time(alpha, 'T')
+        if wipe != '1':
+            progress = _expression_time(wipe, 'T')
+            comparison = _expression_time(values['mask'], 'T') if 'mask' in values else _wipe_mask(item, progress)
+            a += f'*({comparison})'
+        parts.append(f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({a})'")
+    motion_scale = values['scale']
+    ratio_w, ratio_h = '1', '1'
+    if item.get('_match_to'):
+        ratio_w = f'({placement["width"]})/{_fmt(item["width"])}'
+        ratio_h = f'({placement["height"]})/{_fmt(item["height"])}'
+    if motion_scale != '1' or ratio_w != '1' or ratio_h != '1':
+        parts.append(f"scale=w='max(2,round(iw*({motion_scale})*({ratio_w})))':h='max(2,round(ih*({motion_scale})*({ratio_h})))':eval=frame")
+    if not caption and (float(item.get('rotation', 0)) or item.get('_match_to') and float(item['_match_to'].get('rotation', 0)) != float(item.get('rotation', 0))):
+        angle = f'({placement["rotation"]})*PI/180'
+        parts.append(f"rotate=a='{angle}':ow='ceil(hypot(iw,ih))':oh='ceil(hypot(iw,ih))':c=0x00000000")
+    filters.append(','.join(parts)+f'[{output}]')
+    x = f'{_fmt(width)}*(({placement["x"]})+({values["dx"]}))-overlay_w/2'
+    y = f'{_fmt(height)}*(({placement["y"]})+({values["dy"]}))-overlay_h/2'
+    return f"x='{x}':y='{y}'"
+
+
+def _expression_time(expression, variable):
+    import re
+    return re.sub(r'\bt\b', variable, expression)
+
+
+def _wipe_mask(item, progress):
+    from . import animations
+    direction = animations.normalise(item.get('animation'))['direction']
+    axis, extent = ('X', 'W') if direction in ('left', 'right') else ('Y', 'H')
+    return (f'gte({axis},{extent}*(1-({progress})))' if direction in ('left', 'up')
+            else f'lt({axis},{extent}*({progress}))')
+
+
+def _animated_visual(project, item, number, args, filters, width, height, fps, length, scratch, cancel=None):
+    from . import animations, visuals
+    import cairo
+    start = float(item['start'])
+    animation = animations.normalise(item.get('animation'))
+    blur = animation['enter'] == 'blur' or animation['exit'] == 'blur'
+    source = f'motionbase{number}'
+    plain = dict(item, rotation=0, opacity=1)
+    inputs = []
+    if item['kind'] in ('text', 'image'):
+        for soft in ((False, True) if blur else (False,)):
+            index = args.count('-i')
+            prefix = f'layer-{number}'+('-soft' if soft else '')
+            if item['kind'] == 'text' and animation['text_effect'] != 'none':
+                path = _word_stream(project, plain, scratch, width, height, prefix, soft, cancel)
+                args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(path)]
+                preparation = f'fps={_fmt(fps)},trim=duration={_fmt(length)}'
+            else:
+                path = Path(scratch)/f'{prefix}.png'
+                visuals.rasterize(project, plain, path, (width, height))
+                if soft:
+                    visuals.soften(cairo.ImageSurface.create_from_png(str(path))).write_to_png(str(path))
+                args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(length), '-i', str(path)]
+                preparation = 'null'
+            label = source+('soft' if soft else '')
+            filters.append(f'[{index}:v]{preparation},format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[{label}]')
+            inputs.append(label)
+    else:
+        index = args.count('-i')
+        metadata = probe(item['path'])
+        if not metadata['has_video']:
+            raise RenderError(f"{Path(item['path']).name} has no video to use as an overlay.")
+        available = min(metadata['duration']-item.get('in', 0), length*item.get('speed', 1))
+        args += ['-threads', '1', '-ss', _fmt(item.get('in', 0)), '-t', _fmt(available), '-i', item['path']]
+        bw, bh = max(1, round(width*item['width'])), max(1, round(height*item['height']))
+        fit = 'decrease' if item.get('fit', 'fit') == 'fit' else 'increase'
+        framing = f'scale=trunc(iw*sar/2)*2:ih,setsar=1,format=rgba,scale={bw}:{bh}:force_original_aspect_ratio={fit}'
+        framing += (f',pad={bw}:{bh}:(ow-iw)/2:(oh-ih)/2:color=0x00000000' if fit == 'decrease' else f',crop={bw}:{bh}:(iw-ow)/2:(ih-oh)/2')
+        filters.append(f'[{index}:{metadata["video_index"]}]{framing},setpts=(PTS-STARTPTS)/{_fmt(item.get("speed",1))},fps={_fmt(fps)},tpad=stop_mode=clone:stop_duration={_fmt(length)},trim=duration={_fmt(length)},settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[{source}]')
+        if blur:
+            sharp = source+'sharp'
+            filters.append(f'[{source}]split=2[{sharp}][{source}blurinput]')
+            filters.append(f'[{source}blurinput]gblur=sigma=6:steps=2[{source}soft]')
+            inputs = [sharp, source+'soft']
+        else:
+            inputs = [source]
+    placement = _element_motion(filters, inputs[0], f'visual{number}', item, width, height,
+                                blurred=inputs[1] if blur else None)
+    return placement
+
+
+def _caption_stream(project, scratch, width, height, total, cancel=None, prefix="captions", animated=False, soft=False):
     """Make one variable-duration PNG stream for all captions, including gaps.
 
     Only one decoder is used even for thousands of cues. PNG sprites share the
     caption box and are reused when the visible wording repeats. Overlapping cues
     follow list order, just as they do in the native preview.
     """
-    from . import visuals
+    from . import visuals, animations
     import cairo
     cues = [c for c in project.get('captions', []) if c['start'] < total and c['end'] > 0]
     if not cues:
         return None
     item = visuals.caption_item(project, '')
+    if animated: item.update(rotation=0, opacity=1)
     left, top, sw, sh = visuals.sprite_geometry(project, item, (width, height))
     events = {}
     for index, cue in enumerate(cues):
         for key, entering in (('start', True), ('end', False)):
             boundary = max(0.0, min(total, float(cue[key])))
             events.setdefault(boundary, []).append((index, entering))
+        if animations.normalise(cue.get('animation', project.get('caption_style', {}).get('animation')))['text_effect'] != 'none':
+            steps = max(1, animations.text_steps(cue))
+            for step in range(1, steps):
+                boundary = cue['start']+(cue['end']-cue['start'])*step/steps
+                if 0 < boundary < total: events.setdefault(boundary, [])
     boundaries = sorted({0.0, total} | set(events))
     active = set()
     cached = {}
@@ -272,14 +430,21 @@ def _caption_stream(project, scratch, width, height, total, cancel=None):
                 active.add(index)
             else:
                 active.discard(index)
-        text = tuple(cues[index]['text'] for index in sorted(active))
+        text = tuple((cues[index]['text'], animations.text_step(cues[index], begin+1e-8),
+                      str(cues[index].get('animation', project.get('caption_style', {}).get('animation')))) for index in sorted(active))
         if text not in cached:
-            path = Path(scratch)/f'caption-{len(cached)}.png'
+            path = Path(scratch)/f'{prefix}-{len(cached)}.png'
             surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
             cr = cairo.Context(surface)
             cr.translate(-left, -top)
-            for wording in text:
-                visuals._paint(cr, project, visuals.caption_item(project, wording), (0, 0, width, height))
+            for index in sorted(active):
+                cue = cues[index]
+                sprite = visuals.caption_item(project, cue['text'], cue)
+                sprite['_text_effect'] = animations.normalise(sprite.get('animation'))['text_effect']
+                sprite['_text_step'] = animations.text_step(sprite, begin+1e-8)
+                if animated: sprite.update(rotation=0, opacity=1)
+                visuals._paint(cr, project, sprite, (0, 0, width, height))
+            if soft: surface = visuals.soften(surface)
             surface.write_to_png(str(path))
             cached[text] = path
         last_path = cached[text]
@@ -287,7 +452,7 @@ def _caption_stream(project, scratch, width, height, total, cancel=None):
         # the main canvas frame rate decides which frame displays each cue.
         sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(end-begin)}']
     sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000']
-    sequence_path = Path(scratch)/'captions.ffconcat'
+    sequence_path = Path(scratch)/f'{prefix}.ffconcat'
     sequence_path.write_text('\n'.join(sequence)+'\n', encoding='utf-8')
     return sequence_path, left, top
 
@@ -299,14 +464,20 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
         return video
     if scratch is None:
         raise RenderError('Visual rendering needs a temporary working folder.')
-    from . import visuals
-    next_input = len(project['clips']) + len(project.get('audio', []))
+    from . import visuals, animations
+    next_input = args.count('-i')
     for number, item in enumerate(layers):
         if cancel is not None and cancel.is_set():
             raise RenderCancelled('Export cancelled.')
         start, end = max(0.0, float(item['start'])), min(total, float(item['end']))
         length = end-start
-        if item['kind'] in ('text', 'image'):
+        if animations.animated(item) or item.get('_match_from'):
+            try:
+                placement = _animated_visual(project, item, number, args, filters, width, height, fps, length, scratch, cancel)
+            except RenderCancelled: raise
+            except Exception as error:
+                raise RenderError(f'Could not animate visual layer {number+1}: {error}') from error
+        elif item['kind'] in ('text', 'image'):
             path = Path(scratch)/f'layer-{number}.png'
             try:
                 x, y = visuals.rasterize(project, item, path, (width, height))
@@ -339,10 +510,32 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
                       f'setpts=PTS-STARTPTS+{_fmt(start)}/TB']
             filters.append(','.join(parts)+f'[visual{number}]')
             placement = f'x={_fmt(width*item["x"])}-overlay_w/2:y={_fmt(height*item["y"])}-overlay_h/2'
+        start = max(start, float(item.get('_suppress_until', 0)))
         label = f'composite{number}'
         filters.append(f"[{video}][visual{number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto:enable='gte(t,{_fmt(start)})*lt(t,{_fmt(end)})'[{label}]")
         video = label
-        next_input += 1
+        next_input = args.count('-i')
+    animated_captions = any(animations.animated(visuals.caption_item(project, cue['text'], cue)) for cue in project.get('captions', []))
+    if animated_captions:
+        for lane_number, cues in enumerate(_caption_lanes(project)):
+            caption_project = dict(project, captions=cues)
+            values = _cue_expressions(caption_project)
+            inputs = []
+            blur = values['blur'] != '0'
+            for soft in ((False, True) if blur else (False,)):
+                prefix = f'captions-{lane_number}'+('-soft' if soft else '')
+                sequence, _, _ = _caption_stream(caption_project, scratch, width, height, total, cancel, prefix, True, soft)
+                index = args.count('-i')
+                args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(sequence)]
+                source = f'captionbase{lane_number}'+('soft' if soft else '')
+                filters.append(f'[{index}:v]fps={_fmt(fps)},format=rgba,settb=AVTB,setpts=PTS-STARTPTS[{source}]')
+                inputs.append(source)
+            item = visuals.caption_item(project, '')
+            placement = _element_motion(filters, inputs[0], f'captionmotion{lane_number}', item, width, height, values, inputs[1] if blur else None)
+            label = f'captioned{lane_number}'
+            filters.append(f'[{video}][captionmotion{lane_number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto[{label}]')
+            video = label
+        return video
     try:
         captions = _caption_stream(project, scratch, width, height, total, cancel)
     except RenderCancelled:
@@ -368,6 +561,22 @@ def preview_dimensions(project, max_edge=640):
 
 
 def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None):
+    if any(clip.get('transition')=='match_move' for clip in project['clips']):
+        from . import animations
+        project=copy.deepcopy(project)
+        project['layers']=animations.prepare_layers(project)
+    # Attached element sounds follow their saved entry/exit timing. Treat them
+    # as ephemeral mix inputs, keeping the user's timeline and media untouched.
+    if not video_only and not project.get('_original_speech_only'):
+        sounds=[item for item in project.get('layers',[])+project.get('captions',[])
+                if item.get('sound_effect',{}).get('preset','none')!='none']
+        if sounds:
+            from . import sound_mix
+            from .model import new_audio
+            project=copy.deepcopy(project)
+            if scratch is None:raise RenderError('Layer sounds need a temporary working folder.')
+            path=sound_mix.mix(project,scratch,cancel)
+            if path is not None:project['audio'].append(new_audio(path))
     # For live seeking, omit completed main clips. Keep the original global
     # timestamps for music, captions and overlays, including effect history.
     if origin:
@@ -449,9 +658,9 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     for index in range(1, len(clips)):
         overlap = rows[index - 1]["overlap"]
         if overlap:
-            transition = clips[index - 1].get("transition", "fade")
             if not audio_only:
-                filters.append(f"[{video}][v{index}]xfade=transition={transition}:duration={_fmt(overlap)}:offset={_fmt(running_duration - overlap)},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
+                join = transitions.join_filter(clips[index - 1], overlap, running_duration - overlap)
+                filters.append(f"[{video}][v{index}]{join},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
             if not video_only:
                 filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
         else:
@@ -463,7 +672,10 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         running_duration += rows[index]["duration"] - overlap
     if origin or skip:
         if not audio_only:
-            filters.append(f'[{video}]setpts=PTS+{_fmt(origin+skip)}/TB[globalvideo]')
+            # Quantize the shifted picture back onto the composition frame
+            # grid. Adding rounded microseconds can turn .1 into .099999 and
+            # make an output seek skip the requested animation frame.
+            filters.append(f'[{video}]settb=expr=1/{_fmt(fps)},setpts=PTS+round({_fmt(origin+skip)}*{_fmt(fps)}),settb=AVTB[globalvideo]')
             video = 'globalvideo'
         if not video_only:
             filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
@@ -507,6 +719,9 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
     project = copy.deepcopy(project)
     _source_rate(project)
     validate_project(project, check_files=True, require_clips=True)
+    if any(clip.get('transition')=='match_move' for clip in project['clips']):
+        from . import animations
+        project['layers']=animations.prepare_layers(project)
     seconds = max(0, min(float(seconds), project_duration(project)-1/project['fps']))
     # FFmpeg's output seek chooses the next frame on the composition grid.
     # Include cues/overlays entering on that frame, even just after the pointer.
@@ -684,15 +899,19 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
 
     ``video`` includes the trimmed/speed-adjusted main clips with original audio
     restored even when a clip was muted after extraction. ``mix`` follows the
-    audible project including its independent soundtracks. Visual layers carry
-    no audio, and this operation never rasterizes or encodes a picture.
+    audible project including independent soundtracks and attached layer sounds.
+    Original-video speech excludes element sounds. This operation never
+    rasterizes or encodes a picture.
     """
     if source not in ('mix', 'video'):
         raise RenderError('Choose original video speech or the full audio mix.')
     project = copy.deepcopy(project)
     protected_media = media_items(project)
     if source == 'video':
+        project['_original_speech_only']=True
         project['audio'] = []
+        for item in project.get('layers',[])+project.get('captions',[]):
+            item.pop('sound_effect',None)
         for clip in project.get('clips', []):
             clip['volume'] = 0.0 if is_card(clip) else 1.0
             clip.pop('audio_effects',None)
@@ -703,7 +922,7 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
     output = Path(output).expanduser().resolve()
     for item in protected_media:
         source_path = Path(item['path']).resolve()
-        if source_path == output or (output.exists() and os.path.samefile(source_path, output)):
+        if source_path == output or (output.exists() and source_path.exists() and os.path.samefile(source_path, output)):
             raise RenderError('Choose a different audio filename. Your original media will never be overwritten.')
     if project.get('_project_path') and output == Path(project['_project_path']).resolve():
         raise RenderError('Choose an audio filename different from the project file.')
@@ -717,7 +936,7 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
     os.close(handle)
     try:
         with tempfile.TemporaryDirectory(prefix='clipcanvas-speech-') as scratch:
-            inputs, graph, seconds = _graph(project, audio_only=True)
+            inputs, graph, seconds = _graph(project, audio_only=True, scratch=scratch, cancel=cancel)
             graph_path = Path(scratch)/'audio-filters.txt'
             graph_path.write_text(graph, encoding='utf-8')
             arguments = ['-nostdin', '-hide_banner', '-loglevel', 'warning', '-y', '-filter_complex_threads', '1'] + inputs + [

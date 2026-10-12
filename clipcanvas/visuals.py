@@ -17,6 +17,8 @@ gi.require_version('GdkPixbuf', '2.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 
+from . import animations
+
 
 def rgba(value, default='#ffffff'):
     """Read CSS hex colors without consulting a desktop theme."""
@@ -99,6 +101,22 @@ def _text(cr, project, item, width, height):
         else:
             _rounded_box(cr, 0, 0, width, height, radius)
         cr.fill()
+    effect = item.get('_text_effect', 'none')
+    word_boxes = _word_boxes(layout, item.get('text', ''), tx, ty) if effect != 'none' else []
+    first, last = animations.text_word_range(item, int(item.get('_text_step', -1)))
+    active_boxes = [box for index, box in word_boxes if first <= index < last]
+    if effect == 'highlight':
+        cr.set_source_rgba(*rgba(animations.normalise(item.get('animation'))['colour']))
+        for bx, by, bw, bh in active_boxes:
+            _rounded_box(cr, bx-3, by-1, bw+6, bh+2, 4)
+            cr.fill()
+    cr.save()
+    if effect == 'reveal':
+        for index, box in word_boxes:
+            if index < last:
+                cr.rectangle(box[0]-outline-2, box[1]-outline-2,
+                             box[2]+2*outline+4, box[3]+2*outline+4)
+        cr.clip()
     if shadow[3] or outline:
         cr.move_to(tx, ty)
         PangoCairo.layout_path(cr, layout)
@@ -126,10 +144,60 @@ def _text(cr, project, item, width, height):
             cr.stroke_preserve()
             cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
             cr.fill()
-            return
-    cr.move_to(tx, ty)
-    cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
-    PangoCairo.show_layout(cr, layout)
+        else:
+            cr.move_to(tx, ty)
+            cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
+            PangoCairo.show_layout(cr, layout)
+    else:
+        cr.move_to(tx, ty)
+        cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
+        PangoCairo.show_layout(cr, layout)
+    cr.restore()
+    if effect == 'snake':
+        colour = rgba(animations.normalise(item.get('animation'))['colour'])
+        cr.save()
+        for box in active_boxes:
+            cr.rectangle(*box)
+        cr.clip()
+        cr.move_to(tx, ty)
+        cr.set_source_rgba(*colour)
+        PangoCairo.show_layout(cr, layout)
+        cr.restore()
+        cr.set_source_rgba(*colour)
+        cr.set_line_width(max(2, float(item.get('font_size', 48))*.045))
+        for bx, by, bw, bh in active_boxes:
+            cr.move_to(bx, by+bh-1)
+            cr.line_to(bx+bw, by+bh-1)
+            cr.stroke()
+
+
+def _word_boxes(layout, text, tx, ty):
+    """Pango character extents keep whole words shaped correctly in any script."""
+    spans = animations.words(text)
+    if not spans:
+        return []
+    # Pango indices use UTF-8 bytes; Python regular expressions use characters.
+    byte_spans = [(len(text[:start].encode('utf-8')), len(text[:end].encode('utf-8')))
+                  for start, end in spans]
+    rectangles = {}
+    iterator = layout.get_iter()
+    while True:
+        index = iterator.get_index()
+        word = next((number for number, (begin, end) in enumerate(byte_spans)
+                     if begin <= index < end), None)
+        if word is not None:
+            extent = iterator.get_char_extents()
+            x, y = tx+extent.x/Pango.SCALE, ty+extent.y/Pango.SCALE
+            w, h = extent.width/Pango.SCALE, extent.height/Pango.SCALE
+            key = (word, round(y, 4))
+            if key in rectangles:
+                ox, oy, ow, oh = rectangles[key]
+                rectangles[key] = (min(ox, x), oy, max(ox+ow, x+w)-min(ox, x), max(oh, h))
+            else:
+                rectangles[key] = (x, y, w, h)
+        if not iterator.next_char():
+            break
+    return [(word, box) for (word, _), box in rectangles.items()]
 
 
 @lru_cache(maxsize=64)
@@ -161,18 +229,7 @@ def _picture(cr, pixbuf, width, height, fit='fit'):
     cr.paint()
 
 
-def _paint(cr, project, item, rect, assets=None):
-    x, y, width, height = bounds(project, item, rect)
-    scale = rect[2]/float(project['width'])
-    local_width, local_height = width/scale, height/scale
-    cr.save()
-    cr.translate(x+width/2, y+height/2)
-    cr.rotate(math.radians(float(item.get('rotation', 0))))
-    cr.scale(scale, scale)
-    cr.translate(-local_width/2, -local_height/2)
-    cr.rectangle(0, 0, local_width, local_height)
-    cr.clip()
-    cr.push_group()
+def _content(cr, project, item, local_width, local_height, assets=None):
     if item.get('kind', 'text') == 'text':
         _text(cr, project, item, local_width, local_height)
     else:
@@ -188,12 +245,72 @@ def _paint(cr, project, item, rect, assets=None):
                 pass
         if pixbuf is not None:
             _picture(cr, pixbuf, local_width, local_height, item.get('fit', 'fit'))
+
+
+def soften(surface):
+    """A bounded, deterministic soft-focus sprite used by both rendering paths."""
+    width, height = surface.get_width(), surface.get_height()
+    small = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, math.ceil(width/12)), max(1, math.ceil(height/12)))
+    cr = cairo.Context(small)
+    cr.scale(small.get_width()/width, small.get_height()/height)
+    cr.set_source_surface(surface)
+    cr.get_source().set_filter(cairo.FILTER_BILINEAR)
+    cr.paint()
+    result = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+    cr = cairo.Context(result)
+    cr.scale(width/small.get_width(), height/small.get_height())
+    cr.set_source_surface(small)
+    cr.get_source().set_filter(cairo.FILTER_BILINEAR)
+    cr.paint()
+    return result
+
+
+def _paint(cr, project, item, rect, assets=None, seconds=None):
+    x, y, width, height = bounds(project, item, rect)
+    scale = rect[2]/float(project['width'])
+    local_width, local_height = width/scale, height/scale
+    motion = animations.state(item, seconds) if seconds is not None else animations.state({}, 1)
+    placement = animations.placement(item, seconds) if seconds is not None else animations.placement(item, -1e9)
+    content = dict(item)
+    if seconds is not None:
+        content['_text_effect'] = animations.normalise(item.get('animation'))['text_effect']
+        content['_text_step'] = motion['text_step']
+    cr.save()
+    cr.translate(rect[0]+(placement['x']+motion['dx'])*rect[2], rect[1]+(placement['y']+motion['dy'])*rect[3])
+    cr.rotate(math.radians(placement['rotation']))
+    cr.scale(scale*motion['scale']*placement['width']/float(item.get('width', .7)),
+             scale*motion['scale']*placement['height']/float(item.get('height', .18)))
+    cr.translate(-local_width/2, -local_height/2)
+    cr.rectangle(0, 0, local_width, local_height)
+    cr.clip()
+    if motion['wipe'] < 1:
+        direction = animations.normalise(item.get('animation'))['direction']
+        fraction = motion['wipe']
+        if direction in ('left', 'right'):
+            cr.rectangle(local_width*(1-fraction) if direction == 'left' else 0, 0,
+                         local_width*fraction, local_height)
+        else:
+            cr.rectangle(0, local_height*(1-fraction) if direction == 'up' else 0,
+                         local_width, local_height*fraction)
+        cr.clip()
+    cr.push_group()
+    if motion['blur'] > 0:
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, math.ceil(local_width)), max(1, math.ceil(local_height)))
+        _content(cairo.Context(surface), project, content, local_width, local_height, assets)
+        cr.set_operator(cairo.OPERATOR_ADD)
+        cr.set_source_surface(surface)
+        cr.paint_with_alpha(1-motion['blur'])
+        cr.set_source_surface(soften(surface))
+        cr.paint_with_alpha(motion['blur'])
+        cr.set_operator(cairo.OPERATOR_OVER)
+    else:
+        _content(cr, project, content, local_width, local_height, assets)
     cr.pop_group_to_source()
-    cr.paint_with_alpha(float(item.get('opacity', 1)))
+    cr.paint_with_alpha(placement['opacity']*motion['opacity'])
     cr.restore()
 
 
-def caption_item(project, text):
+def caption_item(project, text, cue=None):
     item = dict(project.get('caption_style', {}))
     item.update(kind='text', text=text)
     item.setdefault('x', .5)
@@ -201,6 +318,10 @@ def caption_item(project, text):
     item.setdefault('width', .9)
     item.setdefault('height', .15)
     item.setdefault('font_size', 48)
+    if cue is not None:
+        item.update(start=cue['start'], end=cue['end'])
+        if 'animation' in cue:
+            item['animation'] = cue['animation']
     return item
 
 
@@ -219,9 +340,9 @@ def draw(cr, project, seconds, rect, selected=None, assets=None):
     cr.save()
     cr.rectangle(*rect)
     cr.clip()
-    for item in project.get('layers', []):
-        if float(item.get('start', 0)) <= seconds < float(item.get('end', 0)):
-            _paint(cr, project, item, rect, assets)
+    for item in animations.prepare_layers(project):
+        if max(float(item.get('start', 0)), item.get('_suppress_until', 0)) <= seconds < float(item.get('end', 0)):
+            _paint(cr, project, item, rect, assets, seconds)
             if selected in (item.get('id'), item):
                 x, y, w, h = bounds(project, item, rect)
                 cr.save()
@@ -234,7 +355,7 @@ def draw(cr, project, seconds, rect, selected=None, assets=None):
                 cr.restore()
     cues = active_captions(project, seconds)
     for cue in cues:
-        _paint(cr, project, caption_item(project, cue['text']), rect)
+        _paint(cr, project, caption_item(project, cue['text'], cue), rect, seconds=seconds)
     cr.restore()
 
 

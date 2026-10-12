@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.9.4
+# Desktop workflow — ClipCanvas 0.10.0
 
 ## Import, then place
 
@@ -96,7 +96,7 @@ also has **Save project as**, portable collection, relinking and crash recovery.
 captions/styles, canvas and timeline row order. Originals remain separate local
 files; collect a portable copy before moving between computers.
 
-Project format 6 migrates formats 1–5. Projects saved by 0.9.2 need 0.9.2 or newer.
+Project format 7 migrates formats 1–6 and retains transition options, layer/caption animations and attached sounds. Projects newly saved by 0.10.0 need 0.10.0 or newer.
 If upgrading an open app, save your work, close it and reopen ClipCanvas to load
 the new installed code.
 

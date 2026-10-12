@@ -21,6 +21,27 @@ import test_engine
 
 @unittest.skipUnless(Gtk.init_check()[0], 'A desktop display is required')
 class DesktopWorkflowTests(unittest.TestCase):
+    def test_container_timestamp_offset_and_pending_eos_frame_keep_media_time(self):
+        from gi.repository import Gst
+        from clipcanvas.player import VideoCanvas
+        canvas=VideoCanvas();positions=[];canvas.on_position=lambda at,total:positions.append(at)
+        try:
+            canvas._last_duration=2
+            segment=Gst.Segment();segment.init(Gst.Format.TIME)
+            segment.start=2*Gst.SECOND;segment.time=0
+            buffer=Gst.Buffer.new_wrapped(bytes(24));buffer.pts=2500000000
+            sample=Gst.Sample.new(buffer,Gst.Caps.from_string('video/x-raw,format=RGB,width=4,height=2'),segment,None)
+            canvas._receive_sample(sample);canvas._deliver_frame()
+            self.assertAlmostEqual(canvas.position(),.5)
+            buffer=Gst.Buffer.new_wrapped(bytes([200])*24);buffer.pts=3900000000
+            canvas._receive_sample(Gst.Sample.new(buffer,sample.get_caps(),segment,None))
+            canvas._message(None,Gst.Message.new_eos(canvas._pipeline))
+            canvas._deliver_frame()
+            self.assertEqual(canvas.position(),2);self.assertEqual(positions[-1],2)
+            self.assertEqual(bytes(canvas.frame.get_pixels())[0],200)
+            self.assertTrue(canvas._freeze_frame)
+        finally:canvas.destroy()
+
     @classmethod
     def setUpClass(cls):
         cls.fixtures = test_engine.EngineIntegrationTests
@@ -70,22 +91,22 @@ class DesktopWorkflowTests(unittest.TestCase):
                 self.pump(lambda:time.monotonic()>=deadline)
                 self.assertAlmostEqual(w.canvas.position(),at,places=2)
                 w.seek(1.8)
-                self.pump(lambda:not w.scrub_timer and w.canvas._live is not first)
-                second=w.canvas._live
-                self.pump(lambda:second.pipeline.get_state(0)[1].value_nick=='paused')
+                self.pump(lambda:not w.scrub_timer and not w._scrub_settling and not w.canvas.live)
+                first.thread.join(timeout=5);self.assertFalse(first.thread.is_alive())
                 self.assertFalse(w.canvas.playing)
                 self.assertAlmostEqual(w.canvas.position(),1.8,places=2)
                 w.toggle_play();self.pump(lambda:w.canvas.position()>2)
+                second=w.canvas._live
                 # Delayed asset completion must never replace the live stream.
                 w.asset_ready(w.project['clips'][0]['path'],'clips',next(str(p) for p in w.temp.glob('*.jpg')))
                 self.assertIs(w.canvas._live,second)
                 self.pump(lambda:not w.canvas.playing)
                 self.assertAlmostEqual(w.playhead,model.project_duration(w.project),places=2)
                 w.toggle_play();self.pump(lambda:.05<w.canvas.position()<.5)
-                w.select('clips',1);self.pump(lambda:not w.scrub_timer)
+                w.select('clips',1);self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
                 self.assertFalse(w.canvas.playing)
                 self.assertAlmostEqual(w.canvas.position(),model.timeline(w.project)[1]['start'],places=2)
-                last=w.canvas._live
+                last=w.canvas._live or second
                 w.changed()
                 self.assertFalse(w.canvas.live)
                 last.thread.join(timeout=5)
@@ -127,7 +148,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4')],add_to_timeline=True)
             self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.timeline.hit))
             w.zoom(100);w.seek(.3)
-            self.pump(lambda:w.canvas.live and not w.scrub_timer and abs(w.canvas.position()-.3)<.01)
+            self.pump(lambda:w.canvas.composited and not w._scrub_settling and abs(w.canvas.position()-.3)<.01)
             before=copy.deepcopy(w.project);selected=w.selected
             y=w.timeline.hit[0][3]+40
             # Grab the line below the ruler, through the video thumbnail.
@@ -296,7 +317,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(model.clip_duration(w.project['clips'][0]),.75)
             self.assertEqual(w.project['clips'][0]['rotation'],90)
             w.seek(.3)
-            self.pump(lambda: not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
+            self.pump(lambda: not w.scrub_timer and not w._scrub_settling and w.canvas.frame is not None)
             self.assertAlmostEqual(w.playhead,.3)
             self.assertIsNone(w.preview_key)
             w.split_selected()
@@ -354,7 +375,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             GLib.timeout_add(50,cancel_export);w.export()
             self.assertEqual(seen[0],'master');self.assertIn('MKV',seen[1])
             w.canvas.pause();w.begin_scrub();w.end_scrub(.3);w.seek(.5)
-            self.pump(lambda:not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling and w.canvas.frame is not None)
             self.assertFalse(w._scrub_settling)
             self.assertAlmostEqual(w.canvas.position(),.5,delta=.1)
         finally:w.cleanup();w.destroy()
@@ -611,7 +632,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             # Applying an already saved RGBA style must preserve transparency.
             w.select('layers',0,seek=False);w.apply_fields()
             self.assertEqual(w.project['layers'][0]['background'],'#00000000')
-            self.pump(lambda:not w.scrub_timer and w.canvas.live and w.canvas.frame is not None)
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling and w.canvas.frame is not None)
             x,y,width,height=w.canvas.canvas_rect
             w.layer_tools.canvas_press(SimpleNamespace(button=1,x=x+width*.5,y=y+height*.5))
             w.layer_tools.canvas_motion(SimpleNamespace(x=x+width*.6,y=y+height*.6))

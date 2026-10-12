@@ -1,8 +1,9 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Formats 1–5 migrate on load; format 6
-adds shared audio lane identities to the saved media library and color cards. Visual layers use canvas-relative centers and sizes, so their placement
+possible. Saving never changes the media. Formats 1–6 migrate on load; format 7
+adds transition options, layer/caption animations and attached sound effects.
+Visual layers use canvas-relative centers and sizes, so their placement
 survives a canvas resize; text sizes are expressed in canvas pixels.
 """
 
@@ -21,15 +22,23 @@ from .text_styles import effect_defaults
 from . import track_layout, audio_effects
 
 
-TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve")
-PROJECT_VERSION = 6
+TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve", "slide",
+               "circle_wipe", "colour_wipe", "line_wipe", "match_move", "flow", "stack")
+PROJECT_VERSION = 7
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 MAX_TIMELINE_SECONDS = 86400 * 7
+
+def animation_defaults():
+    return {'enter':'none','exit':'none','duration':.5,'direction':'left',
+            'text_effect':'none','colour':'#8b3dff'}
+
+def sound_effect_defaults():
+    return {'preset':'none','path':'','volume':.5,'trigger':'enter'}
 
 
 def text_style():
     """Return independent style defaults for a title or caption."""
-    return {**effect_defaults(), "x": 0.5, "y": 0.5, "width": 0.7, "height": 0.18,
+    return {**effect_defaults(), "animation": animation_defaults(), "x": 0.5, "y": 0.5, "width": 0.7, "height": 0.18,
             "rotation": 0.0, "opacity": 1.0, "font_family": "Sans",
             "font_size": 64.0, "bold": False, "italic": False,
             "color": "#ffffff", "background": "#00000000",
@@ -54,6 +63,7 @@ def new_text(text="Your title", start=0.0, end=3.0):
     result = {"id": uuid.uuid4().hex, "kind": "text", "start": start,
               "end": end, "text": text}
     result.update(text_style())
+    result.update(match_id='',sound_effect=sound_effect_defaults())
     return result
 
 
@@ -69,7 +79,8 @@ def new_visual(path, kind="image", start=0.0, end=3.0, metadata=None):
               "path": str(Path(path).expanduser().resolve()),
               "start": start, "end": end, "x": 0.5, "y": 0.5,
               "width": 0.4, "height": 0.3, "rotation": 0.0,
-              "opacity": 1.0, "fit": "fit", "in": 0.0, "speed": 1.0}
+              "opacity": 1.0, "fit": "fit", "in": 0.0, "speed": 1.0,
+              "animation":animation_defaults(),"match_id":"","sound_effect":sound_effect_defaults()}
     if kind == "video":
         metadata = _metadata(path, metadata)
         if not metadata.get("has_video", True):
@@ -79,7 +90,8 @@ def new_visual(path, kind="image", start=0.0, end=3.0, metadata=None):
 
 
 def new_caption(text="", start=0.0, end=3.0):
-    return {"id": uuid.uuid4().hex, "start": start, "end": end, "text": text}
+    return {"id": uuid.uuid4().hex, "start": start, "end": end, "text": text,
+            "animation":animation_defaults(),"sound_effect":sound_effect_defaults()}
 
 
 def media_items(project):
@@ -88,8 +100,12 @@ def media_items(project):
     Do not deduplicate items here: callers must update each path when saving
     or relinking. Collection deduplicates the source files separately.
     """
-    return [item for item in project.get("clips", []) if not is_card(item)] + list(project.get("audio", [])) + [
+    result = [item for item in project.get("clips", []) if not is_card(item)] + list(project.get("audio", [])) + [
         item for item in project.get("layers", []) if item.get("kind") in ("image", "video")] + list(project.get("assets", []))
+    for item in project.get('layers',[])+project.get('captions',[]):
+        sound=item.get('sound_effect',{})
+        if isinstance(sound,dict) and sound.get('preset')=='file':result.append(sound)
+    return result
 
 
 def new_asset(item, kind):
@@ -115,6 +131,7 @@ def new_clip(path, metadata=None):
             "duration": duration, "source_fps": float(metadata.get('fps', 0)),
             "in": 0.0, "out": duration, "fit": "fill",
             "volume": 1.0, "transition": "none", "transition_duration": 0.5,
+            "transition_direction":"left","transition_colour":"#8b3dff",
             "position_x": 0.5, "position_y": 0.5, "speed": 1.0,
             "rotation": 0, "flip_x": False, "flip_y": False,
             "fade_in": 0.0, "fade_out": 0.0,
@@ -137,6 +154,7 @@ def new_card(color='#ffffff', duration=3.0):
             'fade_in': 0.0, 'fade_out': 0.0, 'position_x': .5, 'position_y': .5,
             'rotation': 0, 'flip_x': False, 'flip_y': False,
             'transition': 'none', 'transition_duration': .5,
+            'transition_direction':'left','transition_colour':'#8b3dff',
             'video_fade_in': 0.0, 'video_fade_out': 0.0}
 
 
@@ -264,6 +282,31 @@ def _timed_item(item, label):
     if end <= start:
         raise ValueError(f"{label} end must be later than its start.")
 
+def _animation(item,label,text=False):
+    data=item.get('animation',animation_defaults())
+    if not isinstance(data,dict):raise ValueError(f'{label} animation must be valid settings.')
+    for key in ('enter','exit'):
+        if data.get(key,'none') not in ('none','rise','pan','fade','pop','wipe','blur'):
+            raise ValueError(f'{label} has an unsupported {key} animation.')
+    _number(data.get('duration',.5),f'{label} animation duration',.05,10)
+    if data.get('direction','left') not in ('left','right','up','down'):
+        raise ValueError(f'{label} animation direction must be left, right, up or down.')
+    effect=data.get('text_effect','none')
+    if effect not in ('none','reveal','highlight','snake') or (not text and effect!='none'):
+        raise ValueError(f'{label} has an unsupported text animation.')
+    colour=data.get('colour','#8b3dff')
+    if not isinstance(colour,str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',colour):
+        raise ValueError(f'{label} animation colour must be a hex RGB colour.')
+
+def _sound_effect(item,label,check_files):
+    data=item.get('sound_effect',sound_effect_defaults())
+    if not isinstance(data,dict) or data.get('preset','none') not in ('none','pop','crisp_pop','click','whoosh','file'):
+        raise ValueError(f'{label} has an unsupported sound effect.')
+    _number(data.get('volume',.5),f'{label} sound-effect volume',0,2)
+    if data.get('trigger','enter') not in ('enter','exit','both'):
+        raise ValueError(f'{label} sound trigger must be enter, exit or both.')
+    if data.get('preset')=='file':_media_path(data,f'{label} sound effect',check_files)
+
 
 def validate_project(project, check_files=True, require_clips=False):
     """Raise ValueError with a readable explanation; return True on success."""
@@ -322,6 +365,10 @@ def validate_project(project, check_files=True, require_clips=False):
                 if item.get("transition", "none") not in TRANSITIONS:
                     raise ValueError(f"{label} has an unsupported transition.")
                 _number(item.get("transition_duration", 0.5), f"{label} transition duration", 0, 10)
+                if item.get('transition_direction','left') not in ('left','right','up','down'):
+                    raise ValueError(f'{label} has an unsupported transition direction.')
+                if not isinstance(item.get('transition_colour','#8b3dff'),str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',item.get('transition_colour','#8b3dff')):
+                    raise ValueError(f'{label} transition colour must be a hex RGB colour.')
                 for key in ("position_x", "position_y"):
                     _number(item.get(key, 0.5), f"{label} crop position", 0, 1)
             else:
@@ -355,6 +402,8 @@ def validate_project(project, check_files=True, require_clips=False):
                 _number(item.get("in", 0), f"{label} source start", 0, MAX_TIMELINE_SECONDS)
         else:
             raise ValueError(f"{label} must be text, an image or a video.")
+        _animation(item,label,item['kind']=='text');_sound_effect(item,label,check_files)
+        _text(item.get('match_id',''),f'{label} match key',128)
     captions = project.get("captions")
     if not isinstance(captions, list) or len(captions) > 5000:
         raise ValueError("Use a valid list of no more than 5000 captions.")
@@ -362,10 +411,12 @@ def validate_project(project, check_files=True, require_clips=False):
         label = f"Caption {index + 1}"
         _timed_item(item, label)
         _text(item.get("text"), f"{label} text", 2000)
+        _animation(item,label,True);_sound_effect(item,label,check_files)
     style = project.get("caption_style")
     if not isinstance(style, dict):
         raise ValueError("The caption style is missing or invalid.")
     _text_style(style, "Caption")
+    _animation(style,'Caption style',True)
     assets = project.get('assets', [])
     if not isinstance(assets, list) or len(assets) > 1000:
         raise ValueError('Use a media library of no more than 1000 assets.')
@@ -424,7 +475,7 @@ def load_project(path):
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, 2, 3, 4, 5, PROJECT_VERSION):
+        if old_version not in (1, 2, 3, 4, 5, 6, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
@@ -453,6 +504,7 @@ def load_project(path):
                 if group == "clips":
                     defaults.update({"fit": "fill", "transition": "none",
                                      "transition_duration": 0.5,
+                                     "transition_direction":"left","transition_colour":"#8b3dff",
                                      "position_x": 0.5, "position_y": 0.5,
                                      "rotation": 0,
                                      "flip_x": False, "flip_y": False,
@@ -469,6 +521,7 @@ def load_project(path):
                 if not isinstance(item, dict):
                     continue
                 item.setdefault("id", uuid.uuid4().hex)
+                item.setdefault('animation',animation_defaults());item.setdefault('sound_effect',sound_effect_defaults());item.setdefault('match_id','')
                 if item.get("kind") == "text":
                     for key, value in text_style().items():
                         item.setdefault(key, value)
@@ -486,6 +539,11 @@ def load_project(path):
             for item in captions:
                 if isinstance(item, dict):
                     item.setdefault("id", uuid.uuid4().hex)
+                    item.setdefault('animation',animation_defaults());item.setdefault('sound_effect',sound_effect_defaults())
+        for item in (layers if isinstance(layers,list) else [])+(captions if isinstance(captions,list) else []):
+            sound=item.get('sound_effect',{}) if isinstance(item,dict) else {}
+            if isinstance(sound,dict) and sound.get('preset')=='file' and isinstance(sound.get('path'),str) and sound['path']:
+                sound['path']=str((target.parent/sound['path']).resolve())
     if isinstance(project, dict):
         if old_version < 5:
             project['assets'] = []
