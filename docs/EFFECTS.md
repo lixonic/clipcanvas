@@ -107,3 +107,8 @@ exit motions, three word animations, Malayalam text, matched geometry, attached
 audio seeking and trimming, native editing/undo, relinking, recovery and
 portable source protection. A 200-caption test with 400 sound events verifies
 one added audio input and less than 4 MB of Python allocation during premixing.
+
+As of 0.10.2, Circle Wipe, Colour Wipe, Line Wipe and Flow use native compositing
+in live playback, composed scrub frames and exports. Lossless geometry masks
+are reused on disk, without reducing source resolution. See
+[transition performance and limits](TRANSITION-PERFORMANCE.md).

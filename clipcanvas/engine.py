@@ -664,17 +664,24 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={_fmt(duration)},asetpts=PTS-STARTPTS[a{index}]")
     video, audio = "v0", "a0"
     running_duration = rows[0]["duration"]-skip
+    running_frames = round(running_duration*fps)
     for index in range(1, len(clips)):
         overlap = rows[index - 1]["overlap"]
         if overlap:
             if not audio_only:
-                join = transitions.join_filter(clips[index - 1], overlap, running_duration - overlap)
-                filters.append(f"[{video}][v{index}]{join},fps={_fmt(fps)},settb=AVTB[joinv{index}]")
+                from . import transition_render
+                transition_render.append(args,filters,video,f'v{index}',clips[index-1],
+                                         overlap,running_duration-overlap,width,height,fps,
+                                         rows[index]['duration'],scratch,index,cancel,
+                                         with_alpha=bool(project.get('layers') or project.get('captions')),
+                                         left_frames=running_frames)
+                running_frames = transition_render._first_frame(running_duration-overlap,fps)+round(rows[index]['duration']*fps)
             if not video_only:
                 filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
         else:
             if not audio_only:
                 filters.append(f"[{video}][v{index}]concat=n=2:v=1:a=0,fps={_fmt(fps)},settb=AVTB[joinv{index}]")
+                running_frames += round(rows[index]['duration']*fps)
             if not video_only:
                 filters.append(f"[{audio}][a{index}]concat=n=2:v=0:a=1[joina{index}]")
         video, audio = f"joinv{index}", f"joina{index}"

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.2 — 2026-10-12
+
+- Replace interpreted per-pixel transition expressions in Circle Wipe,
+  Colour Wipe, Line Wipe and Flow with native compositing. Wipes use reusable,
+  lossless geometry masks; Flow uses edge-preserving movement and native
+  blending. Retain the selected preview resolution, export quality, timing,
+  directions, colours and original audio processing.
+- Bound the reusable mask cache to 64 MiB and 32 entries on disk. Generate
+  masks by scanline with little resident memory; private hard links protect
+  active renders during eviction. Route outgoing prefixes rather than queuing
+  their preceding full-resolution frames. No GPU or new dependency is needed.
+- Align fractional-rate mask timestamps and stop movement at the actual
+  outgoing frame boundary. Keep opaque video backgrounds under overlays;
+  the former custom Flow sampler could mistakenly use chroma as alpha.
+- Add original-renderer frame/audio comparisons, cache/cancellation tests,
+  isolated 1080p effect benchmarks and native preview frame-delivery
+  measurements. See [transition performance](docs/TRANSITION-PERFORMANCE.md).
+
 ## 0.10.1 — 2026-10-12
 
 - Seek the active video input close to the playhead when starting live playback.
