@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.6 — 2026-10-21
+
+- Start speech-caption generation directly from the sidebar button. Use the
+  Small model and automatic language detection by default, including direct
+  background-job calls. Keep progress, cancellation and editable caption results.
+- Move source, model and language choices into a separate native gear button.
+  Apply remembers settings across launches without starting recognition;
+  Cancel keeps the previous settings. Validate language codes before saving.
+  Original clip speech remains the default; full mix includes voice soundtracks.
+- Discard a completed recognition result if Cancel was pressed before it was
+  applied. Keep existing caption edits on cancellation, failure or a declined
+  replacement, and keep successful replacements undoable.
+
 ## 0.10.5 — 2026-10-21
 
 - Add a native remove icon and right-click menu to each imported media row.

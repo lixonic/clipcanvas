@@ -1,5 +1,6 @@
 """Native layer and caption tools attached to the main editor."""
 import copy
+import re
 import threading
 from pathlib import Path
 import gi
@@ -56,7 +57,12 @@ class LayerTools:
 
     def make_captions_panel(self):
         panel=row_box();panel.set_border_width(12)
-        generate=action('Generate captions from speech',self.generate);generate.get_style_context().add_class('suggested-action');panel.pack_start(generate,False,False,0)
+        generation=row_box(False,4)
+        self.generate_button=action('Generate captions',self.generate);self.generate_button.get_style_context().add_class('suggested-action')
+        self.generate_button.set_tooltip_text('Generate editable captions from speech. Defaults: Small model and automatic language detection.')
+        generation.pack_start(self.generate_button,True,True,0)
+        self.caption_settings_button=ui_theme.icon_button('preferences-system-symbolic',self.configure_generation,'Caption settings',style='quiet')
+        generation.pack_start(self.caption_settings_button,False,False,0);panel.pack_start(generation,False,False,0)
         imports=row_box(False);imports.pack_start(action('Import SRT',self.import_srt),True,True,0);imports.pack_start(action('Export SRT',self.export_srt),True,True,0)
         panel.pack_start(imports,False,False,0)
         editing=row_box(False);editing.pack_start(action('Add caption',self.add_caption),True,True,0);editing.pack_start(action('Caption style',self.edit_caption_style),True,True,0)
@@ -340,33 +346,55 @@ class LayerTools:
             captions.save_srt(snapshot,path);w.set_status(f'Subtitles exported: {path}')
         except Exception as e:w.error(str(e))
 
-    def generate(self):
+    def generation_settings(self):
+        saved=self.owner.preferences.get('caption_generation',{})
+        if not isinstance(saved,dict):saved={}
+        language=saved.get('language')
+        language=language.strip().lower() if isinstance(language,str) else None
+        return {'source':saved.get('source') if saved.get('source') in ('video','mix') else 'video',
+                'model_name':saved.get('model_name') if saved.get('model_name') in ('tiny','small') else 'small',
+                'language':language if language and re.fullmatch(r'[a-z]{2,3}',language) else None}
+
+    def configure_generation(self):
         from . import captions
         w=self.owner
         if w.busy:return
-        if not w.project['clips']:w.set_status('Add videos before generating captions.');return
-        dialog=Gtk.Dialog(title='Generate captions locally',transient_for=w,modal=True);dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Generate',Gtk.ResponseType.OK)
+        settings=self.generation_settings()
+        dialog=Gtk.Dialog(title='Caption settings',transient_for=w,modal=True);dialog.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Apply',Gtk.ResponseType.OK)
         content=dialog.get_content_area();content.set_border_width(18);content.set_spacing(12)
         content.pack_start(caption('Speech recognition runs locally. The first use downloads a speech model and supporting software; later use works offline.'),False,False,0)
-        source=Gtk.ComboBoxText();source.append('video','Speech in the original video clips');source.append('mix','Full mix · include soundtracks');source.set_active_id('video');content.pack_start(source,False,False,0)
-        choice=Gtk.ComboBoxText();choice.append('tiny','Tiny · quick, lower accuracy');choice.append('small','Small · better accuracy, slower');choice.set_active_id('tiny');content.pack_start(choice,False,False,0)
+        source=Gtk.ComboBoxText();source.append('video','Speech in the original video clips');source.append('mix','Full mix · include soundtracks');source.set_active_id(settings['source']);content.pack_start(source,False,False,0)
+        choice=Gtk.ComboBoxText();choice.append('small','Small · better accuracy, slower');choice.append('tiny','Tiny · quick, lower accuracy');choice.set_active_id(settings['model_name']);content.pack_start(choice,False,False,0)
         download=caption('')
         def model_status(*_):
             status=captions.runtime_status(model=choice.get_active_id())
             download.set_text('Model installed · recognition works offline.' if status['ready'] else f'First download: about {status["download_mb"]} MB for the model, plus speech libraries. No footage is uploaded.')
         choice.connect('changed',model_status);model_status();content.pack_start(download,False,False,0)
-        language=Gtk.Entry();language.set_placeholder_text('Language code · leave empty to detect');language.set_tooltip_text('Examples: en, hi, ml, ta, ar. Empty detects the language.');content.pack_start(language,False,False,0)
-        content.pack_start(caption('Review generated words and timings before export.'),False,False,0);dialog.show_all();response=dialog.run()
-        settings=(source.get_active_id(),choice.get_active_id(),language.get_text().strip() or None);dialog.destroy()
-        if response!=Gtk.ResponseType.OK:return
-        self.generate_job(*settings)
+        language=Gtk.Entry();language.set_placeholder_text('Language code · leave empty to detect');language.set_tooltip_text('Examples: en, hi, ml, ta, ar. Empty detects the language.');language.set_text(settings['language'] or '');content.pack_start(language,False,False,0)
+        message=caption('Apply saves these settings for the next time you click Generate captions.');content.pack_start(message,False,False,0)
+        dialog.show_all()
+        while dialog.run()==Gtk.ResponseType.OK:
+            value=language.get_text().strip().lower() or None
+            if value and not re.fullmatch(r'[a-z]{2,3}',value):
+                message.set_text('Use a language code such as en, hi or ml, or leave it empty to detect.');language.grab_focus();continue
+            settings={'source':source.get_active_id(),'model_name':choice.get_active_id(),'language':value}
+            try:w.preferences.set('caption_generation',settings)
+            except OSError as error:message.set_text('Could not save caption settings: '+str(error));continue
+            w.set_status('Caption settings saved. Click Generate captions to start.');break
+        dialog.destroy()
 
-    def generate_job(self,source='video',model_name='tiny',language=None,runtime_dir=None):
+    def generate(self):
+        self.generate_job(**self.generation_settings())
+
+    def generate_job(self,source='video',model_name='small',language=None,runtime_dir=None):
         from . import captions
-        w=self.owner;snapshot=copy.deepcopy(w.project);w.canvas.pause();w.set_busy(True);w.cancel_event=threading.Event()
+        w=self.owner
+        if w.busy:return
+        if not w.project['clips']:w.set_status('Add videos before generating captions.');return
+        snapshot=copy.deepcopy(w.project);w.canvas.pause();w.set_busy(True);w.cancel_event=threading.Event()
         if w.project_path:snapshot['_project_path']=w.project_path
         progress_dialog=Gtk.Dialog(title='Generating captions',transient_for=w,modal=True);progress_dialog.add_button('Cancel',Gtk.ResponseType.CANCEL)
-        content=progress_dialog.get_content_area();content.set_border_width(18);info=caption('Preparing local speech recognition…');content.pack_start(info,False,False,0)
+        content=progress_dialog.get_content_area();content.set_border_width(18);info=caption('Preparing local speech recognition with '+model_name.title()+'…');content.pack_start(info,False,False,0)
         bar=Gtk.ProgressBar();content.pack_start(bar,False,False,12)
         progress_dialog.connect('response',lambda *_:w.cancel_event.set());progress_dialog.connect('delete-event',lambda *_:(w.cancel_event.set() or True));progress_dialog.show_all()
         cancel=w.cancel_event;audio=w.temp/'speech-input.wav';active={'value':True}
@@ -377,7 +405,7 @@ class LayerTools:
         def finish(result,error):
             active['value']=False;progress_dialog.destroy();w.set_busy(False);w.cancel_event=None;audio.unlink(missing_ok=True)
             if w.closed:return False
-            if error:
+            if error or cancel.is_set():
                 if cancel.is_set():w.set_status('Caption generation cancelled. Existing captions are unchanged.')
                 else:w.error(str(error))
             else:

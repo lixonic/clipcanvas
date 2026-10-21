@@ -1,7 +1,17 @@
-# Local captions in ClipCanvas 0.5
+# Local captions in ClipCanvas 0.10.6
 
-Use **Captions → Generate captions from speech**. Choose original video speech
-or the full mix, Tiny or Small, and a language code or automatic detection.
+Click **Captions → Generate captions** to start immediately with the **Small**
+model and automatic language detection. There is no required options dialog.
+Progress and Cancel appear while the background job runs.
+
+The gear beside Generate opens **Caption settings** when you need to change
+the source, model or language. **Apply** saves these choices across launches;
+**Cancel** leaves them unchanged. Applying settings does not generate captions.
+Small is the default for better accuracy; Tiny remains an optional quick draft.
+Leave language empty to detect it, or enter a code such as `en`, `hi`, `ml` or `ta`.
+
+Original video speech is the default. For narration in a separate WAV/MP3 track,
+choose **Full mix · include soundtracks** once in Caption settings.
 The job follows the edited sequence, source trims, speed and transition overlap.
 Original-video mode restores muted clip speech for recognition without changing
 export volume. Full-mix mode includes the current audio tracks and their levels.
@@ -36,8 +46,8 @@ The private runtime lives in:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/clipcanvas/transcription/
   venv/          isolated Python dependencies
-  models/tiny/   downloaded model and verification marker
-  models/small/  present only after selecting Small
+  models/small/  default model and verification marker
+  models/tiny/   present after choosing the optional draft model
   cache/         package/model download cache
   runtime.json   compatible runtime versions
 ```
@@ -50,7 +60,7 @@ are not bundled in the small `.deb`.
 For a source checkout, optional command-line setup is:
 
 ```sh
-/usr/bin/python3 tools/setup_transcription.py --model tiny
+/usr/bin/python3 tools/setup_transcription.py --model small
 ```
 
 An explicit `--runtime-dir /absolute/path` can be used for development tests.
@@ -93,7 +103,8 @@ English fixture. Review the result before sharing.
 - **Long text is clipped:** reduce font size/expand layer height. The text-layer
   Picture controls expose width and height; captions share a bounded box.
 
-Animated word highlighting, translation, animated caption packs, and cloud/provider/MCP
-connections are not part of this release. Uninstalling the app leaves private
+See [caption animations and attached sounds](EFFECTS.md) for Reveal, Highlight,
+Snake and entry/exit effects. Translation and cloud/provider/MCP connections
+remain deferred. Uninstalling the app leaves private
 speech downloads and saved projects in your user data. Remove the transcription
 folder separately if you no longer want those downloads.

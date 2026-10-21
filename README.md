@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.5
+# ClipCanvas 0.10.6
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.5. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.6. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -58,6 +58,8 @@ Version 0.10.4 adds wheel and trackpad scrolling through enlarged previews.
 Version 0.10.5 adds sidebar import removal with a native icon, right-click menu
 and focused Delete key. Undo restores imports; original files, timeline copies
 and live playback are preserved.
+Version 0.10.6 starts captions directly with Small and automatic language
+detection. A separate gear button offers remembered caption settings.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -71,18 +73,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.5_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.6_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.5_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.6_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.5_all.deb
+   sudo apt install ./clipcanvas_0.10.6_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -259,18 +261,19 @@ extract an audio track when you want their sound.
 
 ## Generate and edit captions
 
-1. Open **Captions → Generate captions from speech**.
-2. Choose speech from the original video clips, or the full mix including
-   soundtracks. Original-video mode recognizes clip speech even if its volume
-   is muted in your mix. Both modes follow the current sequence, trims, speed,
-   and transition timing.
-3. Choose **Tiny** for a quick draft or **Small** for better accuracy. The first
-   use downloads about 75 MB or 490 MB of model data, plus supporting libraries,
-   into a private environment in your user data folder. Leave the language blank
-   for detection, or enter a language code such as `en`, `hi`, `ml`, or `ta`.
-4. Click **Generate**. Progress and cancellation are available. No footage or
-   audio is uploaded. Subsequent recognition with an installed model works
-   offline.
+1. Click **Captions → Generate captions**. Recognition starts immediately with
+   **Small** for better accuracy and automatic language detection.
+2. Optionally use the gear beside Generate to change **Caption settings**.
+   Original-video speech is the default, recognizing clips even when muted in
+   the mix. Choose **Full mix** for narration in separate soundtracks. Tiny is
+   available for quick drafts; language can be detected or set with a code such
+   as `en`, `hi`, `ml` or `ta`. **Apply** remembers choices across app launches;
+   it does not start generation.
+3. The first use downloads about 490 MB for Small (75 MB for optional Tiny), plus
+   supporting libraries, into a private environment in your user data folder.
+   The job follows the current sequence, trims, speed and transition timing.
+4. Progress and cancellation are available. No footage or audio is uploaded.
+   Subsequent recognition with an installed model works offline.
 5. Select a caption, open the **Text** tab, correct its words, and apply. Change
    its start/end in **Timing**, or drag its timeline body/edges. **Add caption**
    lets you fill a gap. Undo/redo applies to caption changes.
@@ -284,8 +287,8 @@ extract an audio track when you want their sound.
    subtitle files; SRT stores words and timing, not styling.
 
 Recognition accuracy varies with language, music, accents, and model size.
-Review the words and timings. This release does not translate captions or animate
-individual words. See [local caption setup and troubleshooting](docs/CAPTIONS.md).
+Review the words and timings. Caption translation remains pending. See
+[local caption setup and troubleshooting](docs/CAPTIONS.md).
 
 Use **Ctrl+Z** to undo an edit and **Ctrl+Shift+Z** to redo it. **Ctrl+S** saves the
 project, and **Ctrl+O** opens a saved project. Undo/redo controls also appear above

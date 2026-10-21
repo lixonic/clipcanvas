@@ -726,6 +726,93 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_caption_button_starts_small_directly_and_cancel_keeps_edits(self):
+        import threading
+        from clipcanvas import captions
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'direct-captions-recovery');errors=[];w.error=errors.append
+        release=threading.Event()
+        try:
+            w.start_project(320,180)
+            with mock.patch.object(captions,'setup_transcription') as setup:
+                w.layer_tools.generate_button.clicked();setup.assert_not_called();self.assertFalse(w.busy)
+            w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and bool(w.thumbs))
+            w.project['clips'][0]['volume']=0
+            before=copy.deepcopy(w.project);history=len(w.history)
+            result={'captions':[model.new_caption('Editable speech',.1,1)],'language':'en'}
+            with mock.patch.object(captions,'setup_transcription') as setup, \
+                 mock.patch.object(engine,'render_audio',wraps=engine.render_audio) as render, \
+                 mock.patch.object(captions,'generate_from_audio',return_value=result) as transcribe, \
+                 mock.patch.object(Gtk.Dialog,'run',side_effect=AssertionError('Generate must not open an options dialog')):
+                w.layer_tools.generate_button.clicked();self.assertTrue(w.busy)
+                self.pump(lambda:not w.busy)
+                self.assertEqual(setup.call_args.kwargs['model'],'small')
+                self.assertEqual(transcribe.call_args.kwargs['model'],'small')
+                self.assertIsNone(transcribe.call_args.kwargs['language'])
+                self.assertEqual(render.call_args.kwargs['source'],'video')
+            expected=copy.deepcopy(before);expected['captions']=result['captions']
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            w.project['captions'][0]['text']='My corrected words'
+            before=copy.deepcopy(w.project);history=len(w.history);entered=threading.Event()
+            def delayed_result(*args,**kwargs):
+                entered.set();release.wait(5);return result
+            with mock.patch.object(captions,'setup_transcription'), \
+                 mock.patch.object(captions,'generate_from_audio',side_effect=delayed_result), \
+                 mock.patch.object(w.layer_tools,'replace_captions',return_value=False) as replace:
+                w.layer_tools.generate_button.clicked();self.pump(entered.is_set)
+                dialog=next(d for d in Gtk.Window.list_toplevels() if isinstance(d,Gtk.Dialog) and d.get_title()=='Generating captions')
+                dialog.response(Gtk.ResponseType.CANCEL);release.set();self.pump(lambda:not w.busy)
+                replace.assert_not_called()
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history);self.assertFalse(errors)
+        finally:
+            release.set();w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_optional_caption_settings_cancel_validate_and_survive_restart(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'caption-settings-recovery');reopened=None
+        try:
+            tools=w.layer_tools;before=copy.deepcopy(w.project);defaults={'source':'video','model_name':'small','language':None}
+            self.assertEqual(tools.generation_settings(),defaults)
+            def controls(dialog):
+                self.assertEqual(dialog.get_title(),'Caption settings')
+                children=dialog.get_content_area().get_children()
+                combos=[child for child in children if isinstance(child,Gtk.ComboBoxText)]
+                entry=next(child for child in children if isinstance(child,Gtk.Entry))
+                return children,combos,entry
+            def cancel(dialog):
+                _,combos,entry=controls(dialog)
+                self.assertEqual([c.get_active_id() for c in combos],['video','small'])
+                combos[0].set_active_id('mix');combos[1].set_active_id('tiny');entry.set_text('en')
+                return Gtk.ResponseType.CANCEL
+            with mock.patch.object(Gtk.Dialog,'run',cancel),mock.patch.object(tools,'generate_job') as generate:
+                tools.caption_settings_button.clicked();generate.assert_not_called()
+            self.assertEqual(tools.generation_settings(),defaults)
+            self.assertIsNone(w.preferences.get('caption_generation'))
+            attempts=[]
+            def apply(dialog):
+                children,combos,entry=controls(dialog);attempts.append(True)
+                if len(attempts)==1:
+                    entry.set_text('English')
+                else:
+                    self.assertTrue(any(isinstance(child,Gtk.Label) and child.get_text().startswith('Use a language code') for child in children))
+                    combos[0].set_active_id('mix');combos[1].set_active_id('tiny');entry.set_text(' EN ')
+                return Gtk.ResponseType.OK
+            with mock.patch.object(Gtk.Dialog,'run',apply),mock.patch.object(tools,'generate_job') as generate:
+                tools.caption_settings_button.clicked();generate.assert_not_called()
+            saved={'source':'mix','model_name':'tiny','language':'en'}
+            self.assertEqual(len(attempts),2);self.assertEqual(tools.generation_settings(),saved)
+            reopened=ClipCanvasWindow(recovery_dir=self.fixtures.root/'caption-settings-reopened',preferences_dir=w.preferences.path.parent)
+            self.assertEqual(reopened.layer_tools.generation_settings(),saved)
+            with mock.patch.object(reopened.layer_tools,'generate_job') as generate:
+                reopened.layer_tools.generate_button.clicked();generate.assert_called_once_with(**saved)
+            w.preferences.set('caption_generation',{'source':'bad','model_name':'missing','language':123})
+            self.assertEqual(tools.generation_settings(),defaults)
+            self.assertEqual(w.project,before);self.assertFalse(w.history)
+        finally:
+            if reopened is not None:reopened.cleanup();reopened.destroy()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     @unittest.skipUnless(os.environ.get('CLIPCANVAS_TEST_SPEECH_RUNTIME') and os.environ.get('CLIPCANVAS_TEST_SPEECH_AUDIO'),
                          'A provisioned local speech runtime is required')
     def test_generate_from_speech_then_edit_and_export_desktop(self):
@@ -740,9 +827,9 @@ class DesktopWorkflowTests(unittest.TestCase):
         try:
             w.start_project(320,180);w.import_paths([str(source)],add_to_timeline=True)
             self.pump(lambda:not w.busy and bool(w.thumbs))
-            # This is the same background job used by the Generate dialog:
+            # This is the same background job used by the Generate button:
             # private runtime -> timeline-aware audio -> real offline ASR -> editable cues.
-            w.layer_tools.generate_job(runtime_dir=os.environ['CLIPCANVAS_TEST_SPEECH_RUNTIME'])
+            w.layer_tools.generate_job(runtime_dir=os.environ['CLIPCANVAS_TEST_SPEECH_RUNTIME'],model_name=os.environ.get('CLIPCANVAS_TEST_SPEECH_MODEL','tiny'))
             self.pump(lambda:not w.busy,timeout=60)
             self.assertFalse(errors);self.assertGreaterEqual(len(w.project['captions']),2)
             self.assertIn('computer',' '.join(c['text'].lower() for c in w.project['captions']))

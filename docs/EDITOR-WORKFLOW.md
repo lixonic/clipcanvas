@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.10.5
+# Desktop workflow — ClipCanvas 0.10.6
 
 ## Import, then place
 
@@ -80,6 +80,12 @@ Media-row context menus offer Add to timeline and Remove from media library;
 Shift+F10 opens that menu from the focused media button.
 
 ## Remembered settings
+
+**Captions → Generate captions** starts immediately using Small and automatic
+language detection by default. The gear beside it opens **Caption settings**.
+Apply saves source, model and language for later generations and app launches;
+Cancel leaves them unchanged. Choose **Full mix** there for a separate voice
+soundtrack. Caption settings do not edit the project or start a generation.
 
 Native file pickers remember folders only after **Accept**, not Cancel. Media,
 project and export folders are remembered separately, with the most recently
