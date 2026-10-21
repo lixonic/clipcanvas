@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.7 — 2026-10-21
+
+- Show a native trash button when hovering a caption in the sidebar or focusing
+  its delete button with the keyboard. Reserve its space so caption text does
+  not shift on hover; clicking the caption body still opens the text editor.
+- Delete only the chosen caption, including when multiple timeline items are
+  selected. Keep other words, timings, media and selection identities intact;
+  retain the preview time and support Undo/Redo and project save/reopen.
+
 ## 0.10.6 — 2026-10-21
 
 - Start speech-caption generation directly from the sidebar button. Use the

@@ -84,9 +84,39 @@ class LayerTools:
                 time=Gtk.Label(label=f'{item["start"]:.2f} – {item["end"]:.2f} s',xalign=0);time.get_style_context().add_class('dim-label');content.pack_start(time,False,False,0)
                 widget=Gtk.Button();widget.add(content);widget.set_tooltip_text(text)
                 widget.connect('clicked',lambda _,k=kind,i=index:self.select(k,i,edit=True))
-                listing.add(widget)
+                if kind=='captions':
+                    # Keep space for the hover action so words do not jump.
+                    content.set_margin_end(36)
+                    row=Gtk.ListBoxRow();row.get_style_context().add_class('caption-row')
+                    remove=ui_theme.icon_button('edit-delete-symbolic',lambda key=item['id']:self.remove_caption(key),'Delete this caption',style='quiet')
+                    remove.get_style_context().add_class('caption-delete')
+                    remove.set_halign(Gtk.Align.END);remove.set_valign(Gtk.Align.CENTER);remove.set_margin_end(7)
+                    remove.get_accessible().set_name('Delete caption: '+text.replace('\n',' '))
+                    overlay=Gtk.Overlay();overlay.add(widget);overlay.add_overlay(remove);row.add(overlay)
+                    row.caption_id=item['id'];row.edit_button=widget;row.remove_button=remove
+                    listing.add(row)
+                else:listing.add(widget)
             listing.show_all()
         self.update_overlay_controls()
+
+    def remove_caption(self,caption_id):
+        w=self.owner
+        if w.busy:return False
+        index=next((i for i,item in enumerate(w.project['captions']) if item['id']==caption_id),None)
+        if index is None:return False
+        at=w.playhead;w.checkpoint();w.project['captions'].pop(index)
+        w.selection.discard(('captions',caption_id))
+        if w.selected and w.selected[0]=='captions':
+            if w.selected[1]>index:w.selected=('captions',w.selected[1]-1)
+            elif w.selected[1]==index:
+                w.selected=None;remaining=w.selection_items()
+                if remaining:w.selected=remaining[0][:2]
+        w.changed();w.seek(at)
+        rows=self.captions_list.get_children()
+        if rows:rows[min(index,len(rows)-1)].edit_button.grab_focus()
+        else:self.generate_button.grab_focus()
+        w.set_status('Deleted caption. Ctrl+Z to undo.')
+        return True
 
     def update_overlay_controls(self):
         w=self.owner

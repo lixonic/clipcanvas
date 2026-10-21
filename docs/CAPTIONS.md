@@ -1,4 +1,4 @@
-# Local captions in ClipCanvas 0.10.6
+# Local captions in ClipCanvas 0.10.7
 
 Click **Captions → Generate captions** to start immediately with the **Small**
 model and automatic language detection. There is no required options dialog.
@@ -19,6 +19,10 @@ Visual overlays are silent and do not contribute speech.
 
 Select a generated cue and open **Text** to correct words; **Timing** edits its
 start/end. Timeline dragging changes placement/duration. Changes support undo.
+Hover over a caption in the sidebar to reveal its trash button. Clicking it
+deletes only that cue from the sidebar and timeline, even if other items are
+selected. **Ctrl+Z** restores it. Keyboard focus also reveals the trash button;
+the caption body continues to open its text editor.
 Caption style applies to all cues. MP4 exports burn in the appearance; SRT
 import/export stores words and millisecond timing only. Replacing a caption
 collection asks first and is undoable; failure/cancellation retains existing cues.

@@ -46,6 +46,10 @@ CSS = b'''
 .clipcanvas .round-control { border-radius: 50%; padding: 10px; }
 .clipcanvas button.preview-play { font-weight: bold; padding: 8px 18px; border-radius: 26px; }
 .clipcanvas .transition-card { padding: 10px; }
+.clipcanvas .caption-delete { opacity: 0; }
+.clipcanvas .caption-row:hover .caption-delete,
+.clipcanvas .caption-delete:hover,
+.clipcanvas .caption-delete:focus { opacity: 1; }
 '''
 
 

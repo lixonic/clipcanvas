@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.6
+# ClipCanvas 0.10.7
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.6. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.7. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -60,6 +60,8 @@ and focused Delete key. Undo restores imports; original files, timeline copies
 and live playback are preserved.
 Version 0.10.6 starts captions directly with Small and automatic language
 detection. A separate gear button offers remembered caption settings.
+Version 0.10.7 adds a trash button on hovered sidebar captions. It deletes only
+that cue and supports Undo/Redo.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -73,18 +75,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.6_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.7_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.6_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.7_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.6_all.deb
+   sudo apt install ./clipcanvas_0.10.7_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -276,7 +278,8 @@ extract an audio track when you want their sound.
    Subsequent recognition with an installed model works offline.
 5. Select a caption, open the **Text** tab, correct its words, and apply. Change
    its start/end in **Timing**, or drag its timeline body/edges. **Add caption**
-   lets you fill a gap. Undo/redo applies to caption changes.
+   lets you fill a gap. Hover a sidebar caption to reveal its trash button and
+   delete only that cue. Undo/redo applies to caption changes.
 6. Choose **Clean**, **Outline**, **Shadow**, or **Highlight** in the cue's Text
    tab or **Caption style**. The same editable controls used for titles apply
    to generated, imported and manually entered captions. Appearance changes

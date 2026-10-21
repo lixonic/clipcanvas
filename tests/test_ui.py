@@ -726,6 +726,55 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_caption_sidebar_hover_delete_is_individual_undoable_and_saved(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'hover-delete-captions');errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180);w.import_paths([str(self.fixtures.root/'landscape.mp4'),str(self.fixtures.root/'music.wav')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and bool(w.thumbs) and bool(w.waves))
+            w.project['layers']=[model.new_text('Keep this title',0,1)]
+            w.project['captions']=[model.new_caption(text,start,start+.3) for text,start in [('First',.1),('Delete me',.5),('Third',.9),('Last',1.3)]]
+            w.changed();w.media_stack.set_visible_child_name('Captions')
+            row=w.layer_tools.captions_list.get_children()[1];button=row.remove_button
+            opacity=lambda:button.get_style_context().get_property('opacity',button.get_state_flags())
+            row.edit_button.grab_focus();row.unset_state_flags(Gtk.StateFlags.PRELIGHT)
+            self.pump(lambda:opacity()<.01 and row.get_allocated_width()>100)
+            size=(row.get_allocated_width(),row.edit_button.get_allocated_width())
+            row.set_state_flags(Gtk.StateFlags.PRELIGHT,False);self.pump(lambda:opacity()>.99)
+            self.assertEqual((row.get_allocated_width(),row.edit_button.get_allocated_width()),size)
+            row.unset_state_flags(Gtk.StateFlags.PRELIGHT);self.pump(lambda:opacity()<.01)
+            button.grab_focus();self.pump(lambda:opacity()>.99)
+            self.assertIn('Delete me',button.get_accessible().get_name())
+            row.edit_button.clicked();self.assertEqual(w.selected,('captions',1))
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Text')
+            w.properties_popover.popdown();w.select_all();w.selected=('captions',3);w.playhead=1.4
+            before=copy.deepcopy(w.project);selection=set(w.selection);history=len(w.history)
+            last_id=before['captions'][3]['id'];deleted_id=row.caption_id
+            with mock.patch.object(w.layer_tools,'select') as edit:
+                button.clicked();edit.assert_not_called()
+            expected=copy.deepcopy(before);expected['captions'].pop(1)
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            self.assertEqual(w.selected,('captions',2));self.assertEqual(w.selected_item()['id'],last_id)
+            self.assertEqual(w.selection,selection-{('captions',deleted_id)})
+            self.assertAlmostEqual(w.playhead,1.4,delta=1/30)
+            w.undo();self.assertEqual(w.project,before)
+            w.redo();self.assertEqual(w.project,expected)
+            history=len(w.history)
+            self.assertFalse(w.layer_tools.remove_caption(deleted_id));self.assertEqual(len(w.history),history)
+            w.busy=True;self.assertFalse(w.layer_tools.remove_caption(last_id));w.busy=False
+            self.assertEqual(w.project,expected)
+            saved=self.fixtures.root/'sidebar-caption-delete.clipcanvas'
+            w.project_path=str(saved);self.assertTrue(w.save())
+            w.open_project(str(saved));self.assertEqual(w.project,expected)
+            while w.project['captions']:
+                row=w.layer_tools.captions_list.get_children()[0]
+                w.select('captions',0,seek=False);row.remove_button.clicked()
+            self.assertFalse(w.layer_tools.captions_list.get_children());self.assertIsNone(w.selected)
+            self.assertEqual(w.project['clips'],before['clips']);self.assertEqual(w.project['audio'],before['audio'])
+            self.assertEqual(w.project['layers'],before['layers']);self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_caption_button_starts_small_directly_and_cancel_keeps_edits(self):
         import threading
         from clipcanvas import captions

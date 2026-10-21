@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.10.6
+# Desktop workflow — ClipCanvas 0.10.7
 
 ## Import, then place
 
@@ -86,6 +86,9 @@ language detection by default. The gear beside it opens **Caption settings**.
 Apply saves source, model and language for later generations and app launches;
 Cancel leaves them unchanged. Choose **Full mix** there for a separate voice
 soundtrack. Caption settings do not edit the project or start a generation.
+
+Hover a sidebar caption to reveal its trash button, or Tab to that button.
+It removes only that cue and supports Undo/Redo; other selected items stay.
 
 Native file pickers remember folders only after **Accept**, not Cancel. Media,
 project and export folders are remembered separately, with the most recently
