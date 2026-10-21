@@ -1003,7 +1003,7 @@ class ClipCanvasWindow(Gtk.Window):
     def refresh_assets(self):
         for child in self.assets.get_children():self.assets.remove(child)
         query=self.media_search.get_text().casefold();category=self.media_tabs.get_active_id()
-        for i,item in enumerate(self.project.get('assets',[])):
+        for item in self.project.get('assets',[]):
             kind={'video':'clips','audio':'audio','image':'image'}[item['kind']]
             if category not in ('all',kind):continue
             if query and query not in Path(item['path']).name.casefold():continue
@@ -1017,8 +1017,70 @@ class ClipCanvasWindow(Gtk.Window):
             text.pack_start(name,False,False,0)
             text.pack_start(label('Image · click to add' if kind=='image' else time_text(item['duration'])+' · click to add','small'),False,False,0)
             content.pack_start(text,True,True,0);b.add(content);b.set_tooltip_text('Add to timeline: '+item['path'])
-            b.connect('clicked',lambda _,n=i:self.add_asset(n));row.add(b);self.assets.add(row)
+            asset_id=item['id'];b.media_asset_id=asset_id
+            b.connect('clicked',lambda _,key=asset_id:self.add_library_asset(key))
+            b.connect('button-press-event',lambda widget,event,key=asset_id:self.media_button_press(widget,event,key))
+            b.connect('popup-menu',lambda widget,key=asset_id:bool(self.media_menu(key,widget)))
+            remove=ui_theme.icon_button('edit-delete-symbolic',lambda key=asset_id:self.remove_asset(key),
+                                        'Remove from Your media. Original file and timeline copies are kept.',style='quiet')
+            remove.set_valign(Gtk.Align.CENTER);remove.media_asset_id=asset_id
+            remove.get_accessible().set_name('Remove '+Path(item['path']).name+' from media library')
+            line=box(Gtk.Orientation.HORIZONTAL,4);line.pack_start(b,True,True,0);line.pack_end(remove,False,False,0)
+            row.add_button=b;row.remove_button=remove;row.media_asset_id=asset_id
+            row.add(line);self.assets.add(row)
         self.assets.show_all()
+
+    def asset_index(self,asset_id):
+        return next((i for i,item in enumerate(self.project['assets']) if item['id']==asset_id),None)
+
+    def add_library_asset(self,asset_id):
+        index=self.asset_index(asset_id)
+        if index is not None:self.add_asset(index)
+
+    def focused_asset(self):
+        focus=self.get_focus()
+        if focus is None or not focus.is_ancestor(self.assets):return None
+        while focus is not None:
+            if getattr(focus,'media_asset_id',None):return focus.media_asset_id
+            if focus==self.assets:break
+            focus=focus.get_parent()
+        return None
+
+    def remove_asset(self,asset_id):
+        if self.busy:return False
+        index=self.asset_index(asset_id)
+        if index is None:return False
+        slot=next((i for i,row in enumerate(self.assets.get_children()) if row.media_asset_id==asset_id),0)
+        self.checkpoint();self.project['assets'].pop(index)
+        # This changes the library only. Keep the current decoder, picture,
+        # time and timeline selection instead of restarting the edit preview.
+        self.refresh_assets();self.update_title()
+        self.undo_button.set_sensitive(bool(self.history));self.redo_button.set_sensitive(False)
+        rows=self.assets.get_children()
+        if rows:rows[min(slot,len(rows)-1)].add_button.grab_focus()
+        else:self.media_search.grab_focus()
+        self.set_status('Removed from Your media. Original file and timeline copies are kept. Ctrl+Z to undo.')
+        return True
+
+    def media_button_press(self,widget,event,asset_id):
+        if event.button!=3:return False
+        widget.grab_focus();self.media_menu(asset_id,widget,event);return True
+
+    def media_menu(self,asset_id,anchor,event=None):
+        if self.asset_index(asset_id) is None:return None
+        menu=Gtk.Menu();menu.attach_to_widget(anchor,None)
+        for title,callback in (('Add to timeline',lambda:self.add_library_asset(asset_id)),
+                               ('Remove from media library',lambda:self.remove_asset(asset_id))):
+            action=Gtk.MenuItem(label=title);action.set_sensitive(not self.busy)
+            action.connect('activate',lambda _,run=callback:run());menu.append(action)
+        def menu_key(widget,event):
+            if Gdk.keyval_name(event.keyval).lower() not in ('delete','kp_delete'):return False
+            widget.popdown();self.remove_asset(asset_id);return True
+        menu.connect('key-press-event',menu_key)
+        menu.show_all();self.active_media_menu=menu
+        if isinstance(event,(Gdk.Event,Gdk.EventButton)):menu.popup_at_pointer(event)
+        else:menu.popup_at_widget(anchor,Gdk.Gravity.NORTH_WEST,Gdk.Gravity.SOUTH_WEST,None)
+        return menu
 
     def add_asset(self,index):
         if self.busy:return
@@ -2085,7 +2147,11 @@ class ClipCanvasWindow(Gtk.Window):
             if name=='v':self.paste_selection();return True
             if name=='a':self.select_all();return True
         if not typing:
-            if name in ('delete','kp_delete'):self.remove();return True
+            if name in ('delete','kp_delete'):
+                asset_id=self.focused_asset()
+                if asset_id is not None:self.remove_asset(asset_id)
+                elif focus is None or not (focus==self.assets or focus.is_ancestor(self.assets)):self.remove()
+                return True
             if name=='space':self.toggle_play();return True
             if name=='s' and not ctrl:self.split_selected();return True
         return False

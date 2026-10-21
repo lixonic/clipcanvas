@@ -1040,7 +1040,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual((len(w.project['clips']),len(w.project['audio'])),(0,0))
             self.assertEqual(len(w.project['assets']),3)
             # Click the actual library buttons to create independent copies.
-            for row in w.assets.get_children()[:3]:row.get_child().clicked()
+            for row in w.assets.get_children()[:3]:row.add_button.clicked()
             self.assertEqual((len(w.project['clips']),len(w.project['audio'])),(2,1))
             self.assertEqual(len(w.project['assets']),3)
             w.cancel_scrub();w.timeline.grab_focus()
@@ -1081,6 +1081,68 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.project_path=str(self.fixtures.root/'new-workflow.clipcanvas');self.assertTrue(w.save())
             saved=copy.deepcopy(w.project);w.open_project(w.project_path)
             self.assertEqual(w.project,saved);self.assertFalse(w.selection)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_remove_sidebar_media_keeps_files_timeline_playback_and_supports_undo(self):
+        import hashlib
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'remove-library-recovery')
+        errors=[];w.error=errors.append
+        logo=self.fixtures.root/'library-logo.png'
+        cairo.ImageSurface(cairo.FORMAT_ARGB32,16,16).write_to_png(str(logo))
+        paths=[self.fixtures.root/name for name in ('landscape.mp4','portrait.mp4','music.wav')]+[logo]
+        originals={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+        try:
+            w.start_project(320,180);w.import_paths([str(path) for path in paths])
+            self.pump(lambda:not w.busy and len(w.project['assets'])==4 and len(w.thumbs)==2 and len(w.waves)==1)
+            for row in w.assets.get_children():
+                if w.project['assets'][w.asset_index(row.media_asset_id)]['path'].endswith(('landscape.mp4','music.wav','library-logo.png')):
+                    row.add_button.clicked()
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            self.assertEqual((len(w.project['clips']),len(w.project['audio']),len(w.project['layers'])),(1,1,1))
+            w.select('clips',0,seek=False);w.preview()
+            self.pump(lambda:w.canvas.playing and w.canvas.position()>.1)
+            before=copy.deepcopy(w.project);selected=w.selected;selection=set(w.selection)
+            history=len(w.history);playing=w.canvas._live;position=w.playhead;frame=w.canvas.frame
+            row=next(row for row in w.assets.get_children() if row.media_asset_id==before['assets'][0]['id'])
+            row.remove_button.clicked()
+            expected=copy.deepcopy(before);expected['assets'].pop(0)
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            self.assertEqual(w.selected,selected);self.assertEqual(w.selection,selection)
+            self.assertIs(w.canvas._live,playing);self.assertTrue(w.canvas.playing)
+            self.assertEqual(w.playhead,position);self.assertIs(w.canvas.frame,frame)
+            self.assertTrue(w.undo_button.get_sensitive())
+            w.undo();self.assertEqual(w.project,before)
+            w.redo();self.assertEqual(w.project,expected)
+            self.assertFalse(w.remove_asset(before['assets'][0]['id']))
+            self.assertEqual(w.project,expected)
+            # Filtering must remove the chosen stable asset ID, not the row's
+            # position in the unfiltered model. Right-click never adds a clip.
+            w.media_tabs.set_active_id('audio');w.media_search.set_text('music');w.refresh_assets()
+            row=w.assets.get_children()[0];asset_id=row.media_asset_id
+            self.assertTrue(w.media_button_press(row.add_button,SimpleNamespace(button=3),asset_id))
+            self.assertEqual(w.project,expected)
+            menu=w.active_media_menu;menu.popdown()
+            next(item for item in menu.get_children() if item.get_label()=='Remove from media library').activate()
+            expected['assets']=[item for item in expected['assets'] if item['id']!=asset_id]
+            self.assertEqual(w.project,expected)
+            # Delete belongs to the focused library row even if the timeline
+            # still has a selected clip. Empty filtered results focus Search.
+            w.media_search.set_text('');w.media_tabs.set_active_id('image');w.refresh_assets()
+            row=w.assets.get_children()[0];asset_id=row.media_asset_id;row.add_button.grab_focus()
+            self.assertTrue(w.keypress(w,SimpleNamespace(keyval=Gdk.KEY_Delete,state=0)))
+            expected['assets']=[item for item in expected['assets'] if item['id']!=asset_id]
+            self.assertEqual(w.project,expected)
+            self.assertFalse(w.keypress(w,SimpleNamespace(keyval=Gdk.KEY_Delete,state=0)))
+            self.assertEqual(w.project,expected)
+            history=len(w.history);w.busy=True
+            self.assertFalse(w.remove_asset(expected['assets'][0]['id']))
+            w.busy=False;self.assertEqual(len(w.history),history)
+            saved=self.fixtures.root/'removed-library.clipcanvas'
+            model.save_project(w.project,saved);self.assertEqual(model.load_project(saved),expected)
+            self.assertEqual({str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths},originals)
             self.assertFalse(errors)
         finally:
             w.cleanup();w.destroy()

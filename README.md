@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.4
+# ClipCanvas 0.10.5
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.4. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.5. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -55,6 +55,9 @@ Version 0.10.3 replaces costly per-pixel text/caption animation processing with
 native operations to keep live video and sound flowing together. Audio files,
 settings, preview resolution and export quality are retained.
 Version 0.10.4 adds wheel and trackpad scrolling through enlarged previews.
+Version 0.10.5 adds sidebar import removal with a native icon, right-click menu
+and focused Delete key. Undo restores imports; original files, timeline copies
+and live playback are preserved.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -68,18 +71,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.4_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.5_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.4_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.5_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.4_all.deb
+   sudo apt install ./clipcanvas_0.10.5_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -102,7 +105,10 @@ separate application and does not change VLC.
    thumbnail follows your pointer, neighboring clips make room, and **Drop here**
    marks the destination. Hold near the viewport edge to scroll the timeline.
    Release commits one undoable move. Search the
-   library by filename or filter it to videos/audio. Collapse the sidebar for
+   library by filename or filter it to videos/audio. Use a media row's remove
+   icon or right-click → **Remove from media library** to remove an import.
+   **Delete** also works when the media row has keyboard focus. Originals and
+   timeline copies remain; **Ctrl+Z** restores the import. Collapse the sidebar for
    more canvas space; drag the divider above the timeline to adjust its height.
 3. **Edit a selected clip.** Click **Edit** for source trim and playback speed,
    or **Picture** for fit/fill, crop position, rotation, flips, and picture fades.

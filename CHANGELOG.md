@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.5 — 2026-10-21
+
+- Add a native remove icon and right-click menu to each imported media row.
+  Delete removes the focused library entry; timeline Delete keeps its existing
+  behavior. Filtered rows use stable asset IDs, and focus stays in the library
+  after removal so repeated Delete cannot accidentally remove timeline clips.
+- Removing an import preserves the original file, existing timeline copies,
+  active preview and timeline selection. Support Undo/Redo and save/reopen
+  without restoring removed imports. Verify video, audio and image entries,
+  filtered context menus, keyboard focus, source hashes and playback continuity.
+
 ## 0.10.4 — 2026-10-21
 
 - Scroll vertically through an enlarged preview with the mouse wheel. Support

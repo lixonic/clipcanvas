@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.10.0
+# Desktop workflow — ClipCanvas 0.10.5
 
 ## Import, then place
 
@@ -14,6 +14,13 @@ The library deduplicates imported files by path/type and is searchable/filterabl
 Unused imported assets are saved, recovered and collected in portable copies too.
 A missing unused library file does not prevent exporting available timeline media.
 Relink missing media updates its library and timeline references.
+
+Use a media row's remove icon or right-click → **Remove from media library** to
+remove an import. **Delete** does the same when its library row has keyboard
+focus. This keeps the original file and all existing timeline copies, leaves
+playback running, and supports **Ctrl+Z** / **Ctrl+Shift+Z**. Removed imports stay
+removed when saving and reopening the project. Import the file again to add it
+back to the library.
 
 ## Shared audio lanes
 
@@ -40,7 +47,8 @@ otherwise to a separate lane. See [audio lane details](AUDIO-LANES.md).
 | Shift+right-click video | Select all main-sequence videos/cards and open their menu |
 | Shift+right-click audio | Select all audio tracks and open their menu |
 | Ctrl+A | Select the complete timeline, including layers and captions |
-| Delete | Remove selected items together; the library remains |
+| Delete with timeline focus | Remove selected timeline items together; the library remains |
+| Delete with a media row focused | Remove that library entry; original file and timeline copies remain |
 | Ctrl+C / Ctrl+X | Copy / cut selected timeline items |
 | Ctrl+V | Paste copies at the playhead |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo |
@@ -68,6 +76,8 @@ app session, or normal volume when there is no remembered level.
 Dragging, Duplicate and other property commands still operate on the primary item.
 Entries, text editors and numeric fields keep their own copy/paste/select/delete
 shortcuts. Context menus also handle Delete and clipboard shortcuts.
+Media-row context menus offer Add to timeline and Remove from media library;
+Shift+F10 opens that menu from the focused media button.
 
 ## Remembered settings
 
@@ -101,6 +111,10 @@ If upgrading an open app, save your work, close it and reopen ClipCanvas to load
 the new installed code.
 
 ## Preview timing and validation
+
+The 0.10.5 sidebar-removal regression covers video, audio and image imports,
+Undo/Redo, filtered context menus, focused Delete, save/reopen, unchanged source
+hashes and timeline settings, and continued playback on the same decoder.
 
 Play/Pause now has a large labelled primary button below the preview. Live
 playhead notifications accompany displayed decoded frames in the same GTK
