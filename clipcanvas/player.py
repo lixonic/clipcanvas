@@ -117,16 +117,35 @@ class VideoCanvas(Gtk.DrawingArea):
             self.set_preview_zoom(min(choices) if direction > 0 else max(choices))
 
     def _scroll_view(self, widget, event):
-        if not event.state & Gdk.ModifierType.CONTROL_MASK:
-            return False
+        dx, dy = 0., 0.
         if event.direction == Gdk.ScrollDirection.UP:
-            self.zoom_step(1)
+            dy = -1
         elif event.direction == Gdk.ScrollDirection.DOWN:
-            self.zoom_step(-1)
+            dy = 1
+        elif event.direction == Gdk.ScrollDirection.LEFT:
+            dx = -1
+        elif event.direction == Gdk.ScrollDirection.RIGHT:
+            dx = 1
         elif event.direction == Gdk.ScrollDirection.SMOOTH:
             ok, dx, dy = event.get_scroll_deltas()
-            if ok and abs(dy) > .01:
+            if not ok:
+                return False
+        if event.state & Gdk.ModifierType.CONTROL_MASK:
+            if abs(dy) > .01:
                 self.zoom_step(-1 if dy > 0 else 1)
+            return True
+        if self.preview_zoom <= 1:
+            return False
+        if event.state & Gdk.ModifierType.SHIFT_MASK and abs(dx) < .001:
+            dx, dy = dy, 0.
+        self._view_rect()
+        before = self.pan_x, self.pan_y
+        self.pan_x -= dx*48
+        self.pan_y -= dy*48
+        self._view_rect()
+        if before == (self.pan_x, self.pan_y):
+            return False
+        self.queue_draw()
         return True
 
     def _pan_press(self, widget, event):

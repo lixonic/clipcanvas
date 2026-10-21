@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.4 — 2026-10-21
+
+- Scroll vertically through an enlarged preview with the mouse wheel. Support
+  smooth two-axis trackpad scrolling, horizontal wheel events and Shift+scroll
+  for horizontal movement. Clamp movement to the canvas edges; Ctrl+scroll
+  continues to zoom and Fit recenters the picture.
+- Keep scrolling independent of decoding, playback time, timeline zoom,
+  caption/layer placement, project data and export settings. Add native GTK
+  event checks for portrait and landscape canvases, scroll boundaries,
+  trackpads, modifier keys and unchanged frames/history.
+
 ## 0.10.3 — 2026-10-12
 
 - Fix live audio starvation when text/caption animations make full-resolution

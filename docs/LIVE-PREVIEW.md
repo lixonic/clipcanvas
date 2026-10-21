@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.10.1
+# Live preview, scrubbing and zoom — ClipCanvas 0.10.4
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -24,7 +24,10 @@ paused, the final composed picture stays still without processing the audio mix.
 
 Use the native **− / Fit / +** controls above the preview for 25–400%
 magnification relative to the fitted canvas. **Ctrl+wheel** also zooms. When
-enlarged, **Shift+drag** or middle-button drag pans within the canvas; **Fit**
+enlarged, scroll normally to move vertically, or use **Shift+scroll** to move
+horizontally. Trackpads support smooth movement in both directions. Scrolling
+stops at the picture edges and leaves the playback position unchanged.
+**Shift+drag** or middle-button drag also pans within the canvas; **Fit**
 centers and shows the complete image again. Zoom remains through playback and
 seeking, and resets on new/open/recovered projects. It changes only the preview
 view, never the export, saved geometry or undo history. Direct layer placement

@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.3
+# ClipCanvas 0.10.4
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.3. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.10.4. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -54,6 +54,7 @@ and reusable lossless masks, retaining full-resolution preview and export qualit
 Version 0.10.3 replaces costly per-pixel text/caption animation processing with
 native operations to keep live video and sound flowing together. Audio files,
 settings, preview resolution and export quality are retained.
+Version 0.10.4 adds wheel and trackpad scrolling through enlarged previews.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -67,18 +68,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.3_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.4_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.3_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.10.4_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.3_all.deb
+   sudo apt install ./clipcanvas_0.10.4_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -157,8 +158,9 @@ separate application and does not change VLC.
    timed text/images directly, without waiting for the audio mix. Transitions
    and overlay videos use the composed frame renderer.
    Above the preview, use **− / Fit / +** for 25–400% magnification relative to
-   Fit. **Ctrl+wheel** zooms; **Shift+drag** or middle-button drag pans when
-   enlarged. Choose **Fit** to center the complete canvas again. These controls
+   Fit. **Ctrl+wheel** zooms. When enlarged, scroll to move vertically, use
+   **Shift+scroll** to move horizontally, or pan with **Shift+drag** or the middle
+   mouse button. Trackpads support both axes. Choose **Fit** to center the complete canvas again. These controls
    only change your view; they do not crop or resize the export.
    The first main clip supplies the frame rate automatically, including 29.97
    and 59.94. Mixed-rate projects follow that first clip; reordering updates it.

@@ -241,6 +241,60 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_zoomed_preview_wheel_and_trackpad_scroll_without_editing_or_seeking(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'scroll-preview-recovery')
+        try:
+            for width,height in ((1080,1920),(1920,1080)):
+                with self.subTest(canvas=(width,height)):
+                    w.start_project(width,height)
+                    w.project['clips']=[model.new_card('#16384b',2)]
+                    w.changed()
+                    self.pump(lambda:not w.scrub_timer and not w._scrub_settling and w.canvas.frame is not None)
+                    canvas=w.canvas;before=copy.deepcopy(w.project);history=len(w.history)
+                    position=canvas.position();playhead=w.playhead;frame=canvas.frame
+                    def scroll(direction,state=0,dx=0,dy=0):
+                        event=Gdk.Event.new(Gdk.EventType.SCROLL)
+                        event.window=canvas.get_window();event.send_event=True
+                        event.direction=direction;event.state=state
+                        event.x=canvas.get_allocated_width()/2;event.y=canvas.get_allocated_height()/2
+                        event.delta_x=dx;event.delta_y=dy
+                        return canvas.emit('scroll-event',event)
+                    self.assertFalse(scroll(Gdk.ScrollDirection.DOWN))
+                    canvas.set_preview_zoom(4)
+                    original=canvas._view_rect()
+                    self.assertTrue(scroll(Gdk.ScrollDirection.DOWN))
+                    self.assertLess(canvas.canvas_rect[1],original[1])
+                    self.assertEqual(canvas.preview_zoom,4)
+                    self.assertTrue(scroll(Gdk.ScrollDirection.UP))
+                    self.assertAlmostEqual(canvas.pan_y,0)
+                    self.assertTrue(scroll(Gdk.ScrollDirection.SMOOTH,dx=.4,dy=.7))
+                    self.assertLess(canvas.pan_y,0)
+                    # Scroll all the way to either end without overshooting
+                    # the picture and exposing empty space inside the canvas.
+                    scroll(Gdk.ScrollDirection.SMOOTH,dy=10000)
+                    _,y,_,h=canvas.canvas_rect
+                    self.assertLessEqual(y+h,canvas.get_allocated_height())
+                    self.assertGreaterEqual(y+h,canvas.get_allocated_height()-28.1)
+                    scroll(Gdk.ScrollDirection.SMOOTH,dy=-10000)
+                    self.assertGreaterEqual(canvas.canvas_rect[1],0)
+                    self.assertLessEqual(canvas.canvas_rect[1],28.1)
+                    if width>height:
+                        canvas.set_preview_zoom(4,reset_pan=True)
+                        self.assertTrue(scroll(Gdk.ScrollDirection.DOWN,Gdk.ModifierType.SHIFT_MASK))
+                        self.assertLess(canvas.pan_x,0);self.assertEqual(canvas.pan_y,0)
+                        self.assertTrue(scroll(Gdk.ScrollDirection.RIGHT))
+                    scroll(Gdk.ScrollDirection.DOWN,Gdk.ModifierType.CONTROL_MASK)
+                    self.assertEqual(canvas.preview_zoom,3)
+                    canvas.reset_view()
+                    self.assertEqual((canvas.pan_x,canvas.pan_y),(0,0))
+                    self.assertFalse(scroll(Gdk.ScrollDirection.DOWN))
+                    self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+                    self.assertEqual(canvas.position(),position);self.assertEqual(w.playhead,playhead)
+                    self.assertIs(canvas.frame,frame)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_import_edit_preview_save_and_reopen(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'recovery')
         errors = []

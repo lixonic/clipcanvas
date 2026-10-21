@@ -756,7 +756,7 @@ class ClipCanvasWindow(Gtk.Window):
         for factor,title in [('1','Fit'),('.25','25%'),('.5','50%'),('.75','75%'),('1.25','125%'),('1.5','150%'),('2','200%'),('3','300%'),('4','400%')]:
             self.preview_zoom_combo.append(factor,title)
         self.preview_zoom_combo.set_active_id('1')
-        self.preview_zoom_combo.set_tooltip_text('Preview magnification relative to Fit. Ctrl+wheel to zoom; Shift+drag to pan. Export is unchanged.')
+        self.preview_zoom_combo.set_tooltip_text('Preview magnification relative to Fit. Scroll to move vertically when zoomed; Shift+scroll moves horizontally. Ctrl+scroll zooms; Shift+drag also pans. Export is unchanged.')
         self.preview_zoom_combo.connect('changed',self.preview_zoom_changed)
         self.canvas.on_view_changed=self.preview_view_changed
         view_controls=box(Gtk.Orientation.HORIZONTAL,0);view_controls.get_style_context().add_class('linked')
