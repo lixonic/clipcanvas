@@ -30,7 +30,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 
 | ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
-| C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Partial: videos and still-image layers; animated GIF/slideshow assembly pending |
+| C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Videos, still-image scenes with independent duration/slow zoom, and image overlays; animated GIF support pending |
 | C08 | Arrange clips in sequence | Basic | Drag clips into story order; the main track closes gaps. | Existing: lifted drag thumbnail, insertion gap/marker and edge scrolling |
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
@@ -47,7 +47,7 @@ Sources: [Import requirements](https://www.canva.com/help/upload-formats-require
 |---|---|---|---|---|
 | C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Implemented: nine illustrated choices from the supplied screenshots; compact join controls; Match & Move pairs editable layers |
 | C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Implemented: duration slider/spin, actual overlap feedback, direction and colour where applicable |
-| C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | Implemented subset: Rise/Pan/Fade/Pop/Wipe/Blur on entry/exit; Reveal/Highlight/Snake for text/captions |
+| C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | Implemented subset: Rise/Pan/Fade/Pop/Wipe/Blur on entry/exit; Reveal/Highlight/Snake for text/captions; slow zoom in/out across photo scenes |
 | C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | Existing: independent layer start/end and draggable timeline timing |
 | C19 | Custom motion paths | Basic | Record a visual element's route by dragging it. | New work |
 | C20 | Magic Animate | Pro | Automatically recommend/apply coordinated motion across a design. | New work |

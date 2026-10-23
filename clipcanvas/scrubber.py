@@ -131,7 +131,7 @@ class ScrubSession:
                   if row['start'] <= seconds < row['start']+row['duration']]
         video_overlay = any(item.get('kind') == 'video' and item['start'] <= seconds < item['end']
                             for item in project.get('layers', []))
-        if len(active) != 1 or video_overlay:
+        if len(active) != 1 or video_overlay or model.is_image(active[0][0]):
             self.last_backend = 'composition'
             return engine.preview_frame(project, seconds, cancel, preview_edge)
         clip, row = active[0]

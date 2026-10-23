@@ -1,8 +1,8 @@
 """Portable, versioned ClipCanvas project data and timeline calculations.
 
 Media paths are absolute in memory and relative to the project on disk where
-possible. Saving never changes the media. Formats 1–6 migrate on load; format 7
-adds transition options, layer/caption animations and attached sound effects.
+possible. Saving never changes the media. Formats 1–7 migrate on load; format 8
+adds still-image scenes with continuous zoom motion.
 Visual layers use canvas-relative centers and sizes, so their placement
 survives a canvas resize; text sizes are expressed in canvas pixels.
 """
@@ -24,7 +24,8 @@ from . import track_layout, audio_effects
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve", "slide",
                "circle_wipe", "colour_wipe", "line_wipe", "match_move", "flow", "stack")
-PROJECT_VERSION = 7
+PROJECT_VERSION = 8
+IMAGE_MOTIONS = ('none', 'zoom_in', 'zoom_out')
 AUDIO_FADES = ("fade_in", "fade_out", "transition_fade_in", "transition_fade_out")
 MAX_TIMELINE_SECONDS = 86400 * 7
 
@@ -142,6 +143,26 @@ def is_card(item):
     return item.get('kind') == 'card'
 
 
+def is_image(item):
+    return item.get('kind') == 'image'
+
+
+def is_still(item):
+    return is_card(item) or is_image(item)
+
+
+def new_image(path, duration=5.0, metadata=None):
+    """A silent photo scene; its virtual source time keeps split motion continuous."""
+    _number(duration, 'Image duration', .04, MAX_TIMELINE_SECONDS)
+    if metadata is None:
+        from .engine import probe_image
+        metadata = probe_image(path)
+    result = new_clip(path, {'duration': duration, 'fps': 0})
+    result.update(kind='image', volume=0.0, motion='none', zoom_amount=.15,
+                  width=metadata['width'], height=metadata['height'])
+    return result
+
+
 def item_name(item):
     return 'Color card' if is_card(item) else Path(item['path']).name
 
@@ -180,7 +201,7 @@ def adapt_frame_rate(project):
     Old projects keep their stored rate until the first source has been probed.
     A fixed export needs one rate; later mixed-rate sources are resampled to it.
     """
-    first = next((item for item in project.get('clips', []) if not is_card(item)), None)
+    first = next((item for item in project.get('clips', []) if not is_still(item)), None)
     if first:
         fps = first.get('source_fps', 0)
         if isinstance(fps, (int, float)) and not isinstance(fps, bool) and math.isfinite(fps) and 1 <= fps <= 240:
@@ -336,9 +357,15 @@ def validate_project(project, check_files=True, require_clips=False):
                 if item.get('speed', 1) != 1 or item.get('volume', 0) != 0:
                     raise ValueError('Color cards have a duration and no source sound or playback speed.')
             else:
-                if group == 'clips' and item.get('kind', 'video') != 'video':
-                    raise ValueError(f'{label} must be a video or color card.')
+                if group == 'clips' and item.get('kind', 'video') not in ('video', 'image'):
+                    raise ValueError(f'{label} must be a video, image or color card.')
                 _media_path(item, label, check_files)
+                if group == 'clips' and is_image(item):
+                    if item.get('speed', 1) != 1 or item.get('volume', 0) != 0:
+                        raise ValueError('Images have a duration and no source sound or playback speed.')
+                    if item.get('motion', 'none') not in IMAGE_MOTIONS:
+                        raise ValueError(f'{label} has an unsupported image motion.')
+                    _number(item.get('zoom_amount', .15), f'{label} zoom amount', 0, 1)
             duration = _number(item.get("duration"), f"{label} source duration", 0.001, 86400 * 7)
             begin = _number(item.get("in", 0), f"{label} trim start", 0, duration)
             end = _number(item.get("out"), f"{label} trim end", 0, duration + 0.05)
@@ -428,7 +455,7 @@ def validate_project(project, check_files=True, require_clips=False):
             _number(asset.get('duration'), 'Library source duration', .04, MAX_TIMELINE_SECONDS)
         _number(asset.get('source_fps', 0), 'Library source frame rate', 0, 240)
     if require_clips and not project["clips"]:
-        raise ValueError("Add at least one video or color card before creating a preview or export.")
+        raise ValueError("Add at least one video, image or color card before creating a preview or export.")
     return True
 
 
@@ -475,7 +502,7 @@ def load_project(path):
     # indexing for editable fields. Explicit invalid values are still rejected.
     if isinstance(project, dict):
         old_version = project.get("version")
-        if old_version not in (1, 2, 3, 4, 5, 6, PROJECT_VERSION):
+        if old_version not in (1, 2, 3, 4, 5, 6, 7, PROJECT_VERSION):
             raise ValueError("This project was made by an unsupported ClipCanvas version.")
         project["version"] = PROJECT_VERSION
         project.setdefault("name", "Untitled video")
@@ -509,6 +536,8 @@ def load_project(path):
                                      "rotation": 0,
                                      "flip_x": False, "flip_y": False,
                                      "video_fade_in": 0.0, "video_fade_out": 0.0})
+                    if is_image(item):
+                        defaults.update(volume=0.0, motion='none', zoom_amount=.15)
                 else:
                     defaults.update({"start": 0.0, "transition_fade_in": 0.0,
                                      "transition_fade_out": 0.0})
@@ -576,8 +605,8 @@ def detach_audio(project, clip_index):
     if isinstance(clip_index, bool) or not isinstance(clip_index, int) or not 0 <= clip_index < len(project["clips"]):
         raise ValueError("Select a video clip to extract its audio.")
     clip = project["clips"][clip_index]
-    if is_card(clip):
-        raise ValueError("Color cards have no audio to extract.")
+    if is_still(clip):
+        raise ValueError("Images and color cards have no audio to extract.")
     source_clip_id = clip.get("id") or uuid.uuid4().hex
     if any(track.get("source_clip_id") == source_clip_id for track in project["audio"]):
         raise ValueError("Audio has already been extracted from this clip. Select its soundtrack in the timeline.")
@@ -670,9 +699,9 @@ def trim_item(project, kind, index, edge, delta):
             item["start"] += (begin - item["in"]) / speed
         item["in"] = begin
     else:
-        limit = MAX_TIMELINE_SECONDS if kind == 'clips' and is_card(item) else item['duration']
+        limit = MAX_TIMELINE_SECONDS if kind == 'clips' and is_still(item) else item['duration']
         item["out"] = min(limit, max(item["in"] + minimum, item["out"] + delta * speed))
-        if kind == 'clips' and is_card(item):item['duration'] = max(item['duration'], item['out'])
+        if kind == 'clips' and is_still(item):item['duration'] = max(item['duration'], item['out'])
     for key in AUDIO_FADES + ("video_fade_in", "video_fade_out"):
         if key in item:
             item[key] = min(item[key], clip_duration(item))

@@ -58,8 +58,10 @@ def file_chooser(parent,title,action,accept):
 def media_filters(kind):
     """Keep WAV files visible even when their MIME type is not recognized."""
     primary = Gtk.FileFilter()
-    primary.set_name('Video files' if kind == 'clips' else 'Audio files (WAV, MP3, FLAC, and more)')
-    primary.add_mime_type('video/*' if kind == 'clips' else 'audio/*')
+    primary.set_name({'clips':'Videos and images', 'image':'Images (PNG, JPEG, WebP, BMP, TIFF, SVG)',
+                      'audio':'Audio files (WAV, MP3, FLAC, and more)'}[kind])
+    primary.add_mime_type({'clips':'video/*', 'image':'image/*', 'audio':'audio/*'}[kind])
+    if kind == 'clips':primary.add_mime_type('image/*')
     filters = [primary]
     if kind == 'audio':
         wav = Gtk.FileFilter()
@@ -373,6 +375,10 @@ class Timeline(Gtk.DrawingArea):
             for tx in range(base+first*stride,stop,stride):
                 cr.save();cr.translate(tx,y);cr.scale(factor,factor);Gdk.cairo_set_source_pixbuf(cr,pix,0,0);cr.paint();cr.restore()
         else:rgb(cr,'#b5a0d4');cr.paint()
+        if model.is_image(clip) and width>=60:
+            duration_text=f'{model.clip_duration(clip):.2f} s'
+            rounded(cr,x+7,y+6,min(width-14,14+len(duration_text)*6),20,4);rgb(cr,'#21172c',.75);cr.fill()
+            draw_text(cr,duration_text,x+13,y+20,'#ffffff',10,True)
         rgb(cr,'#21172c',.70);cr.rectangle(x,y+height-27,width,27);cr.fill()
         draw_text(cr,f'{index+1}  '+('FX · ' if audio_effects.active(clip) else '')+model.item_name(clip),x+8,y+height-9,'#ffffff',11,True)
         cr.restore();rounded(cr,x,y,width,height);rgb(cr,colors['accent'] if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
@@ -430,7 +436,7 @@ class Timeline(Gtk.DrawingArea):
     def query_tooltip(self,widget,x,y,keyboard,tooltip):
         if self.add_hit:
             ax,ay,width,height=self.add_hit
-            if ax<=x<=ax+width and ay<=y<=ay+height:tooltip.set_text('Add videos');return True
+            if ax<=x<=ax+width and ay<=y<=ay+height:tooltip.set_text('Add videos or images');return True
         for index,cx,cy,r in self.join_hits:
             if abs(x-cx)<=r and abs(y-cy)<=r:
                 effect=self.owner.project['clips'][index]['transition']
@@ -707,6 +713,7 @@ class ClipCanvasWindow(Gtk.Window):
         library_top=box(margin=16,spacing=10)
         library_top.pack_start(label('Your media','section'),False,False,0)
         library_top.pack_start(ui_theme.icon_button('document-open-symbolic',lambda:self.import_dialog('clips'),'Add local videos',label='Add videos',style='suggested-action'),False,False,0)
+        library_top.pack_start(ui_theme.icon_button('image-x-generic-symbolic',lambda:self.import_dialog('image'),'Add photos as scenes with optional slow zoom',label='Add images'),False,False,0)
         library_top.pack_start(ui_theme.icon_button('audio-x-generic-symbolic',lambda:self.import_dialog('audio'),'Add WAV, MP3, FLAC and other soundtracks',label='Add audio'),False,False,0)
         hint=label('Click an asset to add it to the timeline','dim-label');library_top.pack_start(hint,False,False,0)
         media_page.pack_start(library_top,False,False,0)
@@ -741,7 +748,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.context_toolbar=box(Gtk.Orientation.HORIZONTAL,8,10)
         self.context_title=label('Select a clip to edit','dim-label');self.context_title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.context_title.set_max_width_chars(28);self.context_toolbar.pack_start(self.context_title,True,True,0)
-        self.edit_button=ui_theme.icon_button('document-properties-symbolic',lambda:self.open_properties('Timing'),'Trim and playback speed',label='Edit')
+        self.edit_button=ui_theme.icon_button('document-properties-symbolic',lambda:self.open_properties('Timing'),'Timing, image duration and motion, or playback speed',label='Edit')
         self.picture_button=ui_theme.icon_button('image-x-generic-symbolic',lambda:self.open_properties('Picture'),'Crop, rotate, flip and picture fades',label='Picture')
         self.sound_button=ui_theme.icon_button('audio-volume-high-symbolic',lambda:self.open_properties('Sound'),'Volume and audio fade in/out',label='Audio')
         for item in (self.edit_button,self.picture_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
@@ -973,7 +980,7 @@ class ClipCanvasWindow(Gtk.Window):
     def adapt_frame_rate(self):
         for clip in self.project['clips']:
             metadata=self.media_metadata.get(clip.get('path'))
-            if metadata:clip['source_fps']=metadata['fps']
+            if metadata and not model.is_still(clip):clip['source_fps']=metadata['fps']
         model.adapt_frame_rate(self.project)
 
     def refresh(self):
@@ -1009,7 +1016,7 @@ class ClipCanvasWindow(Gtk.Window):
             if query and query not in Path(item['path']).name.casefold():continue
             row=Gtk.ListBoxRow();row.get_style_context().add_class('asset')
             b=Gtk.Button();b.get_style_context().add_class('quiet');content=box(Gtk.Orientation.HORIZONTAL,8)
-            if kind=='clips' and item['path'] in self.thumbs:
+            if kind in ('clips','image') and item['path'] in self.thumbs:
                 pix=self.thumbs[item['path']].scale_simple(54,34,GdkPixbuf.InterpType.BILINEAR)
                 content.pack_start(Gtk.Image.new_from_pixbuf(pix),False,False,0)
             else:content.pack_start(ui_theme.icon({'clips':'video-x-generic-symbolic','audio':'audio-x-generic-symbolic','image':'image-x-generic-symbolic'}[kind],Gtk.IconSize.DIALOG),False,False,0)
@@ -1088,9 +1095,7 @@ class ClipCanvasWindow(Gtk.Window):
         try:
             metadata=self.media_metadata.get(path)
             if kind=='image':
-                pix=GdkPixbuf.Pixbuf.new_from_file(path);start,end=self.layer_tools.interval()
-                item=model.new_visual(path,start=start,end=end)
-                item['height']=min(.8,item['width']*self.project['width']/self.project['height']*pix.get_height()/pix.get_width());group='layers'
+                item=model.new_image(path,metadata=metadata);group='clips'
             else:
                 metadata=metadata or engine.probe(path)
                 item=model.new_clip(path,metadata) if kind=='video' else model.new_audio(path,metadata)
@@ -1115,12 +1120,12 @@ class ClipCanvasWindow(Gtk.Window):
 
     def selected_sound_items(self):
         return [(kind,index,item) for kind,index,item in self.selection_items()
-                if kind in ('clips','audio') and not model.is_card(item)]
+                if kind in ('clips','audio') and not model.is_still(item)]
 
     def update_apply_label(self,*_):
         count=len(self.selected_sound_items())
         item=self.selected_item()
-        bulk=item and self.selected[0] in ('clips','audio') and not model.is_card(item) and count>1 and getattr(self,'properties_stack',None) and self.properties_stack.get_visible_child_name()=='Sound'
+        bulk=item and self.selected[0] in ('clips','audio') and not model.is_still(item) and count>1 and getattr(self,'properties_stack',None) and self.properties_stack.get_visible_child_name()=='Sound'
         self.apply_button.set_label(f'Apply volume to {count} items' if bulk else 'Apply changes')
 
     def is_selected(self,kind,index):
@@ -1259,8 +1264,10 @@ class ClipCanvasWindow(Gtk.Window):
         if model.is_card(item):
             self.sound_button.set_sensitive(False)
             self.show_card_properties(item);return
+        image=model.is_image(item)
+        self.sound_button.set_sensitive(not image)
         heading=box(Gtk.Orientation.HORIZONTAL,8)
-        title=label(f'{"Video" if kind=="clips" else "Audio"} {i+1}','section')
+        title=label(f'{"Image" if image else "Video" if kind=="clips" else "Audio"} {i+1}','section')
         heading.pack_start(title,True,True,0)
         heading.pack_end(ui_theme.icon_button('window-close-symbolic',self.properties_popover.popdown,'Close properties'),False,False,0)
         self.inspector.pack_start(heading,False,False,0)
@@ -1286,11 +1293,25 @@ class ClipCanvasWindow(Gtk.Window):
             row.pack_start(control,False,False,0);parent.pack_start(row,False,False,0)
             self.fields[key]=(control,mult)
         timing=page('Timing')
-        spin(timing,'in','Source start (s)',0,item['duration'])
-        spin(timing,'out','Source end (s)',.04,item['duration'])
+        if image:
+            spin(timing,'image_duration','Duration (s)',.04,model.MAX_TIMELINE_SECONDS,default=model.clip_duration(item))
+        else:
+            spin(timing,'in','Source start (s)',0,item['duration'])
+            spin(timing,'out','Source end (s)',.04,item['duration'])
         if kind=='audio':spin(timing,'start','Start in video (s)',0,max(0,model.project_duration(self.project)-.04))
-        spin(timing,'speed','Playback speed (×)',.25,4,.05,default=1)
-        hint(timing,'Drag edges to trim. Speed preserves audio pitch.')
+        if not image:spin(timing,'speed','Playback speed (×)',.25,4,.05,default=1)
+        hint(timing,'Drag edges to change how long the image appears.' if image else 'Drag edges to trim. Speed preserves audio pitch.')
+        if image:
+            motion=page('Motion')
+            self.image_motion=Gtk.ComboBoxText()
+            for key,title in (('none','Still image'),('zoom_in','Slow zoom in'),('zoom_out','Slow zoom out')):
+                self.image_motion.append(key,title)
+            self.image_motion.set_active_id(item.get('motion','none'))
+            motion.pack_start(self.image_motion,False,False,0)
+            spin(motion,'zoom_amount','Zoom amount (%)',0,100,1,100,default=.15)
+            def motion_changed(*_):self.fields['zoom_amount'][0].set_sensitive(self.image_motion.get_active_id()!='none')
+            self.image_motion.connect('changed',motion_changed);motion_changed()
+            hint(motion,'Zoom moves slowly across the image’s duration. A longer duration makes the move slower.')
         if kind=='clips':
             picture=page('Picture')
             self.fit=Gtk.ComboBoxText();self.fit.append('fill','Fill canvas · crop edges');self.fit.append('fit','Fit whole picture · borders')
@@ -1307,28 +1328,30 @@ class ClipCanvasWindow(Gtk.Window):
             picture.pack_start(crop,False,False,0)
             spin(picture,'video_fade_in','Fade picture in (s)',0,model.clip_duration(item))
             spin(picture,'video_fade_out','Fade picture out (s)',0,model.clip_duration(item))
-        sound=page('Sound')
-        count=len(self.selected_sound_items());bulk=count>1
-        spin(sound,'volume',f'Volume · {count} selected (%)' if bulk else 'Volume (%)',0,200,1,100,default=1)
-        if bulk:
-            levels={selected.get('volume',1) for _,_,selected in self.selected_sound_items()}
-            hint(sound,f'Applies volume to all {count} selected videos/audio tracks. Trims, fades, speed and voice effects stay unchanged.')
-            if len(levels)>1:hint(sound,'Volumes differ. The control starts at this clip’s level; Apply sets the same level for the selection.')
-            sound.pack_start(button('Mute selected items',lambda:self.apply_selected_volume(0)),False,False,0)
-            if self.preferences.get('last_audio_settings'):
-                sound.pack_start(button('Use last volume setting',self.use_last_audio_settings),False,False,0)
-        else:
-            spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
-            spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
-            if self.preferences.get('last_audio_settings'):
-                sound.pack_start(button('Use last volume and fade settings',self.use_last_audio_settings),False,False,0)
-            hint(sound,'Fades soften the beginning and end of the sound.')
-            hint(sound,audio_effects.summary(item))
-            sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
+        if not image:
+            sound=page('Sound')
+            count=len(self.selected_sound_items());bulk=count>1
+            spin(sound,'volume',f'Volume · {count} selected (%)' if bulk else 'Volume (%)',0,200,1,100,default=1)
+            if bulk:
+                levels={selected.get('volume',1) for _,_,selected in self.selected_sound_items()}
+                hint(sound,f'Applies volume to all {count} selected videos/audio tracks. Trims, fades, speed and voice effects stay unchanged.')
+                if len(levels)>1:hint(sound,'Volumes differ. The control starts at this clip’s level; Apply sets the same level for the selection.')
+                sound.pack_start(button('Mute selected items',lambda:self.apply_selected_volume(0)),False,False,0)
+                if self.preferences.get('last_audio_settings'):
+                    sound.pack_start(button('Use last volume setting',self.use_last_audio_settings),False,False,0)
+            else:
+                spin(sound,'fade_in','Fade audio in (s)',0,model.clip_duration(item))
+                spin(sound,'fade_out','Fade audio out (s)',0,model.clip_duration(item))
+                if self.preferences.get('last_audio_settings'):
+                    sound.pack_start(button('Use last volume and fade settings',self.use_last_audio_settings),False,False,0)
+                hint(sound,'Fades soften the beginning and end of the sound.')
+                hint(sound,audio_effects.summary(item))
+                sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
+            if kind=='clips':
+                self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
+                self.extract_button.set_sensitive(self.extraction_available(item))
+                if not bulk:sound.pack_start(self.extract_button,False,False,4)
         if kind=='clips':
-            self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
-            self.extract_button.set_sensitive(self.extraction_available(item))
-            if not bulk:sound.pack_start(self.extract_button,False,False,4)
             transition=page('Transition')
             self.transition_editor=TransitionEditor(item)
             self.transition=self.transition_editor.tiles
@@ -1342,12 +1365,15 @@ class ClipCanvasWindow(Gtk.Window):
                 def update_overlap(*args):
                     candidate=copy.deepcopy(self.project)
                     edited=candidate['clips'][i]
-                    for key in ('in','out','speed','transition_duration'):edited[key]=self.fields[key][0].get_value()
+                    if image:edited['out']=edited['in']+self.fields['image_duration'][0].get_value()
+                    for key in (('transition_duration',) if image else ('in','out','speed','transition_duration')):
+                        edited[key]=self.fields[key][0].get_value()
                     edited['transition']=self.transition.get_active_id()
                     actual=model.timeline(candidate)[i]['overlap']
                     overlap_hint.set_text(f'Actual overlap: {actual:.2f} s. Limited to half of either adjacent clip.')
                 self.transition.connect('changed',update_overlap)
-                for key in ('in','out','speed','transition_duration'):self.fields[key][0].connect('value-changed',update_overlap)
+                for key in (('image_duration','transition_duration') if image else ('in','out','speed','transition_duration')):
+                    self.fields[key][0].connect('value-changed',update_overlap)
                 update_overlap()
         self.inspector.show_all()
         if old_page in self.property_pages:pages.set_visible_child_name(old_page)
@@ -1386,9 +1412,9 @@ class ClipCanvasWindow(Gtk.Window):
             item=Gtk.MenuItem(label=title);item.set_sensitive(enabled)
             item.connect('activate',lambda _:callback());menu.append(item)
         action('Edit card…' if model.is_card(self.selected_item()) else 'Edit…',lambda:self.open_properties('Timing'))
-        card=model.is_card(self.selected_item())
+        still=model.is_still(self.selected_item())
         sound_items=self.selected_sound_items();count=len(sound_items)
-        if kind in ('clips','audio') and not card:
+        if kind in ('clips','audio') and not still:
             action(f'Volume for {count} selected items…' if count>1 else 'Volume and fades…',lambda:self.open_properties('Sound'))
             if count>1:
                 target='videos' if all(k=='clips' for k,_,_ in sound_items) else 'audio tracks' if all(k=='audio' for k,_,_ in sound_items) else 'items'
@@ -1406,10 +1432,11 @@ class ClipCanvasWindow(Gtk.Window):
             action('Animation…',lambda:self.open_properties('Animate'))
             action('Caption sound…',lambda:self.open_properties('Sound'))
         if kind=='clips':
+            if model.is_image(self.selected_item()):action('Image motion…',lambda:self.open_properties('Motion'))
             action('Insert color card before…',lambda:self.add_card(index))
             action('Insert color card after…',lambda:self.add_card(index+1))
-            if not card and count<=1:action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
-            if not card:action('Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
+            if not still and count<=1:action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
+            if not still:action('Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
             action('Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
             action('Move left',lambda:self.move(-1),index>0)
             action('Move right',lambda:self.move(1),index+1<len(self.project['clips']))
@@ -1455,12 +1482,12 @@ class ClipCanvasWindow(Gtk.Window):
         self.set_status(f'Audio placed in the lane at {time_text(start)}. Undo restores its previous placement.')
 
     def edit_voice_effects(self):
-        if self.selected_item() and model.is_card(self.selected_item()):return
+        if self.selected_item() and model.is_still(self.selected_item()):return
         from .audio_effects_ui import edit_voice_effects
         edit_voice_effects(self)
 
     def extraction_available(self,item):
-        return (not model.is_card(item) and self.media_metadata.get(item['path'],{}).get('has_audio') is not False
+        return (not model.is_still(item) and self.media_metadata.get(item['path'],{}).get('has_audio') is not False
                 and not any(a.get('source_clip_id')==item['id'] for a in self.project['audio']))
 
     def apply_selected_volume(self,volume):
@@ -1521,12 +1548,18 @@ class ClipCanvasWindow(Gtk.Window):
     def apply_fields(self):
         original=self.selected_item()
         if not original:return
-        if self.selected[0] in ('clips','audio') and not model.is_card(original) and len(self.selected_sound_items())>1 and self.properties_stack.get_visible_child_name()=='Sound':
+        if self.selected[0] in ('clips','audio') and not model.is_still(original) and len(self.selected_sound_items())>1 and self.properties_stack.get_visible_child_name()=='Sound':
             control,mult=self.fields['volume'];self.apply_selected_volume(control.get_value()/mult);return
         if model.is_card(original):self.apply_card_fields();return
         if self.selected[0] in ('layers','captions'):self.layer_tools.apply();return
         item=copy.deepcopy(original)
-        for key,(w,mult) in self.fields.items():item[key]=w.get_value()/mult
+        for key,(w,mult) in self.fields.items():
+            if key!='image_duration':item[key]=w.get_value()/mult
+        if model.is_image(item):
+            duration=self.fields['image_duration'][0].get_value()
+            if abs(duration-model.clip_duration(original))>1e-7:
+                item['out']=item['in']+duration;item['duration']=item['out']
+            item['motion']=self.image_motion.get_active_id()
         if item['out']-item['in']<.04:
             self.error('The source end must be after the source start.');return
         if self.selected[0]=='clips':
@@ -1535,7 +1568,7 @@ class ClipCanvasWindow(Gtk.Window):
         candidate=copy.deepcopy(self.project);kind,i=self.selected;candidate[kind][i]=item
         try:model.validate_project(candidate,check_files=False)
         except ValueError as e:self.error(str(e));return
-        self.remember_audio_settings(item)
+        if not model.is_image(item):self.remember_audio_settings(item)
         self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed();self.set_status('Changes applied. Press Preview to see and hear the full video.')
 
     def remember_audio_settings(self,item):
@@ -1588,7 +1621,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline.scale=value;self.timeline.refresh()
 
     def import_dialog(self,kind):
-        dialog=file_chooser(self,'Import clips' if kind=='clips' else 'Add soundtracks',Gtk.FileChooserAction.OPEN,'Add files')
+        dialog=file_chooser(self,{'clips':'Import videos or images','image':'Import images','audio':'Add soundtracks'}[kind],Gtk.FileChooserAction.OPEN,'Add files')
         dialog.set_select_multiple(True)
         for filt in media_filters(kind):dialog.add_filter(filt)
         paths=dialog.get_filenames() if dialog.run()==Gtk.ResponseType.ACCEPT else [];dialog.destroy()
@@ -1603,17 +1636,13 @@ class ClipCanvasWindow(Gtk.Window):
     def import_paths(self,paths,kind=None,add_to_timeline=False):
         if self.busy:return
         self.set_busy(True);self.set_status('Reading local media…')
-        layer_start,layer_end=self.layer_tools.interval()
         def work():
             items=[];errors=[]
             for path in paths:
                 try:
-                    if kind is None and Path(path).suffix.lower() in ('.png','.jpg','.jpeg','.webp','.svg','.bmp','.tiff','.tif'):
-                        pix=GdkPixbuf.Pixbuf.new_from_file(path)
-                        metadata={'width':pix.get_width(),'height':pix.get_height()}
-                        item=model.new_visual(path,start=layer_start,end=layer_end)
-                        item['height']=min(.8,item['width']*self.project['width']/self.project['height']*pix.get_height()/pix.get_width())
-                        items.append(('layers',item,metadata));continue
+                    if kind=='image' or (kind!='audio' and Path(path).suffix.lower() in ('.png','.jpg','.jpeg','.webp','.svg','.bmp','.tiff','.tif')):
+                        metadata=engine.probe_image(path)
+                        items.append(('clips',model.new_image(path,metadata=metadata),metadata));continue
                     metadata=engine.probe(path)
                     if metadata['duration']<.04:raise ValueError('Choose a file at least 0.04 seconds long.')
                     actual=kind or ('clips' if metadata['has_video'] else 'audio')
@@ -1632,7 +1661,7 @@ class ClipCanvasWindow(Gtk.Window):
             self.checkpoint()
             for kind,item,metadata in items:
                 self.media_metadata[item['path']]=metadata
-                asset_kind={'clips':'video','audio':'audio','layers':'image'}[kind]
+                asset_kind='image' if model.is_image(item) else {'clips':'video','audio':'audio','layers':'image'}[kind]
                 if not any(a['path']==item['path'] and a['kind']==asset_kind for a in self.project['assets']):self.project['assets'].append(model.new_asset(item,asset_kind))
                 if add_to_timeline:
                     self.project[kind].append(item);self.selected=(kind,len(self.project[kind])-1);self.selection={(kind,item['id'])}
@@ -1653,9 +1682,16 @@ class ClipCanvasWindow(Gtk.Window):
         def work():
             try:
                 if kind=='clips':
-                    if path not in self.media_metadata:GLib.idle_add(self.media_info_ready,path,engine.probe(path))
-                    target=self.temp/(hashlib.sha256(path.encode()).hexdigest()+'.jpg')
-                    engine.thumbnail(path,str(target),at=item['in'],width=640,height=360)
+                    if model.is_image(item):
+                        if path not in self.media_metadata:GLib.idle_add(self.media_info_ready,path,engine.probe_image(path))
+                        target=self.temp/(hashlib.sha256(path.encode()).hexdigest()+'.png')
+                        pix=engine.image_picture(path);factor=min(1,640/pix.get_width(),360/pix.get_height())
+                        pix=pix.scale_simple(max(1,round(pix.get_width()*factor)),max(1,round(pix.get_height()*factor)),GdkPixbuf.InterpType.BILINEAR)
+                        pix.savev(str(target),'png',[],[])
+                    else:
+                        if path not in self.media_metadata:GLib.idle_add(self.media_info_ready,path,engine.probe(path))
+                        target=self.temp/(hashlib.sha256(path.encode()).hexdigest()+'.jpg')
+                        engine.thumbnail(path,str(target),at=item['in'],width=640,height=360)
                     GLib.idle_add(self.asset_ready,path,kind,str(target))
                 else:GLib.idle_add(self.asset_ready,path,kind,engine.waveform(path,max_points=600))
             except Exception:pass
@@ -1798,6 +1834,8 @@ class ClipCanvasWindow(Gtk.Window):
         if self.closed or serial!=self.scrub_serial:return False
         candidates=[(c,t) for c,t in zip(self.project['clips'],model.timeline(self.project)) if t['start']<=seconds<t['start']+t['duration']]
         if not candidates:return False
+        if any(model.is_image(item) for item,_ in candidates):
+            return self.scrub_frame(serial,seconds)
         if model.is_card(candidates[-1][0]):
             pix=GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB,False,8,64,64)
             pix.fill(int(candidates[-1][0]['color'][1:]+'ff',16))
@@ -1978,7 +2016,7 @@ class ClipCanvasWindow(Gtk.Window):
         for kind in ('clips','audio'):
             for item in project[kind]:self.load_asset(item,kind)
         for asset in project.get('assets',[]):
-            if asset['kind']!='image':self.load_asset({**asset,'in':0},'clips' if asset['kind']=='video' else 'audio')
+            self.load_asset({**asset,'in':0},'audio' if asset['kind']=='audio' else 'clips')
         for item in project.get('layers',[]):self.layer_tools.load_asset(item)
         self.show_selected_still()
         self.adapt_frame_rate();self.set_status('Project opened. Press play to preview.')
@@ -2020,7 +2058,7 @@ class ClipCanvasWindow(Gtk.Window):
             for item in project[kind]:self.load_asset(item,kind)
         # Preserve the previous snapshot until a new one has been saved successfully.
         for asset in project.get('assets',[]):
-            if asset['kind']!='image':self.load_asset({**asset,'in':0},'clips' if asset['kind']=='video' else 'audio')
+            self.load_asset({**asset,'in':0},'audio' if asset['kind']=='audio' else 'clips')
         for item in project.get('layers',[]):self.layer_tools.load_asset(item)
         try:self.recovery.write(project,original);old.unlink()
         except OSError as e:self.set_status(f'Recovered; save your project now: {e}');return
@@ -2064,21 +2102,23 @@ class ClipCanvasWindow(Gtk.Window):
                 for item in project[kind]:self.load_asset(item,kind)
             self.layer_tools.assets.clear()
             for asset in project.get('assets',[]):
-                if asset['kind']!='image':self.load_asset({**asset,'in':0},'clips' if asset['kind']=='video' else 'audio')
+                self.load_asset({**asset,'in':0},'audio' if asset['kind']=='audio' else 'clips')
             for item in project.get('layers',[]):self.layer_tools.load_asset(item)
             self.set_status('Media relinked. Save the project to keep the new locations.');return False
         def work():
             try:
-                image_paths={i['path'] for i in snapshot.get('layers',[])+snapshot.get('assets',[]) if i['kind']=='image'}
+                image_paths={i['path'] for i in snapshot.get('clips',[])+snapshot.get('layers',[])+snapshot.get('assets',[]) if model.is_image(i)}
                 sound_paths={item.get('sound_effect',{}).get('path') for item in snapshot.get('layers',[])+snapshot.get('captions',[])
                              if item.get('sound_effect',{}).get('preset')=='file'}
                 metadata={old:engine.probe(new) for old,new in replacements.items() if old not in image_paths or old in sound_paths}
-                for old in image_paths & replacements.keys():GdkPixbuf.Pixbuf.new_from_file(replacements[old])
+                for old in image_paths & replacements.keys():engine.probe_image(replacements[old])
                 for kind in ('clips','audio'):
                     for item in snapshot[kind]:
                         if model.is_card(item):continue
                         old=item['path']
                         if old not in replacements:continue
+                        if model.is_image(item):
+                            item['path']=str(Path(replacements[old]).resolve());continue
                         meta=metadata[old]
                         if not meta['has_video' if kind=='clips' else 'has_audio'] or meta['duration']+.001<item['out']:
                             raise ValueError(f'{Path(replacements[old]).name} does not contain the required media or is too short for the saved trim points.')

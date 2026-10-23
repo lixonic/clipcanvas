@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0 — 2026-10-23
+
+- Import photos through Add images, the main media chooser or drag/drop. Clicking
+  an imported image creates an independent main timeline scene, initially five
+  seconds long. Set each image's duration in Edit → Timing or drag its edges.
+- Add Still, Slow zoom in and Slow zoom out with adjustable zoom amount. Preview,
+  playback and export use the same motion; splitting preserves its phase.
+  Images support picture controls, transitions, mixed sequences and soundtracks.
+- Save image scenes and motion in project format 8, migrate formats 1–7, and
+  retain image references in recovery, relinking and portable projects. Existing
+  image/logo overlays remain available through Layers.
+
 ## 0.10.7 — 2026-10-21
 
 - Show a native trash button when hovering a caption in the sidebar or focusing

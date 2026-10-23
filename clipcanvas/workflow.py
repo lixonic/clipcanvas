@@ -66,7 +66,7 @@ def with_volume(project, selection, volume):
     model._number(volume, 'Selection volume', 0, 2)
     candidate = copy.deepcopy(project)
     for group, _, item in selected_items(candidate, selection):
-        if group in ('clips', 'audio') and not model.is_card(item):
+        if group in ('clips', 'audio') and not model.is_still(item):
             item['volume'] = volume
     model.validate_project(candidate, check_files=False)
     return candidate

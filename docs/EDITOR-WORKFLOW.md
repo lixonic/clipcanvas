@@ -1,12 +1,14 @@
-# Desktop workflow — ClipCanvas 0.10.7
+# Desktop workflow — ClipCanvas 0.11.0
 
 ## Import, then place
 
-**Add videos**, **Add audio**, the end-of-timeline plus, and dropping local files
+**Add videos**, **Add images**, **Add audio**, the end-of-timeline plus, and dropping local files
 import into **Your media**. They leave the timeline and current preview alone.
-Click a library asset to create an independent timeline copy: video appends to
-the main sequence, audio starts at the playhead, and a dropped image becomes a
-positioned layer. Clicking again creates another copy; editing/deleting it does
+Click a library asset to create an independent timeline copy: videos and images
+append to the main sequence, and audio starts at the playhead. Image clips start
+at five seconds; **Edit → Timing → Duration (s)** sets each copy's display time,
+and **Motion** offers slow zoom in/out. Timeline edge dragging also changes the
+duration. Clicking again creates another copy; editing/deleting it does
 not edit/delete the source asset. Explicit Layers → Add image/overlay actions
 create the requested layer and also retain its source in Your media.
 

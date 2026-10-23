@@ -1,11 +1,11 @@
-# ClipCanvas 0.10.7
+# ClipCanvas 0.11.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.10.7. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.11.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -24,6 +24,7 @@ platform; a Windows app and installer have not been implemented yet.
 - [Transitions, layer animation and attached sound effects](docs/EFFECTS.md)
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
+- [Image clips, duration and slow zoom](docs/IMAGE-CLIPS.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
@@ -62,6 +63,9 @@ Version 0.10.6 starts captions directly with Small and automatic language
 detection. A separate gear button offers remembered caption settings.
 Version 0.10.7 adds a trash button on hovered sidebar captions. It deletes only
 that cue and supports Undo/Redo.
+Version 0.11.0 adds image clips with an independent duration, timeline duration
+badges and slow zoom in/out. Images can make a complete slideshow or join videos
+and color cards in the same sequence.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -75,18 +79,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.10.7_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.11.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.10.7_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.11.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.10.7_all.deb
+   sudo apt install ./clipcanvas_0.11.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -101,7 +105,7 @@ separate application and does not change VLC.
 1. **Choose a canvas.** Landscape is 16:9 for YouTube, portrait is 9:16 for Reels
    and Shorts, and square is 1:1. The **Canvas** menu remains above
    the preview. Frame rate follows the first source video automatically.
-2. **Import local videos.** Use **Add videos** in the media sidebar or the plus
+2. **Import local videos or images.** Use **Add videos** or **Add images** in the media sidebar or the plus
    action after the final timeline clip. Import adds to the saved media library;
    **click an asset** to append an independent timeline copy. Audio copies start
    at the playhead. Importing does not start a timeline or replace your preview.
@@ -109,7 +113,7 @@ separate application and does not change VLC.
    thumbnail follows your pointer, neighboring clips make room, and **Drop here**
    marks the destination. Hold near the viewport edge to scroll the timeline.
    Release commits one undoable move. Search the
-   library by filename or filter it to videos/audio. Use a media row's remove
+   library by filename or filter it to videos/images/audio. Use a media row's remove
    icon or right-click → **Remove from media library** to remove an import.
    **Delete** also works when the media row has keyboard focus. Originals and
    timeline copies remain; **Ctrl+Z** restores the import. Collapse the sidebar for
@@ -184,6 +188,23 @@ separate application and does not change VLC.
     videos. Choose **Lossless master · MKV** to preserve the composed frames and
     audio without lossy encoding; these files are very large. Choose the save
     location with the native file chooser and keep the app open until finished.
+
+## Use images as clips with slow zoom
+
+Choose **Add images**, then click an image in **Your media** to append a photo
+clip. Each copy starts at **5 seconds**. Select it and open **Edit → Timing →
+Duration (s)** to set how long that image stays on screen, then **Apply changes**.
+You can also drag its timeline edges to shorten or extend it.
+
+In **Edit → Motion**, choose **Still image**, **Slow zoom in**, or **Slow zoom
+out**. **Zoom amount** controls the change in scale (15% by default); a longer
+duration makes the move slower. **Picture** provides fit/fill, crop position,
+rotation, flips and picture fades. Photo clips can be mixed with videos and color
+cards, reordered, split and joined with transitions. Image-only videos support
+soundtracks, text, logos and captions too. Settings survive undo/redo and saving.
+Use **Layers → Image / logo** when you want a positioned overlay.
+
+See the [image clip guide](docs/IMAGE-CLIPS.md) for supported files and validation.
 
 ## Insert a color card between videos
 
@@ -321,9 +342,10 @@ After a crash, use **Project → Recover unsaved project**. A normal save or cle
 close removes the current recovery copy. Recovery is separate from your saved
 project and references originals; it is not a media backup.
 
-This version reads projects from 0.1.x–0.9.1 and adds missing defaults on load.
-It saves project format 6 for shared audio lanes and the media library. Use ClipCanvas 0.9.2 or newer to
-open projects saved by this version. Earlier files are migrated when opened.
+Version 0.11.0 reads project formats 1–7 and adds missing defaults on load.
+It saves project format 8 for image scenes and slow zoom. Use a build with image
+clip support (0.11.0 or newer) to open newly saved projects; earlier releases cannot open format 8.
+Earlier files are migrated when opened.
 Shadows, rounded highlights and custom row order need 0.5.x or newer.
 Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
 include the media references, editable text, captions, styles and row layout.
@@ -362,9 +384,9 @@ bit-for-bit copy of the source or HDR/high-bit-depth mastering. See
 
 ## Practical limits of this build
 
-- One base video sequence, with additional audio, text, image, and video layers.
-  At least one video or color card is required for preview/export; use cards
-  with image layers for still scenes. Direct photo-as-main-clip import is pending. Overlay/caption timing stays absolute when base clips move
+- One base sequence of videos, images and color cards, with additional audio,
+  text, image, and video layers. At least one base scene is required for
+  preview/export. Overlay/caption timing stays absolute when base clips move
   or change length; check it after rearranging the story.
 - Live playback computes effects as it plays. CPU-heavy compositions can
   stutter, and deep seeks may need catch-up decoding. This is not a GPU/NLE engine.

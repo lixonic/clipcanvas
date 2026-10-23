@@ -33,7 +33,7 @@ class EffectsProjectTests(unittest.TestCase):
             for item in old['layers']+old['captions']:
                 item.pop('animation');item.pop('sound_effect');item.pop('match_id',None)
             old['caption_style'].pop('animation');saved.write_text(json.dumps(old))
-            migrated=model.load_project(saved);self.assertEqual(migrated['version'],7)
+            migrated=model.load_project(saved);self.assertEqual(migrated['version'],model.PROJECT_VERSION)
             self.assertEqual(migrated['layers'][0]['animation'],model.animation_defaults())
             self.assertEqual(migrated['layers'][0]['sound_effect']['preset'],'none')
             self.assertEqual(migrated['clips'][0]['transition'],'fade')

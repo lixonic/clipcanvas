@@ -39,6 +39,13 @@ future releases should distribute installers through GitHub Releases.
 
 ## Work on a selected feature
 
+For every completed logical change, increase `clipcanvas/__init__.py`'s version,
+add a dated changelog entry, and commit the validated update. Keep the README,
+installer links and packaged version in sync. Use a patch version for fixes and
+a minor version for added features. When updating the committed Ubuntu download,
+rebuild the installer and refresh its SHA-256 entry before committing. Commit
+related source, tests, documentation and release files together.
+
 Read [the feature inventory](docs/CANVA-FEATURES.md) and record the selected ID and
 the user's intended outcome. Keep saved project compatibility, cancellation,
 original-file protection and preview/export agreement in scope for each change.

@@ -295,6 +295,75 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_image_import_independent_duration_motion_trim_undo_and_reopen(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'photo-ui-recovery')
+        errors=[];w.error=errors.append;w.canvas.on_error=errors.append
+        photo=self.fixtures.root/'scene.png'
+        surface=cairo.ImageSurface(cairo.FORMAT_RGB24,320,180);cr=cairo.Context(surface)
+        cr.set_source_rgb(.1,.3,.5);cr.paint();cr.set_source_rgb(1,0,0);cr.rectangle(140,70,40,40);cr.fill()
+        surface.write_to_png(str(photo))
+        try:
+            w.start_project(320,180);w.import_paths([str(photo)],kind='image')
+            self.pump(lambda:not w.busy and str(photo) in w.thumbs)
+            self.assertFalse(w.project['clips']);self.assertFalse(w.project['layers'])
+            self.assertEqual(w.project['assets'][0]['kind'],'image')
+            w.assets.get_children()[0].add_button.clicked()
+            self.assertEqual(w.selected,('clips',0))
+            self.assertEqual(model.clip_duration(w.selected_item()),5)
+            self.assertFalse(w.sound_button.get_sensitive());self.assertNotIn('Sound',w.property_pages)
+            w.open_properties('Timing');w.fields['image_duration'][0].set_value(2.4)
+            w.image_motion.set_active_id('zoom_in');w.fields['zoom_amount'][0].set_value(25)
+            w.apply_fields()
+            self.assertAlmostEqual(model.project_duration(w.project),2.4)
+            self.assertEqual(w.project['clips'][0]['motion'],'zoom_in')
+            self.assertEqual(w.project['clips'][0]['zoom_amount'],.25)
+            w.assets.get_children()[0].add_button.clicked()
+            self.assertEqual(model.clip_duration(w.project['clips'][1]),5)
+            self.assertNotEqual(w.project['clips'][0]['id'],w.project['clips'][1]['id'])
+            w.fields['image_duration'][0].set_value(1.3);w.image_motion.set_active_id('zoom_out');w.apply_fields()
+            self.assertAlmostEqual(model.project_duration(w.project),3.7)
+            w.select('clips',0,seek=False);w.transition.set_active_id('fade')
+            w.fields['transition_duration'][0].set_value(.2);w.apply_fields()
+            self.assertAlmostEqual(model.project_duration(w.project),3.5)
+            menu=w.context_menu('clips',0);menu.popdown()
+            titles=[action.get_label() for action in menu.get_children()]
+            self.assertIn('Image motion…',titles);self.assertNotIn('Extract audio',titles)
+            self.assertFalse(w.selected_sound_items())
+            w.select('clips',1,seek=False);w.zoom(100);w.snap_check.set_active(False)
+            self.pump(lambda:any(hit[:2]==('clips',1) for hit in w.timeline.hit))
+            _,_,x,y,width,height=next(hit for hit in w.timeline.hit if hit[:2]==('clips',1))
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+width-2,y=y+height/2))
+            w.timeline.release(None,SimpleNamespace(x=x+width-2+.5*w.timeline.scale))
+            self.assertAlmostEqual(model.clip_duration(w.project['clips'][1]),1.8,delta=1/30)
+            w.undo();self.assertAlmostEqual(model.clip_duration(w.project['clips'][1]),1.3)
+            w.redo();self.assertAlmostEqual(model.clip_duration(w.project['clips'][1]),1.8,delta=1/30)
+            w.select('clips',1,seek=False);w.seek(2.6)
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling and w.canvas.frame is not None)
+            self.assertFalse(w.preview_key)
+            w.preview();self.pump(lambda:w.canvas.playing and w.canvas.position()>2.7)
+            w.canvas.pause()
+            w.project_path=str(self.fixtures.root/'image-scenes.clipcanvas');self.assertTrue(w.save())
+            saved=copy.deepcopy(w.project);w.open_project(w.project_path)
+            self.assertEqual(w.project,saved)
+            w.select('clips',1,seek=False)
+            self.assertAlmostEqual(w.fields['image_duration'][0].get_value(),model.clip_duration(saved['clips'][1]))
+            self.assertEqual(w.image_motion.get_active_id(),'zoom_out')
+            w.cancel_scrub();w.scrub_session.close()
+            relocated=photo.with_name('relocated-scene.png');photo.rename(relocated)
+            with mock.patch('clipcanvas.app.file_chooser') as chooser:
+                chooser.return_value.run.return_value=Gtk.ResponseType.ACCEPT
+                chooser.return_value.get_filename.return_value=str(relocated)
+                w.relink_media()
+            self.pump(lambda:not w.busy)
+            expected=copy.deepcopy(saved)
+            for item in model.media_items(expected):item['path']=str(relocated)
+            self.assertEqual(w.project,expected)
+            self.assertFalse(errors)
+        finally:
+            if getattr(w,'active_context_menu',None):w.active_context_menu.popdown()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_import_edit_preview_save_and_reopen(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'recovery')
         errors = []
@@ -697,7 +766,10 @@ class DesktopWorkflowTests(unittest.TestCase):
             logo=self.fixtures.root/'ui-logo.png'
             surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,50,50);cr=cairo.Context(surface)
             cr.set_source_rgba(1,0,0,.7);cr.paint();surface.write_to_png(str(logo))
-            w.import_paths([str(logo)],add_to_timeline=True)
+            with mock.patch('clipcanvas.app.file_chooser') as chooser:
+                chooser.return_value.run.return_value=Gtk.ResponseType.ACCEPT
+                chooser.return_value.get_filename.return_value=str(logo)
+                w.layer_tools.import_visual('image')
             self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
             self.assertEqual(len(w.project['layers']),2)
             w.layer_tools.replace_captions(captions.parse_srt('1\n00:00:00,100 --> 00:00:01,000\nRecognized words\n'))
@@ -927,7 +999,11 @@ class DesktopWorkflowTests(unittest.TestCase):
             logo=self.fixtures.root/'preset-logo.png'
             surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,40,40);cr=cairo.Context(surface)
             cr.set_source_rgba(1,0,0,.5);cr.paint();surface.write_to_png(str(logo))
-            w.import_paths([str(logo)],add_to_timeline=True);self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
+            with mock.patch('clipcanvas.app.file_chooser') as chooser:
+                chooser.return_value.run.return_value=Gtk.ResponseType.ACCEPT
+                chooser.return_value.get_filename.return_value=str(logo)
+                w.layer_tools.import_visual('image')
+            self.pump(lambda:not w.busy and str(logo) in w.layer_tools.assets)
             w.select('layers',1,seek=False)
             self.assertTrue(w.layer_tools.overlay_controls.get_visible())
             w.project['layers'][1].update(start=.2,end=.8);w.layer_tools.overlay_full_video()
@@ -1232,12 +1308,12 @@ class DesktopWorkflowTests(unittest.TestCase):
         originals={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
         try:
             w.start_project(320,180);w.import_paths([str(path) for path in paths])
-            self.pump(lambda:not w.busy and len(w.project['assets'])==4 and len(w.thumbs)==2 and len(w.waves)==1)
+            self.pump(lambda:not w.busy and len(w.project['assets'])==4 and len(w.thumbs)==3 and len(w.waves)==1)
             for row in w.assets.get_children():
                 if w.project['assets'][w.asset_index(row.media_asset_id)]['path'].endswith(('landscape.mp4','music.wav','library-logo.png')):
                     row.add_button.clicked()
             self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
-            self.assertEqual((len(w.project['clips']),len(w.project['audio']),len(w.project['layers'])),(1,1,1))
+            self.assertEqual((len(w.project['clips']),len(w.project['audio']),len(w.project['layers'])),(2,1,0))
             w.select('clips',0,seek=False);w.preview()
             self.pump(lambda:w.canvas.playing and w.canvas.position()>.1)
             before=copy.deepcopy(w.project);selected=w.selected;selection=set(w.selection)

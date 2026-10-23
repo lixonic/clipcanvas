@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import threading
 
-from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card
+from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card, is_image, is_still
 from . import audio_effects, transitions
 
 
@@ -130,6 +130,35 @@ def probe(path):
     except OSError as error:
         raise RenderError(f"Cannot open media: {path}") from error
     return dict(_probe_cached(str(path), stat.st_size, stat.st_mtime_ns))
+
+
+def image_picture(path):
+    """Decode supported local still formats, respecting camera orientation."""
+    import gi
+    gi.require_version('GdkPixbuf', '2.0')
+    from gi.repository import GdkPixbuf
+    try:
+        return GdkPixbuf.Pixbuf.new_from_file(str(path)).apply_embedded_orientation()
+    except Exception as error:
+        raise RenderError(f'Cannot read image {Path(path).name}. Choose a supported PNG, JPEG, WebP, BMP, TIFF or SVG image.') from error
+
+
+def probe_image(path):
+    picture = image_picture(path)
+    return {'width': picture.get_width(), 'height': picture.get_height(),
+            'has_video': False, 'has_audio': False, 'fps': 0}
+
+
+def _image_source(path, target):
+    # Rasterize SVGs and normalize EXIF/alpha once per composition, so every
+    # decoder sees the same oriented picture on a black canvas.
+    picture = image_picture(path)
+    from gi.repository import GdkPixbuf
+    if picture.get_has_alpha():
+        picture = picture.composite_color_simple(picture.get_width(), picture.get_height(),
+            GdkPixbuf.InterpType.NEAREST, 255, max(picture.get_width(), picture.get_height()), 0, 0)
+    picture.savev(str(target), 'png', [], [])
+    return str(target)
 
 
 def _fmt(number):
@@ -585,7 +614,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
     if not audio_only and picture_start is not None:
         limit=max(0,rows[0]['duration']-rows[0]['overlap']-2/fps)
         from fractions import Fraction
-        source_fps=fps if is_card(clips[0]) else probe(clips[0]['path'])['fps']
+        source_fps=fps if is_still(clips[0]) else probe(clips[0]['path'])['fps']
         ratio=Fraction(source_fps/fps*clips[0].get('speed',1)).limit_denominator(10000)
         frames=ratio.denominator
         skip=math.floor(max(0,min(limit,picture_start-origin-2/fps))*fps/frames)*frames/fps
@@ -598,6 +627,12 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         if is_card(clip):
             metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
             args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(remaining)}"]
+        elif is_image(clip):
+            metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
+            if not audio_only:
+                if scratch is None:raise RenderError('Images need a temporary working folder.')
+                source = _image_source(clip['path'], Path(scratch)/f'scene-{index}.png')
+                args += ['-threads', '1', '-i', source]
         else:
             metadata = probe(clip["path"])
             if not metadata["has_video"]:
@@ -616,11 +651,21 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             framing += "hflip,"
         if clip.get("flip_y"):
             framing += "vflip,"
+        moving = is_image(clip) and clip.get('motion', 'none') != 'none' and clip.get('zoom_amount', .15) > 0
+        # Supersample the still before zoompan to avoid whole-pixel stepping
+        # during a slow move. Only one source frame is held at this size.
+        frame_width, frame_height = (width*2, height*2) if moving else (width, height)
         if clip.get("fit", "fill") == "fit":
-            framing += f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+            framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={frame_width}:{frame_height}:(ow-iw)/2:(oh-ih)/2:black"
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
-            framing += f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={width}:{height}:(iw-ow)*{x}:(ih-oh)*{y}"
+            framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={frame_width}:{frame_height}:(iw-ow)*{x}:(ih-oh)*{y}"
+        if moving:
+            progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+on/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
+            if clip['motion'] == 'zoom_out':progress = f'(1-({progress}))'
+            framing += (f",zoompan=z='1+{_fmt(clip.get('zoom_amount', .15))}*({progress})':"
+                        f"x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+                        f"d={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}")
         picture = [f"[{video_input}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
@@ -894,7 +939,7 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
 
 def _source_rate(project):
     """Resolve older projects too, without blocking the desktop thread."""
-    first = next((clip for clip in project.get('clips', []) if not is_card(clip)), None)
+    first = next((clip for clip in project.get('clips', []) if not is_still(clip)), None)
     if first and first.get('path'):
         first['source_fps'] = probe(first['path'])['fps']
     adapt_frame_rate(project)
@@ -919,7 +964,7 @@ def render_audio(project, output, source='mix', progress=None, cancel=None):
         for item in project.get('layers',[])+project.get('captions',[]):
             item.pop('sound_effect',None)
         for clip in project.get('clips', []):
-            clip['volume'] = 0.0 if is_card(clip) else 1.0
+            clip['volume'] = 0.0 if is_still(clip) else 1.0
             clip.pop('audio_effects',None)
     try:
         validate_project(project, check_files=True, require_clips=True)
