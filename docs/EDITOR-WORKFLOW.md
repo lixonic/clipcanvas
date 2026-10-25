@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.11.1
+# Desktop workflow — ClipCanvas 0.11.3
 
 ## Import, then place
 
@@ -38,6 +38,28 @@ Splitting keeps both parts in the same lane. Up/Down moves the whole lane;
 deleting its first clip leaves the remaining clips in place. Clicking an audio
 asset adds it to the selected audio lane when the playhead has enough room,
 otherwise to a separate lane. See [audio lane details](AUDIO-LANES.md).
+
+## Zoomed timeline navigation
+
+Selected scope: C08/C09/C12, keeping the part of the timeline being edited in
+view. From 0.11.3, timeline clicks, modifier selection, right-click menus,
+transition controls, fade handles and drag starts retain the current horizontal
+and vertical scroll position, including when an item's beginning is offscreen.
+Dragging at the viewport edges still scrolls to reach more of the timeline.
+Selecting an item in the sidebar still reveals it; moving a soundtrack into a
+lane can reveal that lane without jumping to the soundtrack's beginning.
+
+The native GTK regression uses a 210-second sequence at 100 pixels/second. It
+checks actual pointer events, focus changes, popups, quick click/release before
+idle callbacks, overlays/captions and a long soundtrack's move/fade controls.
+Existing desktop checks cover held-drag edge scrolling and row navigation.
+
+To check manually, zoom a sequence longer than three minutes and scroll to
+around 175 seconds. Click and drag the visible tail of a long clip or waveform,
+right-click an unselected clip, and open a transition at a visible join. The
+visible time range should stay in place through popup dismissal and returning
+focus. Drag near a viewport edge to confirm intentional scrolling, then select
+a sidebar layer/caption to confirm navigation can still reveal its position.
 
 ## Selection and shortcuts
 

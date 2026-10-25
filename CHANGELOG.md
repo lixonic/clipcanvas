@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.3 — 2026-10-25
+
+- Keep the zoomed timeline's horizontal and vertical viewport in place when
+  focusing, selecting, dragging or right-clicking far along the sequence.
+  Separate GTK's focus scrolling from the timeline's actual scroll adjustments;
+  pointer selections no longer schedule a jump to the item's hidden beginning.
+- Keep transition popovers and audio fade handles at the clicked position.
+  Audio drops reveal their destination lane without recentering horizontally.
+  Sidebar navigation still reveals items, and drag-edge autoscroll still works.
+- Add native GTK events covering long clips, soundtracks, overlays, captions,
+  modifier selection, context menus, focus return and deferred scroll handling.
+
 ## 0.11.2 — 2026-10-25
 
 - Install SVG and WebP image loaders explicitly in Ubuntu CI and the Debian

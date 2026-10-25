@@ -607,6 +607,100 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(w.timeline.drag_scroll_timer,0)
         finally:w.cleanup();w.destroy()
 
+    def test_zoomed_timeline_pointer_edits_keep_the_scrolled_viewport(self):
+        import wave
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'timeline-viewport-recovery')
+        sound=self.fixtures.root/'timeline-viewport.wav'
+        with wave.open(str(sound),'wb') as stream:
+            stream.setparams((1,2,8000,0,'NONE','not compressed'))
+            stream.writeframes(bytes(210*8000*2))
+        try:
+            w.start_project(320,180)
+            w.project['clips']=[model.new_card('#224466',30) for _ in range(7)]
+            w.project['audio']=[model.new_audio(sound)]
+            w.project['layers']=[model.new_text(str(i),0,210) for i in range(5)]
+            w.project['captions']=[model.new_caption('Late caption',175,190)]
+            # Decoding is covered by playback tests; here use real GTK event,
+            # focus, popup and adjustment handling on a long timeline.
+            with mock.patch.object(w,'show_selected_still'),mock.patch.object(w,'seek'):
+                w.changed();w.zoom_control.set_value(100)
+                self.pump(lambda:len(w.timeline.hit)==14 and w.timeline_scroll.get_hadjustment().get_upper()>20000)
+                horizontal=w.timeline_scroll.get_hadjustment();vertical=w.timeline_scroll.get_vadjustment()
+                pointer=w.get_display().get_default_seat().get_pointer()
+                def settle():
+                    deadline=time.monotonic()+.08;self.pump(lambda:time.monotonic()>=deadline)
+                def position(kind,index,at=17500):
+                    w.media_search.grab_focus();horizontal.set_value(at)
+                    hit=next(h for h in w.timeline.hit if h[:2]==(kind,index))
+                    vertical.set_value(max(0,hit[3]+hit[5]/2-vertical.get_page_size()/2))
+                    settle();return hit
+                def event(event_type,x,y,button=1,state=0):
+                    e=Gdk.Event.new(event_type);e.window=w.timeline.get_window();e.send_event=True
+                    e.time=Gdk.CURRENT_TIME;e.x=x;e.y=y;e.state=state;e.set_device(pointer)
+                    origin=e.window.get_origin();e.x_root=origin[1]+x;e.y_root=origin[2]+y
+                    if event_type!=Gdk.EventType.MOTION_NOTIFY:e.button=button
+                    w.timeline.event(e)
+                def stable(at,top):
+                    settle();self.assertEqual(horizontal.get_value(),at);self.assertEqual(vertical.get_value(),top)
+
+                before=copy.deepcopy(w.project);position('clips',5)
+                at=horizontal.get_value();top=vertical.get_value()
+                w.timeline.grab_focus();self.assertTrue(w.timeline.is_focus());stable(at,top)
+                # Hover and a quick press/release must not reveal the hidden
+                # beginning of the long clip after the event loop goes idle.
+                event(Gdk.EventType.MOTION_NOTIFY,17800,60);stable(at,top)
+                w.media_search.grab_focus()
+                event(Gdk.EventType.BUTTON_PRESS,17800,60);event(Gdk.EventType.BUTTON_RELEASE,17800,60)
+                self.assertEqual(w.selected,('clips',5));stable(at,top)
+                w.media_search.grab_focus()
+                event(Gdk.EventType.BUTTON_PRESS,17800,60)
+                event(Gdk.EventType.MOTION_NOTIFY,17820,60);stable(at,top)
+                self.assertTrue(w.timeline.drag['active'])
+                event(Gdk.EventType.BUTTON_RELEASE,17820,60);stable(at,top)
+                for state in (Gdk.ModifierType.SHIFT_MASK,Gdk.ModifierType.CONTROL_MASK):
+                    event(Gdk.EventType.BUTTON_PRESS,18400,60,state=state)
+                    event(Gdk.EventType.BUTTON_RELEASE,18400,60,state=state);stable(at,top)
+                # Right-click an unselected clip and return focus from its menu.
+                event(Gdk.EventType.BUTTON_PRESS,18400,60,button=3)
+                self.assertEqual(w.selected,('clips',6));stable(at,top)
+                w.active_context_menu.popdown();w.timeline.grab_focus();stable(at,top)
+                # Transition popovers use the clicked join without recentering.
+                _,x,y,_=next(h for h in w.timeline.join_hits if h[0]==5)
+                event(Gdk.EventType.MOTION_NOTIFY,x,y);stable(at,top)
+                event(Gdk.EventType.BUTTON_PRESS,x,y)
+                self.assertEqual(w.properties_stack.get_visible_child_name(),'Transition');stable(at,top)
+                w.properties_popover.popdown();settle()
+                self.assertEqual(w.project,before);self.assertFalse(w.history)
+
+                for kind in ('layers','captions'):
+                    _,_,_,y,_,height=position(kind,0);at=horizontal.get_value();top=vertical.get_value()
+                    event(Gdk.EventType.BUTTON_PRESS,18000,y+height/2)
+                    event(Gdk.EventType.BUTTON_RELEASE,18000,y+height/2)
+                    self.assertEqual(w.selected,(kind,0));stable(at,top)
+                # Moving a soundtrack whose start is far offscreen retains the
+                # drop location rather than scrolling back to its first sample.
+                _,_,_,y,_,height=position('audio',0);at=horizontal.get_value();top=vertical.get_value()
+                w.snap_check.set_active(False)
+                event(Gdk.EventType.BUTTON_PRESS,18000,y+height/2)
+                event(Gdk.EventType.MOTION_NOTIFY,18020,y+height/2);stable(at,top)
+                self.assertTrue(w.timeline.drag['active'])
+                event(Gdk.EventType.BUTTON_RELEASE,18020,y+height/2);stable(at,top)
+                self.assertEqual(w.project['audio'][0]['start'],.2);self.assertEqual(w.timeline.drag_scroll_timer,0)
+                position('audio',0,horizontal.get_upper()-horizontal.get_page_size())
+                at=horizontal.get_value();top=vertical.get_value()
+                _,edge,x,y,_=next(h for h in w.timeline.fade_hits if h[1]=='out')
+                event(Gdk.EventType.BUTTON_PRESS,x,y);self.assertEqual(w.timeline.drag['mode'],'fade')
+                event(Gdk.EventType.BUTTON_RELEASE,x,y);stable(at,top)
+                # Navigation from outside the timeline still reveals its item.
+                w.select('clips',0,seek=False);self.pump(lambda:horizontal.get_value()<100)
+                w.select('captions',0,seek=False);self.pump(lambda:horizontal.get_value()>16000)
+                row=next(h for h in w.timeline.hit if h[:2]==('captions',0))
+                self.assertLessEqual(vertical.get_value(),row[3])
+                self.assertGreaterEqual(vertical.get_value()+vertical.get_page_size(),row[3]+row[5])
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_clean_canvas_and_native_file_chooser(self):
         w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'native-ui-recovery')
         chooser = None

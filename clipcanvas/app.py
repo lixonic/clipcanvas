@@ -481,7 +481,7 @@ class Timeline(Gtk.DrawingArea):
                 self.owner.show_transition(index,rect);return True
         for index,edge,cx,cy,r in self.fade_hits:
             if abs(event.x-cx)<=r and abs(event.y-cy)<=r:
-                self.owner.select('audio',index,seek=False)
+                self.owner.select('audio',index,seek=False,reveal=False)
                 self.drag={'mode':'fade','index':index,'edge':edge,'x':event.x,
                            'value':self.owner.project['audio'][index].get('fade_'+edge,0)}
                 return True
@@ -499,7 +499,7 @@ class Timeline(Gtk.DrawingArea):
         for kind,i,x,y,width,height in hits:
             if x<=event.x<=x+width and y<=event.y<=y+height:
                 state=getattr(event,'state',0)
-                self.owner.select_modified(kind,i,state)
+                self.owner.select_modified(kind,i,state,reveal=False)
                 if state&(Gdk.ModifierType.SHIFT_MASK|Gdk.ModifierType.CONTROL_MASK):return True
                 edge='left' if width>=24 and event.x-x<8 else 'right' if width>=24 and x+width-event.x<8 else None
                 self.drag={'mode':'edit','kind':kind,'index':i,'x':event.x,'y':event.y,'edge':edge,
@@ -618,7 +618,7 @@ class Timeline(Gtk.DrawingArea):
             clips=self.owner.project['clips'];clip=clips.pop(i);clips.insert(target,clip);self.owner.selected=(kind,target)
         self.owner.changed()
         if kind=='audio' and not d['edge']:
-            self.owner.reveal_timeline_selection();self.owner.set_status('Audio placed in the lane. Its trim, volume, fades and voice effects are preserved.')
+            self.owner.reveal_timeline_selection(horizontal=False);self.owner.set_status('Audio placed in the lane. Its trim, volume, fades and voice effects are preserved.')
 
 class ClipCanvasWindow(Gtk.Window):
     def __init__(self,recovery_dir=None,preferences_dir=None):
@@ -836,6 +836,11 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline=Timeline(self);self.timeline.refresh()
         self.timeline_scroll=Gtk.ScrolledWindow();self.timeline_scroll.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC)
         self.timeline_scroll.set_size_request(-1,180);self.timeline_scroll.add(self.timeline)
+        # The drawing area spans the entire timeline. GTK's default focus
+        # adjustments try to reveal its origin whenever it regains focus.
+        # Keep focus scrolling separate; item navigation reveals clips below.
+        viewport=self.timeline.get_parent()
+        viewport.set_focus_hadjustment(Gtk.Adjustment());viewport.set_focus_vadjustment(Gtk.Adjustment())
         timeline_area.pack_start(self.timeline_scroll,True,True,0)
         self.workspace.pack2(timeline_area,False,False);self.workspace.set_position(600)
         self.stack.add_named(self.editor,'editor');self.show_inspector()
@@ -1138,7 +1143,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline.queue_draw();self.show_inspector();self.update_row_buttons()
         self.set_status(f'{len(self.selection)} timeline items selected. Copy, Delete and Audio volume act on the selection.')
 
-    def select_modified(self,kind,index,state):
+    def select_modified(self,kind,index,state,reveal=True):
         shift=state&Gdk.ModifierType.SHIFT_MASK;ctrl=state&Gdk.ModifierType.CONTROL_MASK
         previous=self.selected
         if shift and previous and previous[0]==kind:
@@ -1151,7 +1156,7 @@ class ClipCanvasWindow(Gtk.Window):
             else:self.selection.add(key)
             remaining=workflow.selected_items(self.project,self.selection)
             self.selected=(kind,index) if key in self.selection else remaining[-1][:2] if remaining else None
-        else:self.select(kind,index);return
+        else:self.select(kind,index,reveal=reveal);return
         self.show_inspector();self.timeline.queue_draw();self.update_row_buttons()
 
     def copy_selection(self,cut=False):
@@ -1175,12 +1180,12 @@ class ClipCanvasWindow(Gtk.Window):
             elif group in ('clips','audio'):self.load_asset(item,group)
         self.changed();self.seek(at);self.set_status('Timeline selection pasted. Undo restores the previous timeline.')
 
-    def select(self,kind,index,seek=True):
+    def select(self,kind,index,seek=True,reveal=True):
         self.selected=(kind,index);self.selection={(kind,self.project[kind][index]['id'])};self.show_inspector();self.timeline.queue_draw();self.canvas.queue_draw()
         self.layer_tools.update_overlay_controls()
         self.update_row_buttons()
         if kind in ('layers','captions'):self.media_stack.set_visible_child_name('Layers' if kind=='layers' else 'Captions')
-        self.reveal_timeline_selection()
+        if reveal:self.reveal_timeline_selection()
         if kind in ('layers','captions') and seek:self.seek(self.project[kind][index]['start'])
         if kind=='clips' and seek:
             self.canvas.pause();self.update_play_button(False)
@@ -1206,7 +1211,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.refresh();self.reveal_timeline_selection()
         self.set_status('Timeline lane moved. All clips in the lane move together; playback timing is unchanged.')
 
-    def reveal_timeline_selection(self):
+    def reveal_timeline_selection(self,horizontal=True):
         selected=self.selected
         def reveal():
             if self.closed or self.selected!=selected or self.timeline.drag:return False
@@ -1214,10 +1219,10 @@ class ClipCanvasWindow(Gtk.Window):
             if row:
                 vertical=self.timeline_scroll.get_vadjustment();vertical.clamp_page(row[3]-5,row[3]+row[4]+5)
             hit=next((h for h in self.timeline.hit if h[:2]==selected),None)
-            if hit:
+            if hit and horizontal:
                 _,_,x,y,width,height=hit
-                horizontal=self.timeline_scroll.get_hadjustment()
-                horizontal.clamp_page(x-5,x+min(width,horizontal.get_page_size()-10)+5)
+                adjustment=self.timeline_scroll.get_hadjustment()
+                adjustment.clamp_page(x-5,x+min(width,adjustment.get_page_size()-10)+5)
             return False
         GLib.idle_add(reveal)
 
@@ -1397,14 +1402,14 @@ class ClipCanvasWindow(Gtk.Window):
 
     def show_transition(self,index,rectangle=None):
         if not 0<=index<len(self.project['clips'])-1:return
-        self.select('clips',index,seek=False)
+        self.select('clips',index,seek=False,reveal=False)
         self.open_properties('Transition',self.timeline,rectangle)
 
     def context_menu(self,kind,index,event=None):
         if self.busy:return
         if getattr(event,'state',0)&Gdk.ModifierType.SHIFT_MASK:
             self.selected=(kind,index);self.select_all(kind);self.selected=(kind,index)
-        elif not self.is_selected(kind,index):self.select(kind,index,seek=False)
+        elif not self.is_selected(kind,index):self.select(kind,index,seek=False,reveal=False)
         else:self.selected=(kind,index)
         self.show_inspector()
         menu=Gtk.Menu()
