@@ -48,7 +48,7 @@ Sources: [Import requirements](https://www.canva.com/help/upload-formats-require
 | C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Implemented: nine illustrated choices from the supplied screenshots; compact join controls; Match & Move pairs editable layers |
 | C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Implemented: duration slider/spin, actual overlap feedback, direction and colour where applicable |
 | C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | Implemented subset: Rise/Pan/Fade/Pop/Wipe/Blur on entry/exit; Reveal/Highlight/Snake for text/captions; slow zoom in/out across photo scenes |
-| C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | Existing: independent layer start/end and draggable timeline timing |
+| C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | Independent start/end; narrow-layer edge stretching with drag preview; Fit to full video for text/image/video watermarks (0.11.4) |
 | C19 | Custom motion paths | Basic | Record a visual element's route by dragging it. | New work |
 | C20 | Magic Animate | Pro | Automatically recommend/apply coordinated motion across a design. | New work |
 

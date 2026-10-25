@@ -36,18 +36,20 @@ class LayerTools:
         hint.get_style_context().add_class('dim-label');panel.pack_start(hint,False,False,0)
         self.overlay_controls=row_box()
         self.overlay_controls.set_no_show_all(True)
-        self.overlay_controls.pack_start(caption('Selected overlay opacity'),False,False,0)
+        self.overlay_controls.pack_start(caption('Selected layer opacity'),False,False,0)
         self.opacity=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
         self.opacity.set_digits(0);self.opacity.set_value_pos(Gtk.PositionType.RIGHT)
         self.opacity.connect('format-value',lambda _,value:f'{value:.0f}%')
-        self.opacity.get_accessible().set_name('Selected overlay opacity')
+        self.opacity.get_accessible().set_name('Selected layer opacity')
         self.opacity_dragging=False;self.opacity_checkpointed=False;self.syncing_opacity=False
         self.opacity.connect('button-press-event',self.opacity_begin)
         self.opacity.connect('button-release-event',self.opacity_end)
         self.opacity.connect('value-changed',self.opacity_changed)
         self.overlay_controls.pack_start(self.opacity,False,False,0)
         quick=row_box(False)
-        quick.pack_start(action('Full video',self.overlay_full_video),True,True,0)
+        self.full_video_button=action('Fit to full video',self.overlay_full_video)
+        self.full_video_button.set_tooltip_text('Show the selected layer from the beginning to the end of the video')
+        quick.pack_start(self.full_video_button,True,True,0)
         quick.pack_start(action('Size / position',lambda:self.owner.open_properties('Picture')),True,True,0)
         self.overlay_controls.pack_start(quick,False,False,0)
         panel.pack_start(self.overlay_controls,False,False,0)
@@ -121,8 +123,9 @@ class LayerTools:
     def update_overlay_controls(self):
         w=self.owner
         item=w.selected_item()
-        visible=bool(w.selected and w.selected[0]=='layers' and item and item.get('kind') in ('image','video'))
+        visible=bool(w.selected and w.selected[0]=='layers' and item)
         if visible:
+            self.full_video_button.set_sensitive(not w.busy and model.project_duration(w.project)>0)
             self.syncing_opacity=True;self.opacity.set_value(item.get('opacity',1)*100);self.syncing_opacity=False
             for child in self.overlay_controls.get_children():child.show_all()
             self.overlay_controls.show()
@@ -138,7 +141,7 @@ class LayerTools:
         w=self.owner
         if self.syncing_opacity or w.busy:return
         item=w.selected_item()
-        if not item or not w.selected or w.selected[0]!='layers' or item.get('kind') not in ('image','video'):return
+        if not item or not w.selected or w.selected[0]!='layers':return
         value=widget.get_value()/100
         if abs(value-item.get('opacity',1))<.0001:return
         if not self.opacity_dragging or not self.opacity_checkpointed:
@@ -147,10 +150,10 @@ class LayerTools:
 
     def overlay_full_video(self):
         w=self.owner;item=w.selected_item();duration=model.project_duration(w.project)
-        if w.busy or not duration or not item or not w.selected or w.selected[0]!='layers' or item.get('kind') not in ('image','video'):return
+        if w.busy or not duration or not item or not w.selected or w.selected[0]!='layers':return
         if item['start']==0 and item['end']==duration:return
         at=w.playhead;w.checkpoint();item['start']=0;item['end']=duration;w.changed();w.seek(at)
-        w.set_status('Overlay now covers the full video. Use the opacity slider to make it more subtle.')
+        w.set_status('Layer now covers the full video. Use the opacity slider to make it more subtle.')
 
     def interval(self):
         duration=model.project_duration(self.owner.project);start=min(self.owner.playhead,max(0,duration-.04))
@@ -237,6 +240,10 @@ class LayerTools:
         def page(name):
             box=row_box();box.set_border_width(12);stack.add_titled(box,name,name);w.property_pages[name]=len(w.property_pages);return box
         timing=page('Timing');self.spin(timing,'start','Appears at (s)',item.get('start',0),0,86400,.05);self.spin(timing,'end','Disappears at (s)',item.get('end',3),.04,86400,.05)
+        if kind=='layers':
+            full_video=action('Fit to full video',self.overlay_full_video)
+            full_video.set_sensitive(model.project_duration(w.project)>0)
+            timing.pack_start(full_video,False,False,0)
         if kind=='layers' and item['kind']=='video':
             self.spin(timing,'in','Source start (s)',item.get('in',0),0,max(0,item['duration']-.001),.05)
             self.spin(timing,'speed','Playback speed (×)',item.get('speed',1),.25,4,.05)

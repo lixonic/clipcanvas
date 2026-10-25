@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.4 — 2026-10-25
+
+- Keep text/overlay and caption resize handles usable at minimum timeline zoom,
+  including narrow items. Let layer edges take precedence over the playhead,
+  show resize cursors and tooltips, and stretch the timeline bar during dragging
+  before committing a single undoable timing change. Preserve exact snapped
+  endpoints when a video's length falls between frames.
+- Make Fit to full video available for text watermarks as well as image/video
+  overlays. Offer it in Layers, Edit → Timing and the layer's right-click menu;
+  show the layer opacity slider for text too. Retain text, style, placement,
+  effects and preview time, with Undo/Redo and saved project compatibility.
+- Check short-layer stretching at 6 pixels/second, both edges, body movement,
+  full-length fitting, no-op handling, save/reopen and actual watermark pixels
+  near the beginning and end of preview and export.
+
 ## 0.11.3 — 2026-10-25
 
 - Keep the zoomed timeline's horizontal and vertical viewport in place when

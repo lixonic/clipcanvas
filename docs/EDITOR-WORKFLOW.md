@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.11.3
+# Desktop workflow — ClipCanvas 0.11.4
 
 ## Import, then place
 
@@ -60,6 +60,31 @@ right-click an unselected clip, and open a transition at a visible join. The
 visible time range should stay in place through popup dismissal and returning
 focus. Drag near a viewport edge to confirm intentional scrolling, then select
 a sidebar layer/caption to confirm navigation can still reveal its position.
+
+## Text watermarks and layer duration
+
+Selected scope: C18/C21, stretching a text watermark across the video. Select
+the text layer, then drag either timeline edge to change when it starts or ends.
+The handles remain available on short layers at the smallest zoom; the cursor
+changes over an edge and the bar stretches while dragging. Drag its middle to
+move the whole interval. With Snap enabled, an edge can align exactly to the
+video's end. Edge scrolling remains available when the end is outside the view.
+
+For a watermark covering the complete video, select it and click **Fit to full
+video** in Layers. The same command is in **Edit → Timing** and the layer's
+right-click menu. It sets the interval from zero to the current video's end;
+repeat it after changing the video's length. The opacity slider now also works
+for text. Words, styling, placement and effects remain editable. These edits
+support Undo/Redo and save/reopen without changing the project format.
+
+The 0.11.4 native check stretches 0.2-, 3- and 4.5-second text layers at six
+pixels/second across a 295.7-second sequence, checks both edges and body movement,
+then checks fitting through all three controls. It verifies undo, saved timing,
+preview time, unchanged style and watermark pixels near both ends of a real
+short preview/export. To check manually, add a short text layer above a long
+sequence, zoom out, stretch its right edge and watch the bar grow. Undo, use
+Fit to full video, then preview and export the beginning and last second to
+confirm the watermark stays visible throughout.
 
 ## Selection and shortcuts
 

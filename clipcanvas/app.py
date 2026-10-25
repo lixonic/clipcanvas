@@ -313,8 +313,9 @@ class Timeline(Gtk.DrawingArea):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+10,2,22);cr.fill()
         for group,items in [('layers',p.get('layers',[])),('captions',p.get('captions',[]))]:
             for index,item in enumerate(items):
+                if self.drag and self.drag.get('active') and self.drag.get('kind')==group and self.drag['index']==index:
+                    item=self.dragged_layer(item)
                 y,h=positions[(group,index if group=='layers' else None)];x=100+item['start']*self.scale;w=max(12,(item['end']-item['start'])*self.scale)
-                if self.drag and self.drag.get('active') and self.drag.get('kind')==group and self.drag['index']==index and not self.drag['edge']:x=100+max(0,item['start']+self.drag['delta'])*self.scale
                 self.hit.append((group,index,x,y,w,h))
                 if (group=='layers' or index==0) and intersects(12,y+9,82,20):draw_text(cr,f'LAYER {index+1}' if group=='layers' else 'CAPTIONS',12,y+22,colors['muted'],10,True)
                 if not intersects(x,y,w,h):continue
@@ -323,8 +324,7 @@ class Timeline(Gtk.DrawingArea):
                 draw_text(cr,title.replace('\n',' '),x+7,y+22,'#ffffff',11);cr.restore()
                 if self.owner.is_selected(group,index):
                     rounded(cr,x,y,w,h,6);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
-                    if w>=24:
-                        for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
+                    for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
         # Paint joins after every thumbnail so their hit targets remain visible
         # even when transition overlaps make the clip rectangles overlap.
         for i,row in enumerate([] if moving else timings[:-1]):
@@ -361,6 +361,36 @@ class Timeline(Gtk.DrawingArea):
         if self.drag and self.drag.get('mode')=='edit' and self.drag.get('edge'):
             gx=self.drag['boundary']+self.drag.get('delta',0)*self.scale
             rgb(cr,colors['accent']);cr.set_line_width(2);cr.move_to(gx,28);cr.line_to(gx,a.height);cr.stroke()
+
+    def item_edge(self,hit,x,y):
+        kind,_,left,top,width,height=hit
+        if not (left<=x<=left+width and top<=y<=top+height):return None
+        if kind not in ('layers','captions') and width<24:return None
+        # Even the minimum-width layer needs two edges and a movable middle.
+        handle=min(8,width/3)
+        if x-left<handle:return 'left'
+        if left+width-x<handle:return 'right'
+        return None
+
+    def item_at(self,x,y):
+        hits=list(reversed(self.hit))
+        # Keep a selected outgoing edge reachable when clips overlap.
+        selected=next((hit for hit in hits if hit[:2]==self.owner.selected and self.item_edge(hit,x,y)),None)
+        if selected:return selected
+        return next((hit for hit in hits if hit[2]<=x<=hit[2]+hit[4] and hit[3]<=y<=hit[3]+hit[5]),None)
+
+    def dragged_layer(self,item):
+        """Use the same timing for the drag preview and committed edit."""
+        d=self.drag;edited=dict(item);delta=d['delta']
+        if d['edge']=='left':
+            low=max(0,item['start']-item.get('in',0)/item.get('speed',1)) if item.get('kind')=='video' else 0
+            high=min(item['end']-.04,item['start']+(item['duration']-item.get('in',0)-.001)/item.get('speed',1)) if item.get('kind')=='video' else item['end']-.04
+            edited['start']=max(low,min(high,item['start']+delta))
+            if item.get('kind')=='video':edited['in']=item.get('in',0)+(edited['start']-item['start'])*item.get('speed',1)
+        elif d['edge']=='right':edited['end']=max(item['start']+.04,item['end']+delta)
+        else:
+            edited['start']=max(0,item['start']+delta);edited['end']=edited['start']+item['end']-item['start']
+        return edited
 
     def paint_clip(self,cr,clip,index,x,y,width,height,selected=False):
         colors=ui_theme.palette(self)
@@ -444,6 +474,11 @@ class Timeline(Gtk.DrawingArea):
         for index,edge,cx,cy,r in self.fade_hits:
             if abs(x-cx)<=r and abs(y-cy)<=r:
                 tooltip.set_text('Drag to adjust audio fade '+edge);return True
+        hit=self.item_at(x,y)
+        if hit and hit[0] in ('layers','captions'):
+            edge=self.item_edge(hit,x,y)
+            tooltip.set_text('Drag to change when this layer '+('starts' if edge=='left' else 'ends') if edge else 'Drag to move this layer; drag its edges to change its duration')
+            return True
         if y>=27 and abs(x-(100+self.owner.playhead*self.scale))<=6:
             tooltip.set_text('Drag the playhead to preview a time');return True
         return False
@@ -485,30 +520,26 @@ class Timeline(Gtk.DrawingArea):
                 self.drag={'mode':'fade','index':index,'edge':edge,'x':event.x,
                            'value':self.owner.project['audio'][index].get('fade_'+edge,0)}
                 return True
-        if event.y<34 or (event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6):
+        hit=self.item_at(event.x,event.y)
+        edge=self.item_edge(hit,event.x,event.y) if hit else None
+        if event.y<34 or (event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6 and not edge):
             self.drag={'mode':'seek'}
             self.owner.begin_scrub()
             self.owner.seek(max(0,(event.x-100)/self.scale));return True
-        hits=list(reversed(self.hit))
-        # A selected outgoing edge can overlap the next clip. Keep its trim
-        # handle reachable without changing ordinary body-selection order.
-        for hit in list(hits):
+        if hit:
             kind,i,x,y,width,height=hit
-            if self.owner.selected==(kind,i) and width>=24 and y<=event.y<=y+height and (x<=event.x<x+8 or x+width-8<event.x<=x+width):
-                hits.remove(hit);hits.insert(0,hit);break
-        for kind,i,x,y,width,height in hits:
-            if x<=event.x<=x+width and y<=event.y<=y+height:
-                state=getattr(event,'state',0)
-                self.owner.select_modified(kind,i,state,reveal=False)
-                if state&(Gdk.ModifierType.SHIFT_MASK|Gdk.ModifierType.CONTROL_MASK):return True
-                edge='left' if width>=24 and event.x-x<8 else 'right' if width>=24 and x+width-event.x<8 else None
-                self.drag={'mode':'edit','kind':kind,'index':i,'x':event.x,'y':event.y,'edge':edge,
-                           'grab_x':event.x-x,'grab_y':event.y-y,'pointer_x':event.x,'pointer_y':event.y,'target':i,'active':False,
-                           'new_lane_id':uuid.uuid4().hex,
-                           'boundary':x if edge=='left' else x+width+(3 if kind=='clips' else 0),
-                           'start':self.owner.project[kind][i].get('start',0),'delta':0}
-                if kind=='audio' and not edge:self.update_audio_drop()
-                return True
+            state=getattr(event,'state',0)
+            self.owner.select_modified(kind,i,state,reveal=False)
+            if state&(Gdk.ModifierType.SHIFT_MASK|Gdk.ModifierType.CONTROL_MASK):return True
+            boundary=x if edge=='left' else x+width+(3 if kind=='clips' else 0)
+            if edge=='right' and kind in ('layers','captions'):
+                boundary=100+self.owner.project[kind][i]['end']*self.scale
+            self.drag={'mode':'edit','kind':kind,'index':i,'x':event.x,'y':event.y,'edge':edge,
+                       'grab_x':event.x-x,'grab_y':event.y-y,'pointer_x':event.x,'pointer_y':event.y,'target':i,'active':False,
+                       'new_lane_id':uuid.uuid4().hex,'boundary':boundary,
+                       'start':self.owner.project[kind][i].get('start',0),'delta':0}
+            if kind=='audio' and not edge:self.update_audio_drop()
+            return True
 
     def motion(self,w,event):
         if self.drag:
@@ -523,13 +554,14 @@ class Timeline(Gtk.DrawingArea):
             if self.drag['kind']=='clips' and not self.drag['edge']:self.drag['target']=self.reorder_target(event.x)
             if self.drag['kind']=='audio' and not self.drag['edge']:self.update_audio_drop()
             if self.drag['active'] and not self.drag_scroll_timer:self.drag_scroll_timer=GLib.timeout_add(50,self.drag_scroll)
-            self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'grabbing'))
+            self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'ew-resize' if self.drag['edge'] else 'grabbing'))
             self.queue_draw()
         elif self.get_window():
             hovered=next((index for index,cx,cy,r in self.join_hits if abs(event.x-cx)<=r and abs(event.y-cy)<=r),None)
             self.set_hover_join(hovered)
             near=event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6
-            name='pointer' if hovered is not None else 'ew-resize' if near else None
+            hit=self.item_at(event.x,event.y);edge=self.item_edge(hit,event.x,event.y) if hit else None
+            name='pointer' if hovered is not None else 'ew-resize' if edge or near else 'grab' if hit and hit[0] in ('layers','captions') else None
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),name) if name else None)
 
     def fade_value(self,x):
@@ -561,9 +593,9 @@ class Timeline(Gtk.DrawingArea):
                 nearest=min(marks,key=lambda m:abs(m-value))
                 if abs(nearest-value)*self.scale<=8:
                     value=nearest
-                    # WAV boundaries need not fall on a video frame. Rounding
-                    # an exact audio join down would create an overlap.
-                    if d['kind']=='audio':return value-at
+                    # Keep exact soundtrack joins and layer endpoints even
+                    # when the target time falls between video frames.
+                    if d['kind'] in ('audio','layers','captions'):return value-at
         return round(value*self.owner.project['fps'])/self.owner.project['fps']-at
 
     def release(self,w,event):
@@ -581,21 +613,16 @@ class Timeline(Gtk.DrawingArea):
         release_x=event.x
         if d['kind']=='clips' and not d['edge']:d['target']=self.reorder_target(release_x)
         delta=self.drag_delta(release_x)
+        d['delta']=delta
         if d['kind']=='audio' and not d['edge']:
             d.update(delta=delta,pointer_y=getattr(event,'y',d['pointer_y']));self.update_audio_drop()
+        edited=self.dragged_layer(self.owner.project[d['kind']][d['index']]) if d['kind'] in ('layers','captions') else None
         self.drag=None;self.queue_draw()
         if abs(event.x-d['x'])<3 and not (d['kind']=='audio' and not d['edge'] and abs(d['pointer_y']-d['y'])>=3):return
         kind,i=d['kind'],d['index']
         if kind in ('layers','captions'):
-            item=self.owner.project[kind][i];candidate=copy.deepcopy(self.owner.project);edited=candidate[kind][i]
-            if d['edge']=='left':
-                low=max(0,item['start']-item.get('in',0)/item.get('speed',1)) if item.get('kind')=='video' else 0
-                high=min(item['end']-.04,item['start']+(item['duration']-item.get('in',0)-.001)/item.get('speed',1)) if item.get('kind')=='video' else item['end']-.04
-                edited['start']=max(low,min(high,item['start']+delta))
-                if item.get('kind')=='video':edited['in']=item.get('in',0)+(edited['start']-item['start'])*item.get('speed',1)
-            elif d['edge']=='right':edited['end']=max(item['start']+.04,item['end']+delta)
-            else:
-                edited['start']=max(0,item['start']+delta);edited['end']=edited['start']+item['end']-item['start']
+            candidate=copy.deepcopy(self.owner.project);candidate[kind][i]=edited
+            if candidate==self.owner.project:return True
             try:model.validate_project(candidate,check_files=False)
             except ValueError as e:self.owner.set_status(str(e));return True
             self.owner.checkpoint();self.owner.project=candidate;self.owner.changed();return True
@@ -1429,6 +1456,7 @@ class ClipCanvasWindow(Gtk.Window):
                 action('Voice effects…',self.edit_voice_effects)
                 if kind=='audio':action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
         if kind=='layers':
+            action('Fit to full video',self.layer_tools.overlay_full_video,model.project_duration(self.project)>0)
             action('Animation…',lambda:self.open_properties('Animate'))
             action('Layer sound…',lambda:self.open_properties('Sound'))
             action('Bring forward',lambda:self.layer_tools.reorder(1),index+1<len(self.project['layers']))

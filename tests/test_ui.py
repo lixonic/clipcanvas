@@ -1065,6 +1065,111 @@ class DesktopWorkflowTests(unittest.TestCase):
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
 
+    def test_short_text_layer_stretch_and_full_video_watermark(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'watermark-ui-recovery')
+        errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180)
+            w.project['clips']=[model.new_card('#112244',295.7)]
+            layer=model.new_text('@airadio_malayalam',0,3)
+            layer.update(font_size=22,opacity=.7,y=.8)
+            w.project['layers']=[layer]
+            w.project['timeline_order']=['layers:'+layer['id'],'video']
+            pointer=w.get_display().get_default_seat().get_pointer()
+            def event(kind,x,y):
+                e=Gdk.Event.new(kind);e.window=w.timeline.get_window();e.send_event=True
+                e.time=Gdk.CURRENT_TIME;e.x=x;e.y=y;e.state=0;e.set_device(pointer)
+                if kind!=Gdk.EventType.MOTION_NOTIFY:e.button=1
+                w.timeline.event(e)
+            def draw():
+                surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,2100,400)
+                w.timeline.draw(w.timeline,cairo.Context(surface))
+                return next(h for h in w.timeline.hit if h[:2]==('layers',0))
+            with mock.patch.object(w,'show_selected_still'),mock.patch.object(w,'seek') as seek:
+                w.changed();w.zoom_control.set_value(6)
+                self.pump(lambda:len(w.timeline.hit)==2)
+                for end in (.2,3,4.5):
+                    with self.subTest(initial_duration=end):
+                        w.project['layers'][0].update(start=0,end=end)
+                        w.playhead=0;w.select('layers',0,seek=False)
+                        _,_,x,y,width,height=draw();point=x+width-2;middle=y+height/2
+                        before=copy.deepcopy(w.project);history=len(w.history)
+                        event(Gdk.EventType.MOTION_NOTIFY,point,middle)
+                        self.assertIsNotNone(w.timeline.get_window().get_cursor())
+                        event(Gdk.EventType.BUTTON_PRESS,point,middle)
+                        self.assertEqual(w.timeline.drag['edge'],'right')
+                        target=point+(295.7-end)*w.timeline.scale
+                        event(Gdk.EventType.MOTION_NOTIFY,target,middle)
+                        self.assertEqual(w.project,before)
+                        self.assertAlmostEqual(draw()[4],295.7*w.timeline.scale)
+                        event(Gdk.EventType.BUTTON_RELEASE,target,middle)
+                        self.assertEqual(w.project['layers'][0]['end'],295.7)
+                        self.assertEqual(len(w.history),history+1)
+                        expected=copy.deepcopy(before);expected['layers'][0]['end']=295.7
+                        self.assertEqual(w.project,expected)
+                        w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
+                # The layer edge wins over the playhead at zero, while the
+                # ruler remains available for scrubbing. Body drags still move.
+                w.project['layers'][0].update(start=0,end=3);w.selected=('layers',0);w.playhead=0
+                _,_,x,y,width,height=draw();middle=y+height/2
+                event(Gdk.EventType.BUTTON_PRESS,x+2,middle)
+                self.assertEqual(w.timeline.drag['mode'],'edit');self.assertEqual(w.timeline.drag['edge'],'left')
+                event(Gdk.EventType.MOTION_NOTIFY,x+2+6,middle)
+                event(Gdk.EventType.BUTTON_RELEASE,x+2+6,middle)
+                self.assertEqual(w.project['layers'][0]['start'],1)
+                w.playhead=20;w.snap_check.set_active(False)
+                _,_,x,y,width,height=draw();point=x+width/2
+                event(Gdk.EventType.BUTTON_PRESS,point,middle);self.assertIsNone(w.timeline.drag['edge'])
+                event(Gdk.EventType.MOTION_NOTIFY,point+12,middle)
+                event(Gdk.EventType.BUTTON_RELEASE,point+12,middle)
+                self.assertEqual((w.project['layers'][0]['start'],w.project['layers'][0]['end']),(3,5))
+                w.select('layers',0,seek=False)
+                self.assertTrue(w.layer_tools.overlay_controls.get_visible())
+                w.playhead=180;history=len(w.history);before=copy.deepcopy(w.project)
+                w.layer_tools.full_video_button.clicked()
+                expected=copy.deepcopy(before);expected['layers'][0].update(start=0,end=295.7)
+                self.assertEqual(w.project,expected);seek.assert_called_with(180)
+                self.assertEqual(len(w.history),history+1)
+                w.layer_tools.full_video_button.clicked();self.assertEqual(len(w.history),history+1)
+                w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
+                path=self.fixtures.root/'watermark.clipcanvas';w.project_path=str(path);self.assertTrue(w.save())
+                w.open_project(str(path));self.assertEqual(w.project,expected)
+                # Both numeric timing and right-click offer the same action.
+                w.project['layers'][0]['end']=3;w.select('layers',0,seek=False)
+                timing=w.properties_stack.get_child_by_name('Timing')
+                fit=next(child for child in timing.get_children() if isinstance(child,Gtk.Button) and child.get_label()=='Fit to full video')
+                fit.clicked();self.assertEqual(w.project['layers'][0]['end'],295.7)
+                w.project['layers'][0]['end']=3
+                menu=w.context_menu('layers',0)
+                fit=next(child for child in menu.get_children() if child.get_label()=='Fit to full video')
+                menu.popdown();fit.activate();self.assertEqual(w.project['layers'][0]['end'],295.7)
+            # Export a short actual video after fitting through the UI. Check
+            # its last frame, well beyond the watermark's original endpoint.
+            w.project['clips']=[model.new_card('#112244',1.5)]
+            w.project['layers'][0].update(start=.2,end=.4,opacity=1)
+            w.select('layers',0,seek=False);w.playhead=.3;w.layer_tools.full_video_button.clicked()
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            self.assertAlmostEqual(w.playhead,.3)
+            self.assertEqual((w.project['layers'][0]['start'],w.project['layers'][0]['end']),(0,1.5))
+            output=self.fixtures.root/'watermark-export.mp4'
+            w.render_job(str(output),False,lambda _:None,quality='master')
+            self.pump(lambda:not w.busy)
+            ffmpeg,env=engine._tool('ffmpeg')
+            for at in (.1,1.4):
+                preview=engine.preview_frame(w.project,at,preview_edge=320)['pixels']
+                self.assertGreater(sum(min(preview[i:i+3])>150 for i in range(0,len(preview),3)),60)
+                raw=subprocess.run([ffmpeg,'-v','error','-i',str(output),'-ss',str(at),'-frames:v','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],
+                                   env=env,check=True,stdout=subprocess.PIPE).stdout
+                self.assertGreater(sum(min(raw[i:i+3])>150 for i in range(0,len(raw),3)),60)
+            w.project['clips']=[];w.select('layers',0,seek=False)
+            self.assertFalse(w.layer_tools.full_video_button.get_sensitive())
+            before=copy.deepcopy(w.project);history=len(w.history);w.layer_tools.overlay_full_video()
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_shared_text_presets_and_logo_opacity_workflow(self):
         from clipcanvas import text_styles
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'presets-ui-recovery')
