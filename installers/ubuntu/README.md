@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.11.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.11.1_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.11.0_all.deb
+sudo apt install ./clipcanvas_0.11.1_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -69,3 +69,9 @@ offers slow zoom in/out with an adjustable amount. Image scenes support
 transitions, soundtracks, undo/redo and save/reopen. This release saves project
 format 8 and reads formats 1–7; newly saved projects need 0.11.0 or newer.
 See [image clips and validation](../../docs/IMAGE-CLIPS.md).
+
+Version 0.11.1 keeps preview audio and video buffered together at slow splits and
+transitions, with visible buffering feedback and preserved manual pause. Fast/HD
+prepare and reuse smaller cached video sources, showing progress on first use.
+Sound, Full resolution and export still use originals. The project format stays
+at 8. See [preview buffering and validation](../../docs/PREVIEW-BUFFERING.md).

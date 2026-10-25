@@ -242,6 +242,8 @@ class VideoCanvas(Gtk.DrawingArea):
         self._last_position = start
         self._last_duration = 0
         self.playing = autoplay
+        self.loading_message = 'Loading preview…'
+        self._live_frame_ready = False
         self._set_loading(True)
         self._start_frame_updates()
         def error(message):
@@ -256,10 +258,16 @@ class VideoCanvas(Gtk.DrawingArea):
                 self._last_position=self.duration()
                 self._notify(self.on_position, self.duration(), self.duration())
                 self._notify(self.on_end)
+        def buffering(active, message):
+            if generation != self._generation:return
+            self.loading_message = message
+            if active:self._set_loading(True)
+            elif self._live_frame_ready:self._set_loading(False)
+            if self.loading:self._notify(self.on_loading, True)
         try:
             self._live = StreamPlayer(project, start, autoplay,
                 lambda sample: self._receive_sample(sample, generation), error, end,
-                volume=self._pipeline.get_property('volume'), preview_edge=self.preview_edge)
+                volume=self._pipeline.get_property('volume'), preview_edge=self.preview_edge, buffering=buffering)
         except Exception as problem:
             self.stop()
             self.composited = False
@@ -408,7 +416,8 @@ class VideoCanvas(Gtk.DrawingArea):
             self._notify(self.on_position,self._last_position,duration)
         # Startup ends when GTK commits the current generation's picture,
         # rather than when a streaming thread merely receives its preroll.
-        self._set_loading(False)
+        self._live_frame_ready = True
+        self._set_loading(bool(self._live and getattr(self._live, 'buffering', False)))
         self.queue_draw()
         return GLib.SOURCE_REMOVE
 

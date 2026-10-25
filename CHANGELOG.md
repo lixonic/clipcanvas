@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.1 — 2026-10-25
+
+- Keep preview narration/music intact when video decoding stalls at splits or
+  transitions. Buffer picture and sound together, pause their shared clock when
+  the buffer runs low, and resume after refilling. Keep a manual pause in effect
+  and show buffering status. Send regular small PCM packets across joins.
+- Make Fast/HD preview decode cached smaller main-sequence videos instead of
+  decoding the full-size originals at every seek. Show first-use preparation
+  progress, reuse the cache across launches, and invalidate changed sources.
+  Limit cached files to 1 GB/64 entries and retain active playback leases.
+- Keep audio, full-resolution preview, export settings, saved media paths and
+  project format unchanged. Verify every audio sample survives a forced preview
+  stall, and compare cached/full/export sound plus fractional-rate seeks.
+
 ## 0.11.0 — 2026-10-23
 
 - Import photos through Add images, the main media chooser or drag/drop. Clicking

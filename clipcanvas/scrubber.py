@@ -150,7 +150,9 @@ class ScrubSession:
             source_at = clip.get('in', 0)+(seconds-row['start'])*clip.get('speed', 1)
             source_at = min(source_at, clip['out']-1/max(1, metadata['fps']))
             try:
-                pixbuf = self._picture(clip['path'], source_at, cancel)
+                from . import preview_cache
+                path = preview_cache.available(clip['path'], preview_edge) or clip['path']
+                pixbuf = self._picture(path, source_at, cancel)
             except engine.RenderCancelled:
                 raise
             except Exception:

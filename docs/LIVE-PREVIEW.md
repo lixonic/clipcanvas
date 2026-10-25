@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.10.4
+# Live preview, scrubbing and zoom — ClipCanvas 0.11.1
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -12,6 +12,11 @@ silent, as in export. **Full resolution** uses the project canvas by default.
 The selector also provides **HD preview** (1280 pixels on the longest edge) and
 **Fast preview** (640). No option enlarges beyond the project canvas.
 Export still reads the originals at the chosen canvas resolution and quality.
+Fast/HD prepare smaller cached main-sequence video sources on first playback,
+with visible progress. Later playback and paused seeking reuse them. Full
+resolution and all audio processing read the originals. Picture and sound pause
+together if decoding runs behind, then resume after buffering. See
+[buffering and cache validation](PREVIEW-BUFFERING.md).
 
 ## Drag the playhead and zoom the preview
 
@@ -58,8 +63,9 @@ average rate; this is not variable-rate mastering. Rates up to 240 are supported
 
 FFmpeg executes the same composition graph used by export, producing raw I420
 video and 48 kHz stereo PCM in a Matroska pipe. GStreamer demuxes and clocks the
-audio sink and RGB appsink together. There is no video/audio encoding step and
-no prepared preview media file. Text/logo sprites and caption PNG sequences are
+audio sink and RGB appsink together. The composition itself streams without a
+video/audio encoding step; Fast/HD can first encode reusable, reduced-resolution
+source proxies. Text/logo sprites and caption PNG sequences are
 still temporary files; those are removed with the producer's workspace.
 
 Appsrc and downstream queues apply backpressure, bounding frame/audio buffering.

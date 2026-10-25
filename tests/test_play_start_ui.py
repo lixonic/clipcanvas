@@ -18,6 +18,11 @@ class DeferredStream:
         self.project=project;self.start=start;self.total=model.project_duration(project)
         self.sample=sample;self.error=error;self.end=end;self.last_position=start
         self.ended=False;self.stopped=False
+        self.buffering=False;self.on_buffering=kwargs.get('buffering')
+
+    def buffer(self,active,message='Buffering preview…'):
+        self.buffering=active
+        if self.on_buffering:self.on_buffering(active,message)
 
     def picture(self,at=0):
         buffer=Gst.Buffer.new_wrapped(bytes([180])*24);buffer.pts=int(at*Gst.SECOND)
@@ -72,6 +77,21 @@ class PlayStartupFeedbackTests(unittest.TestCase):
         self.assertEqual(w.preview_label.get_text(),'Loading preview…')
         w.canvas._live.picture(.1);w.canvas._deliver_frame()
         self.assertFalse(w.canvas.loading);self.assertAlmostEqual(w.canvas.position(),2.1)
+
+    def test_buffering_status_waits_for_ready_picture_and_keeps_manual_pause(self):
+        w=self.window;w.preview();stream=w.canvas._live
+        stream.buffer(True,'Preparing Fast preview · video.mp4…')
+        self.assertEqual(w.preview_label.get_text(),'Preparing Fast preview · video.mp4…')
+        stream.picture(.1);w.canvas._deliver_frame()
+        self.assertTrue(w.canvas.loading)
+        stream.buffer(False)
+        self.assertFalse(w.canvas.loading);self.assertEqual(w.preview_label.get_text(),'Live preview')
+        stream.buffer(True);w.toggle_play()
+        stream.buffer(False)
+        self.assertFalse(w.canvas.playing);self.assertEqual(w.preview_label.get_text(),'Paused preview')
+        w.canvas.seek(2)
+        stream.buffer(False);stream.picture(.2);w.canvas._deliver_frame()
+        self.assertTrue(w.canvas.loading,'A cancelled generation must not clear current buffering feedback')
 
     def test_current_error_or_constructor_failure_clears_loading(self):
         w=self.window;w.preview();w.canvas._live.error('Broken preview')

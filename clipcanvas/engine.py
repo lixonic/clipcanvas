@@ -578,7 +578,7 @@ def preview_dimensions(project, max_edge=640):
     return max(2, round(width*scale/2)*2), max(2, round(height*scale/2)*2)
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None):
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None, proxies=None):
     if any(clip.get('transition')=='match_move' for clip in project['clips']):
         from . import animations
         project=copy.deepcopy(project)
@@ -637,7 +637,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             metadata = probe(clip["path"])
             if not metadata["has_video"]:
                 raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", clip["path"]]
+            proxy = (proxies or {}).get(clip['path']) if preview and not audio_only else None
+            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", proxy or clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
         rotation = clip.get("rotation", 0)
@@ -666,7 +667,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             framing += (f",zoompan=z='1+{_fmt(clip.get('zoom_amount', .15))}*({progress})':"
                         f"x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
                         f"d={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}")
-        picture = [f"[{video_input}:{metadata['video_index']}]{framing}", "setsar=1", "format=yuv420p",
+        picture_index = 0 if (proxies or {}).get(clip.get('path')) and preview and not audio_only else metadata['video_index']
+        picture = [f"[{video_input}:{picture_index}]{framing}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
         if seek:picture.append(f"setpts=PTS+{_fmt(seek)}/TB")
@@ -683,7 +685,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             continue
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
             audio_input=video_input
-            if seek:
+            if seek or (preview and (proxies or {}).get(clip.get('path'))):
                 # Video can input-seek near the playhead. Audio keeps the
                 # complete trimmed history for echo/compression and envelopes.
                 # This second input only decodes audio, not the old pictures.
@@ -784,7 +786,13 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
         project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
     width, height = preview_dimensions(project, preview_edge)
     with tempfile.TemporaryDirectory(prefix='clipcanvas-frame-') as scratch:
-        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge, picture_start=seconds)
+        from . import preview_cache
+        proxies = {}
+        for clip in project['clips']:
+            if not is_still(clip):
+                proxy = preview_cache.lease_available(clip['path'], preview_edge, scratch)
+                if proxy:proxies[clip['path']] = proxy
+        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge, picture_start=seconds, proxies=proxies)
         graph_path = Path(scratch)/'filters.txt'
         graph_path.write_text(graph, encoding='utf-8')
         picture = Path(scratch)/'picture.rgb'
@@ -801,10 +809,11 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
         return {'pixels': pixels, 'width': width, 'height': height, 'position': seconds}
 
 
-def live_stream(project, start=0, cancel=None, preview_edge=640):
+def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
     """Yield a bounded, unencoded Matroska stream for immediate native playback.
 
-    Raw I420 video and stereo PCM retain the export graph's effects/mix. The
+    Raw I420 video and stereo PCM retain the export graph's effects/mix. HD/Fast
+    use cached smaller source videos; audio always reads the originals. The
     consumer supplies backpressure, so we never generate a whole preview file.
     Closing the generator or setting cancel stops FFmpeg and removes sprites.
     """
@@ -820,8 +829,20 @@ def live_stream(project, start=0, cancel=None, preview_edge=640):
     origin = active[0]['start'] if active else 0
     binary, env = _tool('ffmpeg')
     with tempfile.TemporaryDirectory(prefix='clipcanvas-live-') as scratch:
+        proxies = {}
+        if preview_edge:
+            from . import preview_cache
+            for clip, row in zip(project['clips'], timeline(project)):
+                if is_still(clip) or row['start']+row['duration']<=origin or clip['path'] in proxies:continue
+                try:proxy = preview_cache.prepare(clip['path'], preview_edge, scratch, cancel, status)
+                except OSError:proxy = None  # An unwritable cache must not block local playback.
+                if proxy:proxies[clip['path']] = proxy
+            if status:status('Loading preview…')
         args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin,
-                                    preview_edge=preview_edge, picture_start=start)
+                                    preview_edge=preview_edge, picture_start=start, proxies=proxies)
+        # acrossfade can emit half-second PCM blocks. Packetize without changing
+        # samples so clocked audio receives small, regular buffers at every join.
+        graph += ';\n[outaudio]asetnsamples=n=1024:p=0[liveaudio]'
         if cancel is not None and cancel.is_set():
             return
         graph_path = Path(scratch)/'filters.txt'
@@ -829,7 +850,7 @@ def live_stream(project, start=0, cancel=None, preview_edge=640):
         arguments = [binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
                      '-filter_complex_threads', '1'] + args + [
                      '-filter_complex_script', str(graph_path), '-ss', _fmt(start),
-                     '-map', '[outvideo]', '-map', '[outaudio]',
+                     '-map', '[outvideo]', '-map', '[liveaudio]',
                      '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-threads', '1',
                      '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                      '-t', _fmt(seconds-start), '-flush_packets', '1', '-f', 'matroska', 'pipe:1']

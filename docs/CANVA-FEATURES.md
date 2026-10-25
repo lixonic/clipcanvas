@@ -35,9 +35,9 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
 | C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo |
-| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Aligned source seeking, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
+| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
 | C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | Existing: 0.25×–4×, pitch-preserving audio |
-| C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with Full/HD/Fast resolution and Fit/25–400% zoom/pan; optional prepared fallback; full-screen pending |
+| C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% zoom/pan; optional prepared fallback; full-screen pending |
 
 Sources: [Import requirements](https://www.canva.com/help/upload-formats-requirements-variantb/), [free trimming and joining](https://www.canva.com/features/video-trimmer/), [free splitting](https://www.canva.com/features/video-splitter/), [timeline operations](https://www.canva.com/help/creating-and-editing-videos/), [playback controls](https://www.canva.com/help/adjust-video-playback/).
 
@@ -178,7 +178,7 @@ Canva features. They are selected; detailed designs and platform validation rema
 | ID | Candidate | Why it matters | Current status |
 |---|---|---|---|
 | X01 | Direct timeline handles, snapping, ripple edits | Faster precise clip assembly | Basic: edge trim, audio fade handles, snapping, ripple trims and lifted drag/drop feedback; linked edits pending |
-| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback and continuous composed scrubbing; latest-position frame worker and Full/HD/Fast choices; optional rendered fallback; proxy cache pending |
+| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback with coordinated buffering; persistent HD/Fast video proxies prepared in a worker; cached seeks; latest-position frame worker; optional rendered fallback |
 | X03 | Keyframes and easing | Animate position, scale, opacity and audio levels | New work |
 | X04 | Reverse, freeze frames and speed ramps | Control pacing within a clip | New work |
 | X05 | Dialogue ducking, audio envelopes, meters and EQ | Mix music, voice and effects predictably | Partial: echo, gain, bass/treble, tone filters, compressor and A/B audition; ducking, meters and arbitrary envelopes pending |
@@ -191,7 +191,8 @@ Canva features. They are selected; detailed designs and platform validation rema
 The first foundation increment was implemented in 0.2.0 and native UI/audio tools
 expanded in 0.3.0; 0.4/0.5 add layers, captions and editable static presets.
 Version 0.7 adds live mixed preview and automatic source FPS. Advanced
-snapping/linking, proxy caching and the Windows installer remain pending. See the
+snapping/linking and the Windows installer remain pending. HD/Fast source caching
+and coordinated audio/video buffering are included in 0.11.1. See the
 [development plan](DEVELOPMENT-PLAN.md).
 
 The 0.9 media library is separate from the timeline: import first, click to place.

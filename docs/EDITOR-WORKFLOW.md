@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.11.0
+# Desktop workflow — ClipCanvas 0.11.1
 
 ## Import, then place
 
@@ -133,7 +133,12 @@ frame-clock update phase. Only old/new timeline line strips redraw during playba
 thumbnail tiles and waveform bars outside that damage are skipped. Pause discards
 queued frames. Silent dragging seeks into the current clip at aligned source and
 composition frame boundaries, preserving picture fades and transition overlap.
-Full/HD/Fast only change preview resolution; export reads original sources.
+Full uses original footage. HD/Fast prepare and reuse smaller main-sequence video
+files for faster decoding and seeking; first-use progress appears by Play. Sound
+and export read the originals. A slow preview join pauses the shared picture/audio
+clock while buffering, then resumes without discarding soundtrack samples. A
+manual pause stays paused after the buffer is ready. See
+[preview buffering and cache](PREVIEW-BUFFERING.md).
 Export stops the preview decoder and cancels pending scrub frames before the
 renderer starts, avoiding a second FFmpeg graph holding memory throughout the
 render. The displayed frame and playhead stay in place, and Play starts a new

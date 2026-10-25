@@ -774,7 +774,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.preview_quality=Gtk.ComboBoxText()
         for edge,title in [('0','Full resolution'),('1280','HD preview'),('640','Fast preview')]:self.preview_quality.append(edge,title)
         self.preview_quality.set_active_id('0')
-        self.preview_quality.set_tooltip_text('Preview resolution only. Full uses the project canvas; HD caps the longest edge at 1280, Fast at 640. Export always uses originals.')
+        self.preview_quality.set_tooltip_text('Full uses original footage at the project canvas. HD (1280) and Fast (640) prepare smaller cached videos on first playback for faster decoding and seeking. Audio and export always use originals.')
         self.preview_quality.connect('changed',self.preview_quality_changed)
         self.canvas_toolbar.pack_end(self.preview_quality,False,False,8)
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.POINTER_MOTION_MASK)
@@ -1728,7 +1728,9 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline.redraw_playhead(before,seconds)
 
     def playback_loading(self,loading):
-        if loading and self.canvas.playing:self.preview_label.set_text('Loading preview…')
+        if loading and self.canvas.playing:
+            message=getattr(self.canvas,'loading_message','Loading preview…')
+            self.preview_label.set_text(message);self.preview_label.set_tooltip_text(message)
         elif self.canvas.live:self.preview_label.set_text('Live preview' if self.canvas.playing else 'Paused preview')
         elif self.preview_label.get_text() in ('Loading preview…','Live preview','Paused preview'):
             self.preview_label.set_text('Press play to preview')

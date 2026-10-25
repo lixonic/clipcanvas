@@ -1,11 +1,11 @@
-# ClipCanvas 0.11.0
+# ClipCanvas 0.11.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.11.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.11.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -25,6 +25,7 @@ platform; a Windows app and installer have not been implemented yet.
 - [Voice effects and validation](docs/VOICE-EFFECTS.md)
 - [Changelog](CHANGELOG.md)
 - [Image clips, duration and slow zoom](docs/IMAGE-CLIPS.md)
+- [Preview audio buffering and Fast/HD cache](docs/PREVIEW-BUFFERING.md)
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
@@ -66,6 +67,9 @@ that cue and supports Undo/Redo.
 Version 0.11.0 adds image clips with an independent duration, timeline duration
 badges and slow zoom in/out. Images can make a complete slideshow or join videos
 and color cards in the same sequence.
+Version 0.11.1 buffers preview audio and video together at slow joins and adds
+cached smaller source videos for faster Fast/HD playback and seeking. The first
+use shows preparation progress; later playback reuses the cache.
 Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
 Four editable text/caption styles, logo opacity, Up/Down timeline rows,
 positioned overlays and local speech captions are included. The inventory records what is still pending.
@@ -79,18 +83,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.11.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.11.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.11.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.11.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.11.0_all.deb
+   sudo apt install ./clipcanvas_0.11.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -164,8 +168,9 @@ separate application and does not change VLC.
    too near transitions require shortening that effect first. Right-click also
    exposes split, duplicate, delete, and clip move actions.
 9. **Press Play or Preview.** The composition streams directly into the native
-   player, with transitions, fades, overlays, captions and mixed sound. No
-   preview MP4 is prepared. Press Space to pause/resume; drag the ruler or white
+   player, with transitions, fades, overlays, captions and mixed sound. It buffers
+   picture and audio together when a slow clip or transition needs more time.
+   Press Space to pause/resume; drag the ruler or white
    playhead line to seek. Frames update while you hold and move the line,
    including transitions, captions and overlays. Dragging pauses sound; playback
    resumes on release if it was playing before. Paused scrubbing reuses a native decoder for ordinary scenes and draws
@@ -182,6 +187,9 @@ separate application and does not change VLC.
    project canvas. **HD preview** caps the longest edge at 1280 pixels and
    **Fast preview** at 640. Playback, scrubbing and prepared previews follow
    that choice; export always uses original media at the project canvas size.
+   Fast/HD first prepare smaller cached versions of large main-sequence videos;
+   the preview label shows preparation progress. Later playback and seeks reuse
+   those files. Full resolution and soundtrack processing use the originals.
    Heavy projects or seeks deep into long clips can take time or stutter. Use
    **Project → Render smooth preview…** when you need a prepared playback file.
 10. **Export.** **Maximum quality · MP4** is selected by default for social
@@ -390,7 +398,8 @@ bit-for-bit copy of the source or HDR/high-bit-depth mastering. See
   or change length; check it after rearranging the story.
 - Live playback computes effects as it plays. CPU-heavy compositions can
   stutter, and deep seeks may need catch-up decoding. This is not a GPU/NLE engine.
-- Live playback keeps bounded frame/audio buffers and temporary visual sprites;
+- Live playback keeps bounded frame/audio buffers, a disposable Fast/HD video
+  cache and temporary visual sprites;
   optional rendered previews and exports also need disk space for video files.
 - No animated title/caption presets, motion paths, template/stock library, or
   caption translation yet. Imported animated GIFs are not supported as moving layers.
