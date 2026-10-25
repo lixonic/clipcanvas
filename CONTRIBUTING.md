@@ -46,6 +46,10 @@ a minor version for added features. When updating the committed Ubuntu download,
 rebuild the installer and refresh its SHA-256 entry before committing. Commit
 related source, tests, documentation and release files together.
 
+Push every completed, validated update to the configured GitHub upstream as
+part of the same task (currently `origin/main`), unless the user requests another
+branch or asks to keep it local. Report the version, commit and push result.
+
 Read [the feature inventory](docs/CANVA-FEATURES.md) and record the selected ID and
 the user's intended outcome. Keep saved project compatibility, cancellation,
 original-file protection and preview/export agreement in scope for each change.
