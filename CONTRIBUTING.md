@@ -9,11 +9,15 @@ GTK 3, GStreamer and FFmpeg. Windows is a planned target; see
 ```sh
 sudo apt install python3 python3-venv python3-gi python3-cairo python3-gi-cairo \
   gir1.2-gtk-3.0 gir1.2-pango-1.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good gstreamer1.0-libav ffmpeg
+  gstreamer1.0-plugins-good gstreamer1.0-libav librsvg2-common webp-pixbuf-loader ffmpeg
 ```
 
 Run with `/usr/bin/python3 -m clipcanvas` from the repository root. Use Ubuntu's
 system Python so the GTK introspection bindings are available.
+
+SVG and WebP import require the explicit `librsvg2-common` and
+`webp-pixbuf-loader` packages. CI installs without recommended packages, so do
+not rely on the desktop environment to supply these image loaders.
 
 ## Checks and packages
 

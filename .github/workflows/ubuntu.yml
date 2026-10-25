@@ -35,6 +35,7 @@ jobs:
           sudo apt-get install --no-install-recommends --yes \
             python3 python3-venv python3-gi python3-cairo python3-gi-cairo \
             gir1.2-gtk-3.0 gir1.2-pango-1.0 gir1.2-gstreamer-1.0 \
+            librsvg2-common webp-pixbuf-loader \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-libav gstreamer1.0-pulseaudio ffmpeg xvfb xauth dbus-x11 \
             pulseaudio pulseaudio-utils desktop-file-utils
@@ -52,7 +53,27 @@ jobs:
           pactl load-module module-null-sink sink_name=clipcanvas_ci
           dbus-run-session -- xvfb-run --auto-servernum \
             --server-args="-screen 0 1600x1000x24" \
-            /usr/bin/python3 -m unittest discover -s tests -v
+            /usr/bin/python3 -m unittest discover -s tests -v \
+            2>&1 | tee "$RUNNER_TEMP/clipcanvas-tests.log"
+
+      - name: Report failing tests
+        if: failure()
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import os
+          from pathlib import Path
+          log = Path(os.environ['RUNNER_TEMP']) / 'clipcanvas-tests.log'
+          if log.is_file():
+              text = log.read_text(errors='replace')
+              for line in text.splitlines():
+                  if line.startswith(('FAIL: ', 'ERROR: ')):
+                      message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error::' + message)
+              separator = '=' * 70
+              details = text[text.find(separator):] if separator in text else text[-12000:]
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('## Test failure details\n\n```text\n' + details[-30000:] + '\n```\n')
+          PY
 
       - name: Build Debian installer and source archive
         run: /usr/bin/python3 build_deb.py --output-dir dist

@@ -157,6 +157,12 @@ class ImageSceneTests(unittest.TestCase):
             p = self.project();p['clips'] = [model.new_image(path,.3)]
             frame = engine.preview_frame(p,.1,preview_edge=0)
             self.assertEqual(len(frame['pixels']),320*180*3)
+        webp = self.root/'format.webp'
+        subprocess.run([self.ffmpeg,'-v','error','-y','-i',str(self.photo),'-frames:v','1',
+            '-c:v','libwebp','-lossless','1','-threads','1',str(webp)],env=self.env,check=True)
+        p = self.project();p['clips'] = [model.new_image(webp,.3)]
+        frame = engine.preview_frame(p,.1,preview_edge=0)
+        self.assertEqual(len(frame['pixels']),320*180*3)
         svg = self.root/'transparent.svg'
         svg.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect x="25" y="25" width="50" height="50" fill="red"/></svg>')
         p = self.project();p['clips'] = [model.new_image(svg,1)]

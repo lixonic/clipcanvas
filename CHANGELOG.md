@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.2 — 2026-10-25
+
+- Install SVG and WebP image loaders explicitly in Ubuntu CI and the Debian
+  package. Minimal installs use `--no-install-recommends`, so GTK's recommended
+  SVG loader was not guaranteed to be present for photo-scene tests or imports.
+- Exercise actual WebP decoding/rendering alongside SVG, PNG, JPEG, BMP and TIFF
+  in the generated-image regression. Document the source-install dependencies.
+- Report failing test names in CI annotations and include tracebacks in the
+  run summary, preserving the test command's failure exit status.
+
 ## 0.11.1 — 2026-10-25
 
 - Keep preview narration/music intact when video decoding stalls at splits or
