@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.11.4
+# Desktop workflow — ClipCanvas 0.11.5
 
 ## Import, then place
 
@@ -41,6 +41,14 @@ otherwise to a separate lane. See [audio lane details](AUDIO-LANES.md).
 
 ## Zoomed timeline navigation
 
+Selected scope: C12, placing the playhead at the time clicked inside a video or
+audio clip. From 0.11.5, an ordinary body click selects the clip and seeks to the
+pointer's horizontal timeline position, including when its start is offscreen.
+Repeated clicks within the selected clip seek again. The preview follows that
+time; source trim and speed do not change the pointer's timeline coordinates.
+Drag the playhead or ruler to scrub, the clip body to move it, and its edges to
+trim. Shift/Ctrl selection and right-click menus keep their selection behavior.
+
 Selected scope: C08/C09/C12, keeping the part of the timeline being edited in
 view. From 0.11.3, timeline clicks, modifier selection, right-click menus,
 transition controls, fade handles and drag starts retain the current horizontal
@@ -53,6 +61,21 @@ The native GTK regression uses a 210-second sequence at 100 pixels/second. It
 checks actual pointer events, focus changes, popups, quick click/release before
 idle callbacks, overlays/captions and a long soundtrack's move/fade controls.
 Existing desktop checks cover held-drag edge scrolling and row navigation.
+
+The 0.11.5 regression clicks generated video and audio at several positions,
+checks immediate playhead placement and the decoded paused preview time, and
+repeats the clicks with a rendered preview. It also checks source trim/speed,
+modifier selection, edge handles, unchanged project data and undo history.
+The long-timeline regression checks the requested seek time after scrolling.
+The local full-suite run completed 157 checks: 154 passed, two optional speech
+checks were skipped, and the caption trash-button keyboard-focus check timed
+out. The same focus timeout reproduced on unchanged 0.11.4 in a temporary copy;
+all timeline checks passed. Python compilation, desktop launcher validation,
+the Debian build and package checksums passed too.
+For a manual check, click midway through a video and then an audio waveform:
+the vertical line should move under each click and the preview should show that
+time. Repeat after zooming and scrolling, then check body dragging, edge trim,
+playhead scrubbing and an export of the unchanged project.
 
 To check manually, zoom a sequence longer than three minutes and scroll to
 around 175 seconds. Click and drag the visible tail of a long clip or waveform,

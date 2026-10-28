@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.5 — 2026-10-28
+
+- Move the playhead to the pointer's timeline time when clicking the body of a
+  video or audio clip. Video selection no longer jumps to the clip's beginning,
+  and audio selection now seeks the preview too. Keep trim/fade handles,
+  modifier selection, clip dragging and the scrolled viewport available.
+- Verify immediate playhead placement and decoded preview time for both media
+  types, repeated clicks, nonzero starts, source trim/speed, rendered previews
+  and a horizontally scrolled timeline. Preserve project data and undo history.
+
 ## 0.11.4 — 2026-10-25
 
 - Keep text/overlay and caption resize handles usable at minimum timeline zoom,

@@ -529,8 +529,12 @@ class Timeline(Gtk.DrawingArea):
         if hit:
             kind,i,x,y,width,height=hit
             state=getattr(event,'state',0)
-            self.owner.select_modified(kind,i,state,reveal=False)
+            self.owner.select_modified(kind,i,state,reveal=False,seek=kind not in ('clips','audio'))
             if state&(Gdk.ModifierType.SHIFT_MASK|Gdk.ModifierType.CONTROL_MASK):return True
+            # Media selection must not seek to the item's beginning. Use the
+            # same timeline coordinates as the ruler, including while scrolled.
+            if kind in ('clips','audio') and not edge:
+                self.owner.seek(max(0,(event.x-100)/self.scale))
             boundary=x if edge=='left' else x+width+(3 if kind=='clips' else 0)
             if edge=='right' and kind in ('layers','captions'):
                 boundary=100+self.owner.project[kind][i]['end']*self.scale
@@ -1170,7 +1174,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.timeline.queue_draw();self.show_inspector();self.update_row_buttons()
         self.set_status(f'{len(self.selection)} timeline items selected. Copy, Delete and Audio volume act on the selection.')
 
-    def select_modified(self,kind,index,state,reveal=True):
+    def select_modified(self,kind,index,state,reveal=True,seek=True):
         shift=state&Gdk.ModifierType.SHIFT_MASK;ctrl=state&Gdk.ModifierType.CONTROL_MASK
         previous=self.selected
         if shift and previous and previous[0]==kind:
@@ -1183,7 +1187,7 @@ class ClipCanvasWindow(Gtk.Window):
             else:self.selection.add(key)
             remaining=workflow.selected_items(self.project,self.selection)
             self.selected=(kind,index) if key in self.selection else remaining[-1][:2] if remaining else None
-        else:self.select(kind,index,reveal=reveal);return
+        else:self.select(kind,index,seek=seek,reveal=reveal);return
         self.show_inspector();self.timeline.queue_draw();self.update_row_buttons()
 
     def copy_selection(self,cut=False):

@@ -139,6 +139,77 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_video_and_audio_body_clicks_seek_to_pointer_time(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'clip-click-recovery')
+        w.canvas._pipeline.set_property('volume',0)
+        errors=[];w.canvas.on_error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.waves) and not w._scrub_settling)
+            w.project['clips'][1].update(**{'in':.2,'out':1.8,'speed':2})
+            w.project['audio'][0].update(start=.3,**{'in':.5,'out':3.5,'speed':2})
+            w.changed();w.zoom(100)
+            self.pump(lambda:len(w.timeline.hit)==3 and not w._scrub_settling)
+            before=copy.deepcopy(w.project);history=len(w.history)
+
+            def click(kind,index,at):
+                _,_,_,y,_,height=next(h for h in w.timeline.hit if h[:2]==(kind,index))
+                x=100+at*w.timeline.scale;y+=height/2
+                w.timeline.press(None,SimpleNamespace(button=1,x=x,y=y))
+                # Selection must not replace pointer time with a clip start.
+                self.assertAlmostEqual(w.playhead,at)
+                self.assertEqual(w.selected,(kind,index))
+                w.on_position(0,model.project_duration(w.project))
+                self.assertAlmostEqual(w.playhead,at,'A stale playback tick must not pull the line back')
+                w.timeline.release(None,SimpleNamespace(x=x,y=y))
+                self.pump(lambda:not w.scrub_timer and not w._scrub_settling and abs(w.canvas.position()-at)<1/w.project['fps']+.001)
+                self.assertAlmostEqual(w.playhead,at,delta=1/w.project['fps']+.001)
+                self.assertIsNotNone(w.canvas.frame)
+                self.assertFalse(w.canvas.playing)
+
+            for kind,index,at in [('clips',0,.8),('clips',1,1.9),('audio',0,1.1),('clips',1,2.1),('audio',0,.7)]:
+                with self.subTest(kind=kind,at=at):click(kind,index,at)
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+
+            # Modifier selection and trim handles remain edit controls.
+            for state in (Gdk.ModifierType.SHIFT_MASK,Gdk.ModifierType.CONTROL_MASK):
+                _,_,x,y,width,height=next(h for h in w.timeline.hit if h[:2]==('clips',1))
+                at=w.playhead
+                w.timeline.press(None,SimpleNamespace(button=1,x=x+width/2,y=y+height/2,state=state))
+                w.timeline.release(None,SimpleNamespace(x=x+width/2,y=y+height/2))
+                self.assertAlmostEqual(w.playhead,at)
+            _,_,x,y,width,height=next(h for h in w.timeline.hit if h[:2]==('clips',1))
+            at=w.playhead
+            w.timeline.press(None,SimpleNamespace(button=1,x=x+width-2,y=y+height/2))
+            self.assertEqual(w.timeline.drag['edge'],'right')
+            w.timeline.release(None,SimpleNamespace(x=x+width-2,y=y+height/2))
+            self.assertAlmostEqual(w.playhead,at)
+            self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
+
+            # Seeking from a playing clip must replace the old live position
+            # and keep playback running from the requested point.
+            w.seek(.1);self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            w.toggle_play();self.pump(lambda:w.canvas.playing and w.canvas.position()>.2)
+            for kind,index,at in [('clips',1,1.9),('audio',0,.9)]:
+                previous=w.canvas._live
+                _,_,_,y,_,height=next(h for h in w.timeline.hit if h[:2]==(kind,index))
+                x=100+at*w.timeline.scale;y+=height/2
+                w.timeline.press(None,SimpleNamespace(button=1,x=x,y=y))
+                self.assertAlmostEqual(w.playhead,at);self.assertTrue(w.canvas.playing)
+                w.timeline.release(None,SimpleNamespace(x=x,y=y))
+                self.pump(lambda:w.canvas._live is not previous and w.canvas.playing and w.canvas.position()>at)
+            w.canvas.pause();w.update_play_button(False)
+
+            # The prepared-preview seek path uses the same pointer position.
+            w.render_preview();self.pump(lambda:not w.busy and w.preview_key is not None)
+            w.canvas.pause();w.update_play_button(False)
+            click('clips',1,1.9);click('audio',0,1.1)
+            self.assertEqual(w.project,before);self.assertFalse(errors)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_drag_playhead_line_updates_frames_before_release_and_resumes_playback(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'drag-preview-recovery')
         w.canvas._pipeline.set_property('volume',0)
@@ -622,7 +693,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.project['captions']=[model.new_caption('Late caption',175,190)]
             # Decoding is covered by playback tests; here use real GTK event,
             # focus, popup and adjustment handling on a long timeline.
-            with mock.patch.object(w,'show_selected_still'),mock.patch.object(w,'seek'):
+            with mock.patch.object(w,'show_selected_still'),mock.patch.object(w,'seek') as seek:
                 w.changed();w.zoom_control.set_value(100)
                 self.pump(lambda:len(w.timeline.hit)==14 and w.timeline_scroll.get_hadjustment().get_upper()>20000)
                 horizontal=w.timeline_scroll.get_hadjustment();vertical=w.timeline_scroll.get_vadjustment()
@@ -651,6 +722,7 @@ class DesktopWorkflowTests(unittest.TestCase):
                 event(Gdk.EventType.MOTION_NOTIFY,17800,60);stable(at,top)
                 w.media_search.grab_focus()
                 event(Gdk.EventType.BUTTON_PRESS,17800,60);event(Gdk.EventType.BUTTON_RELEASE,17800,60)
+                seek.assert_called_once_with(177.0);seek.reset_mock()
                 self.assertEqual(w.selected,('clips',5));stable(at,top)
                 w.media_search.grab_focus()
                 event(Gdk.EventType.BUTTON_PRESS,17800,60)
@@ -660,6 +732,9 @@ class DesktopWorkflowTests(unittest.TestCase):
                 for state in (Gdk.ModifierType.SHIFT_MASK,Gdk.ModifierType.CONTROL_MASK):
                     event(Gdk.EventType.BUTTON_PRESS,18400,60,state=state)
                     event(Gdk.EventType.BUTTON_RELEASE,18400,60,state=state);stable(at,top)
+                # The preceding ordinary drag can seek at its grab position;
+                # modifier clicks do not add another seek.
+                self.assertEqual(seek.call_count,1);seek.reset_mock()
                 # Right-click an unselected clip and return focus from its menu.
                 event(Gdk.EventType.BUTTON_PRESS,18400,60,button=3)
                 self.assertEqual(w.selected,('clips',6));stable(at,top)
@@ -681,7 +756,9 @@ class DesktopWorkflowTests(unittest.TestCase):
                 # drop location rather than scrolling back to its first sample.
                 _,_,_,y,_,height=position('audio',0);at=horizontal.get_value();top=vertical.get_value()
                 w.snap_check.set_active(False)
+                seek.reset_mock()
                 event(Gdk.EventType.BUTTON_PRESS,18000,y+height/2)
+                seek.assert_called_once_with(179.0)
                 event(Gdk.EventType.MOTION_NOTIFY,18020,y+height/2);stable(at,top)
                 self.assertTrue(w.timeline.drag['active'])
                 event(Gdk.EventType.BUTTON_RELEASE,18020,y+height/2);stable(at,top)

@@ -35,7 +35,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
 | C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo |
-| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
+| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Pointer-time seeking from video/audio clip body clicks (0.11.5), aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
 | C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | Existing: 0.25×–4×, pitch-preserving audio |
 | C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% zoom/pan; optional prepared fallback; full-screen pending |
 
