@@ -271,3 +271,31 @@ reported live frame time and the playhead during a one-second Fast playback samp
 ![Selected main-sequence group](images/group-selection-0.9.0.png)
 
 ![Volume for a video selection](images/group-volume-0.9.1.png)
+
+
+### Split WAV playback and interactive seeking (0.11.7)
+
+C31: split and move narration without muting the right piece. Some generated WAV
+files store an incorrect byte rate despite correct sample rate and PCM samples.
+Input seeking can then jump beyond EOF. WAV soundtrack inputs now decode from
+zero and trim by sample count, before tempo/effects, for audition, preview and
+export. Source files and saved edit positions are unchanged.
+
+C12/X02: forward seeks within two seconds reuse the warm source decoder. Paused
+composition seeks prepare the active scene(s) and immediate successor instead
+of all distant scenes. During a drag, completed pictures remain visible while
+the newest target waits; release settles only on the final position.
+
+Manual check: split a WAV beyond halfway, move the right piece half a second,
+and play/seek within its beginning and ending. Compare with its source and the
+export; audition the right piece with voice effects. Drag repeatedly forward
+by roughly 0.6 seconds and across a transition, then release and check the final
+picture against the playhead. Full-resolution cold seeks and Play startup still
+depend on keyframe spacing and composition complexity; HD/Fast remains available.
+
+Generated regression media includes a 24 kHz mono PCM WAV with a byte rate of
+96,000 instead of 48,000. Its moved split must match the correct-header reference
+sample for sample in the rendered mix, audition and live playback after seeking.
+A native GTK test holds decoding behind pointer movement to verify intermediate
+frames appear and release commits the newest target. Multi-scene pixel checks
+compare pruned paused seeks with full live composition frames.

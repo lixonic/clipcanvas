@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import wave
 import threading
+import struct
 
 from clipcanvas import engine, model
 
@@ -149,6 +150,39 @@ class WavSoundtrackTests(unittest.TestCase):
                 before=copy.deepcopy(edited)
                 self.assertEqual(len(engine._continuous_audio(edited['audio'])),2)
                 self.assertEqual(edited,before)
+
+    def test_moved_right_split_with_stale_wav_byte_rate_keeps_audio_and_audition(self):
+        correct=self.root/'correct-rate.wav';broken=self.root/'stale-rate.wav';rate=24000
+        samples=array.array('h',(round(8000*math.sin(2*math.pi*(220 if i<rate*3 else 660)*i/rate))
+                                 for i in range(rate*6)))
+        with wave.open(str(correct),'wb') as stream:
+            stream.setparams((1,2,rate,0,'NONE','not compressed'));stream.writeframes(samples.tobytes())
+        data=bytearray(correct.read_bytes())
+        struct.pack_into('<I',data,28,rate*4)  # Wrong byte rate, valid sample rate/block alignment.
+        broken.write_bytes(data);digest=hashlib.sha256(data).digest()
+        p=model.new_project(160,90);p['clips']=[model.new_card(duration=7)]
+        track=model.new_audio(broken);track.update(start=.2,audio_effects={'echo_enabled':True,'gain_db':3})
+        p['audio']=[track];p=model.split_item(p,'audio',0,3.7)
+        p['audio'][1]['start']+=.5  # Editing the split defeats coalescing: both inputs must work.
+        reference=copy.deepcopy(p)
+        for item in reference['audio']:item['path']=str(correct)
+        def pcm(path):
+            return subprocess.check_output([self.ffmpeg,'-v','error','-i',str(path),'-vn',
+                '-ar','48000','-ac','2','-f','s16le','pipe:1'],env=self.env)
+        actual=self.root/'stale-mix.wav';expected=self.root/'correct-mix.wav'
+        engine.render_audio(p,actual);engine.render_audio(reference,expected)
+        self.assertEqual(pcm(actual),pcm(expected))
+        with wave.open(str(actual)) as stream:
+            stream.setpos(round(5*stream.getframerate()));tail=array.array('h');tail.frombytes(stream.readframes(1600))
+        self.assertGreater(max(map(abs,tail)),1000)
+        engine.render_track_sample(p['audio'][1],actual)
+        engine.render_track_sample(reference['audio'][1],expected)
+        self.assertEqual(pcm(actual),pcm(expected))
+        for project,name in ((p,'stale-live.mkv'),(reference,'correct-live.mkv')):
+            with (self.root/name).open('wb') as output:
+                for chunk in engine.live_stream(project,4.3):output.write(chunk)
+        self.assertEqual(pcm(self.root/'stale-live.mkv'),pcm(self.root/'correct-live.mkv'))
+        self.assertEqual(hashlib.sha256(broken.read_bytes()).digest(),digest)
 
 
     def test_wav_layers_trim_offsets_and_fades_in_export(self):

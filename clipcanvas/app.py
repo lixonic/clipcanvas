@@ -1849,7 +1849,10 @@ class ClipCanvasWindow(Gtk.Window):
             self._drag_frame_busy=False;self._drag_frame_cancel=None
             if self.closed:return False
             current=serial==self._drag_frame_serial
-            if not cancel.is_set() and current and (self._drag_scrubbing or self._scrub_settling):
+            # While the pointer is moving, show completed frames instead of
+            # starving the preview whenever a newer request is already queued.
+            # Once released, only the final target may replace the picture.
+            if not cancel.is_set() and (current or self._drag_scrubbing) and (self._drag_scrubbing or self._scrub_settling):
                 if picture:
                     self.canvas.set_composed_frame(picture,duration)
                     self.preview_label.set_text('Scrubbing' if self._drag_scrubbing else 'Paused preview')

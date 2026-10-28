@@ -35,7 +35,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
 | C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo |
-| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Pointer-time seeking from video/audio clip body clicks (0.11.5), aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
+| C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Pointer-time seeking from video/audio clip body clicks (0.11.5), forward decoder reuse and bounded paused scene preparation (0.11.7), aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
 | C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | Existing: 0.25×–4×, pitch-preserving audio |
 | C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% zoom/pan; optional prepared fallback; full-screen pending |
 
@@ -75,7 +75,7 @@ Sources: [Text and overlays](https://www.canva.com/video-editor/ai/), [text effe
 | C28 | Layer music, speech, and sound effects | Basic | Position multiple audio clips in separate tracks. | Existing: sequential clips can share a lane; simultaneous sounds use separate lanes |
 | C29 | Visible audio waveforms | Basic | See timing and sound activity while aligning clips. | Source-sample peaks, silence and stereo transients; full-source timing with trim/speed/zoom alignment (0.11.6) |
 | C30 | Trim audio and choose the source section | Basic | Select the part of a recording or song to play. | Existing |
-| C31 | Split and rearrange audio | Basic | Separate a recording into independently editable parts. | Split at playhead in the same lane; adjoining unchanged pieces keep continuous sound processing (0.11.6); independent placement and vertical drag/drop |
+| C31 | Split and rearrange audio | Basic | Separate a recording into independently editable parts. | Split at playhead in the same lane; adjoining unchanged pieces keep continuous sound processing (0.11.6); independent placement and vertical drag/drop; sample-based WAV trimming tolerates incorrect byte-rate headers (0.11.7) |
 | C32 | Clip/track volume and mute | Basic | Balance individual clips and remove original sound when needed. | Existing: contextual volume; clip mute/unmute |
 | C33 | Audio fade in/out | Basic | Smooth the beginnings and endings of audio, including video sound. | Existing: video sound and soundtrack fades; waveform tapers and soundtrack drag handles |
 | C34 | Extract audio from video | Basic | Detach sound into a separate timeline track. | Existing: right-click extraction; independent timed/speed-adjusted track; original muted |

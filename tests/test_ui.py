@@ -250,6 +250,31 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_slow_drag_frames_are_shown_while_new_pointer_requests_wait(self):
+        import threading
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'slow-drag-recovery')
+        entered=threading.Event();release=threading.Event();second=threading.Event();finish=threading.Event()
+        calls=[]
+        def frame(project,at,cancel,preview_edge):
+            calls.append(at)
+            if len(calls)==1:entered.set();release.wait(5)
+            elif len(calls)==2:second.set();finish.wait(5)
+            return {'pixels':bytes([int(at*100),0,0])*16*9,'width':16,'height':9,'position':at}
+        try:
+            w.start_project(160,90);w.project['clips']=[model.new_card(duration=3)]
+            w.refresh();w.cancel_scrub()
+            with mock.patch.object(w.scrub_session,'frame',side_effect=frame):
+                w.begin_scrub();w.seek(.2);self.pump(entered.is_set)
+                w.seek(.8);release.set();self.pump(second.is_set)
+                self.assertAlmostEqual(w.canvas.position(),.2,'Keep showing completed frames during movement')
+                self.assertAlmostEqual(w.playhead,.8,'The playhead must still follow the pointer')
+                w.end_scrub(1.1);finish.set()
+                self.pump(lambda:not w._drag_frame_busy and not w._scrub_settling)
+                self.assertAlmostEqual(w.canvas.position(),1.1,'Release must settle at the newest target')
+                self.assertAlmostEqual(w.playhead,1.1)
+        finally:
+            release.set();finish.set();w.cleanup();w.destroy()
+
     def test_drag_playhead_line_updates_frames_before_release_and_resumes_playback(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'drag-preview-recovery')
         w.canvas._pipeline.set_property('volume',0)

@@ -80,7 +80,9 @@ class ScrubSession:
         self._check(cancel)
         if self._source_pts is not None and abs(self._source_pts-at)<.001:
             return self._source_picture
-        nearby = self._source_pts is not None and 0<=at-self._source_pts<=.5
+        # Continue the warm decoder for short forward jumps. Flushing on every
+        # half-second pointer move repeatedly decodes a long GOP from its start.
+        nearby = self._source_pts is not None and 0<=at-self._source_pts<=2
         if not nearby:
             pipeline.set_state(Gst.State.PAUSED)
             if not pipeline.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,

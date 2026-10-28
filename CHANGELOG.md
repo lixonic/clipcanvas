@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.7 — 2026-10-29
+
+- Fix silent right-hand WAV splits when a source header has an incorrect byte
+  rate. Decode and trim WAVs by source samples instead of demuxer byte seeking,
+  including moved pieces, auditions, live preview and export. Originals remain
+  untouched. Add a generated malformed-header regression with independent cuts.
+- Speed up paused composition seeks by preparing only active scenes and their
+  immediate successor, retaining transition color negotiation. Use lightweight
+  PNG compression for disposable lossless image inputs.
+- Continue the existing decoder for forward seeks within two seconds, avoiding
+  repeated long-GOP reconstruction. Show completed frames during continuous
+  pointer movement, then settle only at the latest target after release.
+
 ## 0.11.6 — 2026-10-29
 
 - Draw actual source-sample peaks at five-millisecond resolution instead of a

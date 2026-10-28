@@ -25,7 +25,7 @@ class NativeScrubTests(unittest.TestCase):
         before=copy.deepcopy(p);source=self.fixtures.root/'landscape.mp4';digest=hashlib.sha256(source.read_bytes()).digest()
         session=ScrubSession()
         try:
-            for at in (.1,.3,.5,.2):
+            for at in (.1,.65,.2,.6):
                 picture=session.frame(p,at)
                 self.assertEqual(session.last_backend,'native')
                 source_at=p['clips'][0]['in']+picture['position']*p['clips'][0]['speed']

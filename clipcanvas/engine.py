@@ -122,6 +122,7 @@ def _probe_cached(path, size, mtime):
                 "audio_index": audios[0].get("index", 0) if audios else None,
                 "audio_sample_rate": int(audios[0].get("sample_rate", 48000)) if audios else 0,
                 "audio_channels": int(audios[0].get("channels", 1)) if audios else 0,
+                "format_name": data.get('format', {}).get('format_name', ''),
                 "sample_aspect_ratio": sar}
     except (ValueError, TypeError, KeyError) as error:
         raise RenderError(f"Cannot read the duration of {Path(path).name}. Use a video or audio file with a known duration.") from error
@@ -161,7 +162,8 @@ def _image_source(path, target):
     if picture.get_has_alpha():
         picture = picture.composite_color_simple(picture.get_width(), picture.get_height(),
             GdkPixbuf.InterpType.NEAREST, 255, max(picture.get_width(), picture.get_height()), 0, 0)
-    picture.savev(str(target), 'png', [], [])
+    # These disposable frames need lossless pixels, not expensive compression.
+    picture.savev(str(target), 'png', ['compression'], ['1'])
     return str(target)
 
 
@@ -208,6 +210,21 @@ def _processed_audio(item, length, audible_length=None, with_effects=True):
     filters.extend([f'atrim=duration={_fmt(length)}',f'volume={_fmt(item.get("volume",1))}'])
     filters.extend(_audio_fades(item,length if audible_length is None else audible_length))
     return filters
+
+
+def _audio_input(item, metadata):
+    """Return input arguments and a source trim that tolerates WAV headers.
+
+    Some generated PCM WAVs have a stale byte-rate field. Demuxer seeking then
+    lands at the wrong sample (or beyond EOF). Decode from zero and trim using
+    sample counts for WAV, without rewriting the user's source.
+    """
+    if metadata.get('format_name') == 'wav':
+        rate = metadata['audio_sample_rate']
+        trim = f"atrim=start_sample={round(item.get('in',0)*rate)}:end_sample={round(item['out']*rate)},"
+        return ['-threads','1','-t',_fmt(item['out']),'-i',item['path']], trim
+    return ['-threads','1','-ss',_fmt(item.get('in',0)),
+            '-t',_fmt(item['out']-item.get('in',0)),'-i',item['path']], ''
 
 
 def _continuous_audio(tracks):
@@ -770,8 +787,10 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         metadata = probe(track["path"])
         if not metadata["has_audio"]:
             raise RenderError(f"{Path(track['path']).name} has no audio stream.")
-        args += ["-threads", "1", "-ss", _fmt(track.get("in", 0)), "-t", _fmt(track["out"] - track.get("in", 0)), "-i", track["path"]]
-        parts = [f"[{index}:{metadata['audio_index']}]aresample=48000",
+        source_args, source_trim = _audio_input(track, metadata)
+        args += source_args
+        if source_trim:source_trim += 'asetpts=PTS-STARTPTS,'
+        parts = [f"[{index}:{metadata['audio_index']}]{source_trim}aresample=48000",
                  "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]
         audible_length = max(0.0, min(length, total - start))
         parts.extend(_processed_audio(track,length,audible_length))
@@ -811,6 +830,10 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
     active = [(i, row) for i, row in enumerate(timeline(project))
               if row['start'] <= seconds < row['start']+row['duration']]
     origin = active[0][1]['start']
+    # Only the active scenes and their immediate successor can affect this
+    # picture. Retain that join for color negotiation, but avoid decoding and
+    # rasterizing an entire project's future scenes for every pointer move.
+    project['clips'] = project['clips'][:min(len(project['clips']), active[-1][0]+2)]
     project['audio'] = []
     for group in ('layers', 'captions'):
         project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
@@ -1083,11 +1106,12 @@ def render_track_sample(item, output, with_effects=True, audible_length=None, se
     handle,temporary=tempfile.mkstemp(prefix='.clipcanvas-',suffix='.wav',dir=output.parent);os.close(handle)
     try:
         with tempfile.TemporaryDirectory(prefix='clipcanvas-audition-') as scratch:
-            filters=['aresample=48000','aformat=sample_fmts=fltp:channel_layouts=stereo','asetpts=PTS-STARTPTS']
+            source_args, source_trim = _audio_input(item, metadata)
+            if source_trim:source_trim += 'asetpts=PTS-STARTPTS,'
+            filters=[source_trim+'aresample=48000','aformat=sample_fmts=fltp:channel_layouts=stereo','asetpts=PTS-STARTPTS']
             filters.extend(_processed_audio(item,length,audible_length,with_effects))
             filters.extend(['alimiter=limit=0.95:level=0:latency=1','apad',f'atrim=duration={_fmt(seconds)}'])
-            args=['-nostdin','-hide_banner','-loglevel','warning','-y','-threads','1',
-                  '-ss',_fmt(item.get('in',0)),'-t',_fmt(item['out']-item.get('in',0)),'-i',item['path'],
+            args=['-nostdin','-hide_banner','-loglevel','warning','-y']+source_args+[
                   '-map',f'0:{metadata["audio_index"]}','-vn','-filter_threads','1','-af',','.join(filters),
                   '-c:a','pcm_s16le','-ar','48000','-ac','2','-t',_fmt(seconds),
                   '-progress','pipe:1',temporary]

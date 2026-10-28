@@ -172,6 +172,27 @@ class LiveStreamTests(unittest.TestCase):
         cancel=threading.Event();cancel.set()
         with self.assertRaises(engine.RenderCancelled):engine.preview_frame(p,1,cancel)
 
+    def test_paused_seek_skips_distant_scenes_and_keeps_transition_pixels(self):
+        from unittest import mock
+        p=self.project()
+        for i in range(12):
+            p['clips'].append(model.new_card('#335577',.6))
+            p['clips'][-2].update(transition='fade',transition_duration=.2)
+        original=copy.deepcopy(p)
+        full=self.stream_file(p,0,'many-scenes.mkv')
+        builder=engine._graph
+        counts=[]
+        def measured(project,*args,**kwargs):
+            result=builder(project,*args,**kwargs);counts.append(len(project['clips']));return result
+        with mock.patch.object(engine,'_graph',side_effect=measured):
+            for at in (.4,1.2,2.2):
+                picture=engine.preview_frame(p,at)
+                reference=self.pixels(full,at)
+                error=sum(abs(a-b) for a,b in zip(picture['pixels'],reference))/len(reference)
+                self.assertLess(error,3)
+        self.assertLessEqual(max(counts),4,'A paused seek must not prepare all future scenes')
+        self.assertEqual(p,original)
+
     def test_auto_fractional_rate_is_used_by_stream_and_final_export(self):
         source=self.root/'fractional.mp4'
         subprocess.run([self.ffmpeg,'-v','error','-y','-f','lavfi','-i','testsrc2=s=160x90:r=30000/1001:d=0.5',
