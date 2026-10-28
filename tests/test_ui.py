@@ -139,6 +139,46 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_waveform_pulses_follow_trim_speed_zoom_and_split(self):
+        import array
+        import wave
+        path=self.fixtures.root/'waveform-pulses.wav';rate=48000
+        data=array.array('h',[0])*(rate*3)
+        for at in (.737,2.917):
+            for n in range(round(at*rate),round((at+.002)*rate)):data[n]=26000
+        with wave.open(str(path),'wb') as stream:
+            stream.setparams((1,2,rate,0,'NONE','not compressed'));stream.writeframes(data.tobytes())
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'waveform-paint-recovery')
+        try:
+            w.start_project(320,180);w.project['clips']=[model.new_card(duration=6)]
+            track=model.new_audio(path);track.update(start=.2)
+            w.project['audio']=[track];w.changed();w.load_asset(track,'audio')
+            self.pump(lambda:str(path) in w.waves and len(w.timeline.hit)==2)
+            for scale,speed,trim in ((28,1,0),(140,1,0),(140,.5,.4)):
+                with self.subTest(scale=scale,speed=speed,trim=trim):
+                    track.update(speed=speed,**{'in':trim});w.zoom(scale)
+                    def check():
+                        surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,1400,500)
+                        w.timeline.draw(w.timeline,cairo.Context(surface))
+                        picture=Gdk.pixbuf_get_from_surface(surface,0,0,1400,500)
+                        pixels=picture.get_pixels();stride=picture.get_rowstride();channels=picture.get_n_channels()
+                        def pixel(x,y):
+                            offset=int(y)*stride+int(x)*channels;return tuple(pixels[offset:offset+3])
+                        for at in (.737,2.917):
+                            index=next(i for i,a in enumerate(w.project['audio']) if a['in']<=at<a['out'])
+                            item=w.project['audio'][index]
+                            _,_,x,y,_,_=next(h for h in w.timeline.hit if h[:2]==('audio',index))
+                            column=3*int(((at-item['in'])/item['speed']*scale)//3)
+                            quiet=pixel(x+12,y+24);pulse=pixel(x+column+1,y+24)
+                            self.assertGreater(pulse[0],quiet[0]+20,'The drawn waveform must show the real short pulse at its source time')
+                    check()
+                    if scale==140 and speed==.5:
+                        w.project=model.split_item(w.project,'audio',0,2)
+                        w.timeline.refresh();check()
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
     def test_video_and_audio_body_clicks_seek_to_pointer_time(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'clip-click-recovery')
         w.canvas._pipeline.set_property('volume',0)

@@ -86,6 +86,19 @@ class LiveStreamTests(unittest.TestCase):
         cancel.set();self.assertEqual(list(stream),[])
         self.assertFalse(any(path.exists() for path in added))
 
+    def test_audio_split_preserves_live_samples_at_the_join_and_right_end(self):
+        p=model.new_project(160,90);p['clips']=[model.new_card(duration=5)]
+        track=model.new_audio(self.root/'music.wav');track.update(start=.12345,fade_out=.05)
+        track['audio_effects']=audio_effects.preset('Echo');p['audio']=[track]
+        original=copy.deepcopy(p)
+        split=model.split_item(p,'audio',0,1.87654)
+        full=self.stream_file(p,0,'audio-unsplit-live.mkv')
+        pieces=self.stream_file(split,0,'audio-split-live.mkv')
+        self.assertEqual(self.pcm(full,0,5),self.pcm(pieces,0,5))
+        sought=self.stream_file(split,3.7,'audio-split-seek.mkv')
+        self.assertEqual(self.pcm(full,3.7,.4),self.pcm(sought,0,.4))
+        self.assertEqual(p,original)
+
     def test_deep_live_seek_keeps_picture_and_complete_voice_effect_history(self):
         from unittest import mock
         source=self.root/'long-audible.mp4'

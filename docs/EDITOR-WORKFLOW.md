@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.11.5
+# Desktop workflow — ClipCanvas 0.11.6
 
 ## Import, then place
 
@@ -25,6 +25,32 @@ removed when saving and reopening the project. Import the file again to add it
 back to the library.
 
 ## Shared audio lanes
+
+Selected scope: C29/C31, showing real sound pulses and keeping the complete sound
+when splitting. From 0.11.6, waveform bars show source sample peaks at their real
+relative levels. Silence is a flat center line. Peaks combine all source channels
+without cancellation and retain high frequencies. The worker reads the complete
+file at its native rate; five-millisecond peak bins are aggregated per displayed
+bar, preserving brief pulses when zoomed out. Source trim and speed determine
+which part is drawn. The waveform shows the original source before volume and
+voice effects; fade controls remain separate. Extremely long recordings use
+coarser bins to cap the cache at two million peaks (8 MB per source).
+
+Splitting leaves the original source end intact. Adjoining pieces with matching
+settings and continuous source timing share one tempo/effect processor for live
+playback and export. This retains echo and compressor history across the cut.
+The pieces remain independent in the project; moving a piece, adding a fade or
+changing its processing settings makes it a separate sound again. Sound beyond
+the main video's ending is still outside the video's playback/export range.
+
+Generated-media checks compare unsplit audio with two and three pieces sample
+for sample, including speed changes, echo, compression, outer fades, live seeks
+and final samples. Waveform checks use silence, a two-millisecond 6 kHz stereo
+pulse with opposite phases, multiple WAV encodings and a pulse after 30 minutes.
+A GTK paint check verifies visible peak positions across zoom, trim, speed and
+split. To check manually, import a WAV with distinct speech pauses, zoom into
+the pauses, split between words, then play and export through the cut and the
+sound's ending. The split should retain the complete sound and waveform.
 
 Several sequential audio clips can share one Audio row. Drag a waveform into a
 gap on another lane; **Snap** aligns it to another clip's end. The lifted waveform

@@ -1,11 +1,15 @@
 """WAV soundtrack regression checks using generated media, never user files."""
 
 import array
+import copy
+import hashlib
 import math
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import wave
+import threading
 
 from clipcanvas import engine, model
 
@@ -52,7 +56,7 @@ class WavSoundtrackTests(unittest.TestCase):
         return project
 
     def test_wav_import_waveform_and_project_roundtrip(self):
-        for name, _, _, _, _ in self.FORMATS:
+        for name, _, _, channels, _ in self.FORMATS:
             with self.subTest(wav=name):
                 metadata = engine.probe(self.root / name)
                 self.assertTrue(metadata["has_audio"])
@@ -62,12 +66,90 @@ class WavSoundtrackTests(unittest.TestCase):
                 self.assertEqual(len(waveform), 50)
                 self.assertTrue(all(math.isfinite(value) and 0 <= value <= 1
                                     for value in waveform))
-                self.assertGreater(sum(waveform), 40)
+                # FFmpeg's mono-to-stereo conversion uses equal-power gains.
+                expected=.125 if channels==1 else .125/math.sqrt(2)
+                self.assertTrue(all(abs(value-expected)<.002 for value in waveform))
         project = self.project()
         self.assertTrue(model.validate_project(project, require_clips=True))
         saved = self.root / "wav-layers.clipcanvas"
         model.save_project(project, saved)
         self.assertEqual(model.load_project(saved), project)
+
+    def test_waveform_keeps_silence_short_pulses_high_frequencies_and_stereo_phase(self):
+        path=self.root/'pulses.wav';rate=48000
+        samples=array.array('h')
+        for frame in range(rate*3):
+            at=frame/rate
+            amplitude=.8 if 1.237<=at<1.239 or 2.90<=at<2.95 else .2 if .3<=at<.5 else 0
+            value=round(amplitude*32767*math.sin(2*math.pi*6000*at))
+            samples.extend((value,-value))
+        with wave.open(str(path),'wb') as stream:
+            stream.setparams((2,2,rate,0,'NONE','not compressed'));stream.writeframes(samples.tobytes())
+        digest=hashlib.sha256(path.read_bytes()).digest()
+        peaks=engine.waveform(path)
+        self.assertEqual(len(peaks),600)
+        self.assertEqual(max(peaks[:50]),0)
+        self.assertAlmostEqual(peaks[70],.2,delta=.001)
+        self.assertAlmostEqual(peaks[247],.8,delta=.001)
+        self.assertAlmostEqual(peaks[585],.8,delta=.001)
+        self.assertEqual(max(peaks[300:550]),0)
+        self.assertEqual(hashlib.sha256(path.read_bytes()).digest(),digest)
+        cancel=threading.Event();cancel.set()
+        with self.assertRaises(engine.RenderCancelled):engine.waveform(path,cancel=cancel)
+
+    def test_waveform_reads_past_thirty_minutes_without_stretching_early_audio(self):
+        path=self.root/'long-pulse.wav';rate=8000
+        with wave.open(str(path),'wb') as stream:
+            stream.setparams((1,2,rate,0,'NONE','not compressed'))
+            for second in range(1802):
+                value=10000 if second==1801 else 0
+                stream.writeframes(array.array('h',[value]*rate).tobytes())
+        peaks=engine.waveform(path,max_points=1802)
+        self.assertEqual(max(peaks[:-1]),0)
+        self.assertAlmostEqual(peaks[-1],10000/32768,delta=.0001)
+
+    def test_split_audio_preserves_the_end_and_join_in_rendered_sound(self):
+        path=self.root/'split-pulses.wav';rate=48000
+        samples=array.array('h')
+        for frame in range(rate*4):
+            at=frame/rate
+            amplitude=.3 if .1<=at<3.98 else 0
+            samples.append(round(amplitude*32767*math.sin(2*math.pi*440*at)))
+        with wave.open(str(path),'wb') as stream:
+            stream.setparams((1,2,rate,0,'NONE','not compressed'));stream.writeframes(samples.tobytes())
+        for speed,effects in ((1,{}),(1,{'echo_enabled':True,'echo_delay_ms':240,'echo_level':.35}),
+                              (.5,{}),(2,{'compressor_enabled':True})):
+            with self.subTest(speed=speed,effects=effects):
+                project=model.new_project(160,90);project['clips']=[model.new_card(duration=10)]
+                track=model.new_audio(path);track.update(start=.2,audio_effects=effects,speed=speed,fade_in=.05,fade_out=.01)
+                project['audio']=[track]
+                before=copy.deepcopy(project)
+                split=model.split_item(project,'audio',0,.2+1.92345/speed)
+                self.assertEqual(split['audio'][1]['out'],track['out'])
+                self.assertAlmostEqual(sum(model.clip_duration(a) for a in split['audio']),model.clip_duration(track))
+                def render(p,name):
+                    output=self.root/name;engine.render_audio(p,output)
+                    with wave.open(str(output),'rb') as stream:
+                        data=array.array('h');data.frombytes(stream.readframes(stream.getnframes()));return data
+                whole=render(project,'whole.wav');pieces=render(split,'pieces.wav')
+                self.assertEqual(len(whole),len(pieces))
+                self.assertEqual(whole,pieces,'Splitting alone must preserve every audible sample, including the join and tail')
+                again=model.split_item(split,'audio',1,.2+3.1/speed)
+                self.assertEqual(whole,render(again,'three-pieces.wav'))
+                self.assertEqual(project,before)
+
+    def test_audio_cuts_with_gaps_or_changed_settings_stay_independent(self):
+        project=self.project();project['audio']=project['audio'][:1]
+        split=model.split_item(project,'audio',0,.8)
+        for field,value in [('volume',.1),('speed',2),('start',1.1),('in',1.3),
+                            ('fade_in',.1),('lane_id','another-lane'),
+                            ('audio_effects',{'gain_db':6})]:
+            with self.subTest(field=field):
+                edited=copy.deepcopy(split);edited['audio'][1][field]=value
+                before=copy.deepcopy(edited)
+                self.assertEqual(len(engine._continuous_audio(edited['audio'])),2)
+                self.assertEqual(edited,before)
+
 
     def test_wav_layers_trim_offsets_and_fades_in_export(self):
         project = self.project()

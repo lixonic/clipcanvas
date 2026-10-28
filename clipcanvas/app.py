@@ -280,9 +280,14 @@ class Timeline(Gtk.DrawingArea):
                 first_bar=max(0,math.floor((left-x-2)/3)*3)
                 last_bar=min(int(w),math.ceil(right-x))
                 for xx in range(first_bar,last_bar,3):
-                    fraction=(audio['in']+(xx/max(w,1))*visible*audio.get('speed',1))/max(.01,audio['duration'])
-                    amp=values[min(len(values)-1,max(0,int(fraction*len(values))))]
-                    hh=max(2,amp*28);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+21-hh/2,2,hh);cr.fill()
+                    # Each bar covers an interval of source time, not a single
+                    # cached point. Keep narrow pulses when zooming out.
+                    source_start=audio['in']+xx/self.scale*audio.get('speed',1)
+                    source_end=min(audio['out'],source_start+3/self.scale*audio.get('speed',1))
+                    first=max(0,math.floor(source_start/audio['duration']*len(values)))
+                    last=min(len(values),math.ceil(source_end/audio['duration']*len(values)))
+                    amp=max(values[first:last],default=0)
+                    hh=max(1,amp*22);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+30-hh/2,2,hh);cr.fill()
             if paint:
                 rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,('FX · ' if audio_effects.active(audio) else '')+Path(audio['path']).name,x+7,y+13,'#ffffff',10)
             audible=max(0,min(visible,duration-(self.audio_drag_start(self.drag) if lifted else audio['start'])))
@@ -661,6 +666,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.selected=None;self.selection=set();self.history=[];self.future=[];self.thumbs={};self.waves={};self.playhead=0.;self.preview_key=None
         self.preferences=Preferences(preferences_dir or (Path(recovery_dir)/'preferences' if recovery_dir else None))
         self.media_metadata={};self.mute_volumes={}
+        self._wave_pending=set();self._asset_cancel=threading.Event()
         self.temp=Path(tempfile.mkdtemp(prefix='clipcanvas-'));self.pool=ThreadPoolExecutor(max_workers=2)
         self.frame_pool=ThreadPoolExecutor(max_workers=1)
         from .scrubber import ScrubSession
@@ -1715,7 +1721,9 @@ class ClipCanvasWindow(Gtk.Window):
         path=item['path']
         if kind=='clips' and path in self.thumbs and path in self.media_metadata:
             self.adapt_frame_rate();return
-        if kind=='audio' and path in self.waves:return
+        if kind=='audio':
+            if path in self.waves or path in self._wave_pending:return
+            self._wave_pending.add(path)
         def work():
             try:
                 if kind=='clips':
@@ -1730,9 +1738,15 @@ class ClipCanvasWindow(Gtk.Window):
                         target=self.temp/(hashlib.sha256(path.encode()).hexdigest()+'.jpg')
                         engine.thumbnail(path,str(target),at=item['in'],width=640,height=360)
                     GLib.idle_add(self.asset_ready,path,kind,str(target))
-                else:GLib.idle_add(self.asset_ready,path,kind,engine.waveform(path,max_points=600))
-            except Exception:pass
+                else:GLib.idle_add(self.asset_ready,path,kind,engine.waveform(path,cancel=self._asset_cancel))
+            except Exception as error:
+                if kind=='audio':GLib.idle_add(self.waveform_failed,path,str(error))
         self.pool.submit(work)
+
+    def waveform_failed(self,path,message):
+        self._wave_pending.discard(path)
+        if not self.closed:self.set_status(f'Waveform unavailable for {Path(path).name}: {message}')
+        return False
 
     def media_info_ready(self,path,metadata):
         if self.closed:return False
@@ -1749,7 +1763,7 @@ class ClipCanvasWindow(Gtk.Window):
         if self.closed:return False
         try:
             if kind=='clips':self.thumbs[path]=GdkPixbuf.Pixbuf.new_from_file(data)
-            else:self.waves[path]=data
+            else:self._wave_pending.discard(path);self.waves[path]=data
             self.refresh_assets();self.timeline.queue_draw();self.show_selected_still()
         except Exception:pass
         return False
@@ -2241,6 +2255,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.cleanup();Gtk.main_quit();return False
 
     def cleanup(self):
+        self._asset_cancel.set()
         self.layer_tools.stop_sound_preview()
         for timer in (self.autosave_timer,self.scrub_timer):
             if timer:GLib.source_remove(timer)

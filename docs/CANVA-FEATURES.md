@@ -73,9 +73,9 @@ Sources: [Text and overlays](https://www.canva.com/video-editor/ai/), [text effe
 |---|---|---|---|---|
 | C27 | Import personal soundtracks, including WAV | Basic | Use WAV, MP3, M4A, OGG, or WebM audio. | Existing; WAV verified |
 | C28 | Layer music, speech, and sound effects | Basic | Position multiple audio clips in separate tracks. | Existing: sequential clips can share a lane; simultaneous sounds use separate lanes |
-| C29 | Visible audio waveforms | Basic | See timing and sound activity while aligning clips. | Existing |
+| C29 | Visible audio waveforms | Basic | See timing and sound activity while aligning clips. | Source-sample peaks, silence and stereo transients; full-source timing with trim/speed/zoom alignment (0.11.6) |
 | C30 | Trim audio and choose the source section | Basic | Select the part of a recording or song to play. | Existing |
-| C31 | Split and rearrange audio | Basic | Separate a recording into independently editable parts. | Existing: split at playhead in the same lane; independent placement and vertical drag/drop |
+| C31 | Split and rearrange audio | Basic | Separate a recording into independently editable parts. | Split at playhead in the same lane; adjoining unchanged pieces keep continuous sound processing (0.11.6); independent placement and vertical drag/drop |
 | C32 | Clip/track volume and mute | Basic | Balance individual clips and remove original sound when needed. | Existing: contextual volume; clip mute/unmute |
 | C33 | Audio fade in/out | Basic | Smooth the beginnings and endings of audio, including video sound. | Existing: video sound and soundtrack fades; waveform tapers and soundtrack drag handles |
 | C34 | Extract audio from video | Basic | Detach sound into a separate timeline track. | Existing: right-click extraction; independent timed/speed-adjusted track; original muted |

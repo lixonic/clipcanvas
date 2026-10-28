@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.6 — 2026-10-29
+
+- Draw actual source-sample peaks at five-millisecond resolution instead of a
+  600-point normalized RMS decoration. Preserve silence, relative levels,
+  high-frequency pulses and opposite-phase stereo. Read the whole source,
+  including beyond 30 minutes, using bounded buffers and cancellable workers.
+  Aggregate peaks across each displayed bar and align them to source trim and
+  speed at every zoom. Put the waveform below its filename label.
+- Keep adjoining, unchanged audio splits continuous in live playback and export.
+  Share their tempo/effect processing so a new cut cannot reset echo/compressor
+  history or discard sound at the join. Keep saved pieces independently editable;
+  gaps, moved pieces, changed settings and new fades retain separate processing.
+  Place soundtracks at sample precision instead of rounding to milliseconds.
+- Verify source levels, transient locations, long recordings, painted waveform
+  positions after trim/speed/split, and sample-identical split/unsplit audio in
+  exports and live playback, including seeking near the right end.
+
 ## 0.11.5 — 2026-10-28
 
 - Move the playhead to the pointer's timeline time when clicking the body of a

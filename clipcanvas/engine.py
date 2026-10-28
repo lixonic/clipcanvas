@@ -16,8 +16,10 @@ from pathlib import Path
 import queue
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 
 from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card, is_image, is_still
 from . import audio_effects, transitions
@@ -118,6 +120,8 @@ def _probe_cached(path, size, mtime):
                 "fps": _fraction(video.get("avg_frame_rate", "0/1")) or _fraction(video.get("r_frame_rate", "0/1")),
                 "video_index": video.get("index", 0),
                 "audio_index": audios[0].get("index", 0) if audios else None,
+                "audio_sample_rate": int(audios[0].get("sample_rate", 48000)) if audios else 0,
+                "audio_channels": int(audios[0].get("channels", 1)) if audios else 0,
                 "sample_aspect_ratio": sar}
     except (ValueError, TypeError, KeyError) as error:
         raise RenderError(f"Cannot read the duration of {Path(path).name}. Use a video or audio file with a known duration.") from error
@@ -204,6 +208,32 @@ def _processed_audio(item, length, audible_length=None, with_effects=True):
     filters.extend([f'atrim=duration={_fmt(length)}',f'volume={_fmt(item.get("volume",1))}'])
     filters.extend(_audio_fades(item,length if audible_length is None else audible_length))
     return filters
+
+
+def _continuous_audio(tracks):
+    """Render untouched adjacent cuts through one continuous audio processor.
+
+    Splitting is an editing operation: it must not reset tempo/echo/compressor
+    history or cut off an echo at the new middle boundary. Only join pieces
+    whose source, placement and processing still match; the saved pieces stay
+    independent. Gaps, moves, edits and explicit fades keep separate inputs.
+    """
+    ignored={'id','source_clip_id','in','out','start','fade_in','fade_out',
+             'transition_fade_in','transition_fade_out'}
+    result=[];tails={}
+    for item in sorted(tracks,key=lambda track:track.get('start',0)):
+        lane=item.get('lane_id',item['id'])
+        left=tails.get(lane)
+        same=left is not None and {k:v for k,v in left.items() if k not in ignored}=={k:v for k,v in item.items() if k not in ignored}
+        if (same and abs(left['out']-item.get('in',0))<1e-8
+                and abs(left['start']+clip_duration(left)-item['start'])<1e-8
+                and not any(left.get(k,0) for k in ('fade_out','transition_fade_out'))
+                and not any(item.get(k,0) for k in ('fade_in','transition_fade_in'))):
+            left['out']=item['out']
+            for key in ('fade_out','transition_fade_out'):left[key]=item.get(key,0)
+        else:
+            merged=copy.deepcopy(item);result.append(merged);tails[lane]=merged
+    return result
 
 
 def _stop(process):
@@ -733,7 +763,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             filters.append(f'[{audio}]adelay={round(origin*1000)}:all=1,asetpts=N/SR/TB[globalaudio]')
             audio = 'globalaudio'
     mix_labels = [audio]
-    for offset, track in enumerate([] if video_only else project.get("audio", [])):
+    for offset, track in enumerate([] if video_only else _continuous_audio(project.get("audio", []))):
         index = args.count('-i')
         length = clip_duration(track)
         start = float(track.get("start", 0))
@@ -748,7 +778,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         # Give the delayed sample sequence an explicit zero origin. With tempo
         # conversion/padding, inherited timestamps can otherwise cause amix to
         # discard the leading silence and start this independent track early.
-        parts.extend([f"adelay={round(start*1000)}:all=1", "asetpts=N/SR/TB",
+        parts.extend([f"adelay={round(start*48000)}S:all=1", "asetpts=N/SR/TB",
                       f"apad=whole_dur={_fmt(total)}", f"atrim=duration={_fmt(total)}"])
         filters.append(",".join(parts) + f"[music{offset}]")
         mix_labels.append(f"music{offset}")
@@ -1097,32 +1127,57 @@ def thumbnail(path, output, at=0, width=320, height=180):
         raise RenderError("Creating the thumbnail took too long.") from error
 
 
-def waveform(path, max_points=120):
-    """Return normalized RMS bins for a small decorative waveform."""
+def waveform(path, max_points=None, cancel=None):
+    """Stream source-sample peaks over the complete media timeline.
+
+    Keep all channels (opposite-phase stereo must not cancel) and the native
+    sample rate (downsampling would remove high-frequency transients). Peaks
+    retain their linear amplitude relative to digital full scale. The default
+    five-millisecond bins resolve a bar even at maximum zoom and minimum speed;
+    storage is bounded for unusually long recordings, without truncating time.
+    """
+    if cancel is not None and cancel.is_set():
+        raise RenderCancelled('Waveform cancelled.')
     meta = probe(path)
+    count = max(1, min(2000000, int(max_points) if max_points is not None else math.ceil(meta['duration']*200)))
     if not meta["has_audio"]:
-        return [0.0] * int(max_points)
-    max_points = max(1, min(2000, int(max_points)))
+        return array.array('f', [0.0])*count
     binary, env = _tool("ffmpeg")
-    # At 2000 Hz this stays small for ordinary social videos. Bound long files.
-    sample_seconds = min(meta["duration"], 1800)
+    rate, channels = meta['audio_sample_rate'], meta['audio_channels']
+    frames = max(1, round(meta['duration']*rate))
+    count = min(count, frames)
+    peaks = array.array('f', [0.0])*count
+    process = subprocess.Popen([binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1',
+        '-i', str(Path(path).resolve()), '-map', f"0:{meta['audio_index']}",
+        '-ar', str(rate), '-ac', str(channels), '-f', 'f32le', 'pipe:1'],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=env)
+    finished = threading.Event(); timed_out = threading.Event()
+    deadline = time.monotonic()+300
+    def watch():
+        while not finished.wait(.05):
+            if time.monotonic()>=deadline:timed_out.set()
+            if timed_out.is_set() or (cancel is not None and cancel.is_set()):
+                _stop(process);return
+    watcher = threading.Thread(target=watch, daemon=True);watcher.start()
     try:
-        result = subprocess.run([binary, "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "1", "-i", str(Path(path).resolve()),
-                                 "-map", f"0:{meta['audio_index']}", "-t", _fmt(sample_seconds), "-ac", "1", "-ar", "2000", "-f", "f32le", "pipe:1"],
-                                capture_output=True, env=env, timeout=45)
-    except subprocess.TimeoutExpired as error:
-        raise RenderError("Reading this waveform took too long.") from error
-    if result.returncode:
-        raise RenderError("Could not read this soundtrack's waveform.")
-    samples = array.array("f")
-    samples.frombytes(result.stdout[:len(result.stdout) // 4 * 4])
-    if not samples:
-        return [0.0] * max_points
-    result = []
-    for index in range(max_points):
-        start = int(index * len(samples) / max_points)
-        end = max(start + 1, int((index + 1) * len(samples) / max_points))
-        chunk = samples[start:end]
-        result.append(math.sqrt(sum(x*x for x in chunk) / max(1, len(chunk))))
-    peak = max(result) or 1.0
-    return [value / peak for value in result]
+        for index in range(count):
+            remaining = ((index+1)*frames//count-index*frames//count)*channels*4
+            peak = 0.0
+            while remaining:
+                data = process.stdout.read(min(65536,remaining))
+                if not data:break
+                remaining -= len(data)
+                samples = array.array('f');samples.frombytes(data[:len(data)//4*4])
+                if sys.byteorder!='little':samples.byteswap()
+                if samples:peak = max(peak, abs(min(samples)), abs(max(samples)))
+            peaks[index] = min(1.0,peak) if math.isfinite(peak) else 0.0
+            if remaining:break
+        # Drain codec padding without stretching the waveform to padded time.
+        while process.stdout.read(65536):pass
+        code = process.wait()
+        if cancel is not None and cancel.is_set():raise RenderCancelled('Waveform cancelled.')
+        if timed_out.is_set():raise RenderError('Reading this waveform took too long.')
+        if code:raise RenderError("Could not read this soundtrack's waveform.")
+        return peaks
+    finally:
+        finished.set();_stop(process);process.stdout.close();watcher.join(timeout=4)
