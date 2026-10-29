@@ -17,7 +17,9 @@ gi.require_version('GdkPixbuf', '2.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 
-from . import animations
+from . import animations, bundled_fonts
+
+bundled_fonts.register()
 
 
 def rgba(value, default='#ffffff'):

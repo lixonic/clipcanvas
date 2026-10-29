@@ -1,7 +1,7 @@
 # Developing ClipCanvas
 
 The current supported development environment is Ubuntu 24.04, Python 3.12,
-GTK 3, GStreamer and FFmpeg. Windows is a planned target; see
+GTK 3, Fontconfig, GStreamer and FFmpeg. Windows is a planned target; see
 [the development plan](docs/DEVELOPMENT-PLAN.md).
 
 ## Dependencies
@@ -13,7 +13,8 @@ sudo apt install python3 python3-venv python3-gi python3-cairo python3-gi-cairo 
 ```
 
 Run with `/usr/bin/python3 -m clipcanvas` from the repository root. Use Ubuntu's
-system Python so the GTK introspection bindings are available.
+system Python so the GTK introspection bindings are available. Bundled Malayalam fonts register with
+Fontconfig for the app process and travel with both package/source builds.
 
 SVG and WebP import require the explicit `librsvg2-common` and
 `webp-pixbuf-loader` packages. CI installs without recommended packages, so do

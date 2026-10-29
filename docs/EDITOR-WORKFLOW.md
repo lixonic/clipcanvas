@@ -299,3 +299,27 @@ sample for sample in the rendered mix, audition and live playback after seeking.
 A native GTK test holds decoding behind pointer movement to verify intermediate
 frames appear and release commits the newest target. Multi-scene pixel checks
 compare pruned paused seeks with full live composition frames.
+
+
+### Malayalam video captions and Google Fonts (0.12.0)
+
+Selected C23/C25 outcome: generate editable Malayalam captions and style them in
+three included Malayalam fonts. Choose **Captions → Malayalam · മലയാളം → Generate
+captions**. Choosing Malayalam selects the local multilingual Turbo model
+(about 1.6 GB on first use); other languages retain their selected model. For separate narration use
+**Full mix** in the gear settings; ordinary original-video speech follows source
+clip audio. Progress, cancellation, replacement confirmation and undo apply.
+
+In **Caption style**, choose Noto Sans Malayalam, Manjari or Anek Malayalam in the
+Malayalam Google Fonts selector, then apply. The same choices work for titles.
+Generated/imported Malayalam gets Noto Sans Malayalam if the project uses a
+generic font; an existing chosen family stays selected. All font files and
+licenses are bundled, so font selection, preview and export work offline.
+
+Manual check: set Malayalam, generate from a Malayalam video, correct a cue's
+words/times, and switch through all three fonts. Check a conjunct/chillu example
+such as “മലയാളം അടിക്കുറിപ്പുകൾ കേരളം കൃഷ്ണൻ”. Save/reopen, export video and SRT,
+and verify glyphs, timing and the selected family. Undo generation and ensure
+both cues and the previous font return. Cancel generation/replacement and ensure
+existing cues and appearance remain unchanged. Switch to English or Automatic
+and confirm the saved caption language follows the selection.

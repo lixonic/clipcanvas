@@ -1,8 +1,12 @@
-# Local captions in ClipCanvas 0.10.7
+# Local captions in ClipCanvas 0.12.0
 
 Click **Captions → Generate captions** to start immediately with the **Small**
 model and automatic language detection. There is no required options dialog.
-Progress and Cancel appear while the background job runs.
+Progress and Cancel appear while the background job runs. The language selector
+above Generate includes **Malayalam · മലയാളം**, English, Hindi, Tamil and automatic
+detection. Selecting Malayalam chooses **Turbo** for stronger multilingual
+recognition. The selected language/model is remembered for the next run. Other language
+codes saved through the gear remain available in this selector.
 
 The gear beside Generate opens **Caption settings** when you need to change
 the source, model or language. **Apply** saves these choices across launches;
@@ -39,7 +43,7 @@ change its timing. The row layout is saved in the project.
 ## One-time setup
 
 The first Generate downloads supporting Python libraries and the selected model.
-Model files are approximately 75 MB (Tiny) or 490 MB (Small), plus several hundred
+Model files are approximately 75 MB (Tiny), 490 MB (Small) or 1.6 GB (Turbo), plus several hundred
 MB for libraries/cache. Allow about 1 GB of free space for a Tiny installation,
 and more for Small. No audio/video is uploaded, and no API key is required.
 Subsequent generation with an installed model is forced offline. Model setup is
@@ -89,8 +93,9 @@ Words are grouped into short editable cues using recognition timestamps. Tiny
 is suitable for drafts and can omit words or get singular/plural forms wrong.
 Small is slower and usually a better choice for difficult audio. Accuracy,
 language detection, and timing vary with music, accents, noise and language.
-No language-specific accuracy claim has been validated beyond the generated
-English fixture. Review the result before sharing.
+Review the result before sharing. Enabling Malayalam does not translate its
+speech into English. The stock Small model performed poorly on our Malayalam
+speech check; Turbo is the recommended Malayalam choice.
 
 ## Troubleshooting
 
@@ -112,3 +117,41 @@ Snake and entry/exit effects. Translation and cloud/provider/MCP connections
 remain deferred. Uninstalling the app leaves private
 speech downloads and saved projects in your user data. Remove the transcription
 folder separately if you no longer want those downloads.
+
+
+## Malayalam captions and included fonts
+
+Select **Malayalam · മലയാളം** above **Generate captions**, then Generate. Use the
+multilingual **Turbo** model selected automatically when choosing Malayalam.
+Its first download is about 1.6 GB; later generation is offline. Small and Tiny
+remain available in Caption settings for smaller downloads, with lower Malayalam
+accuracy. English-only `.en` models cannot transcribe Malayalam. For a
+separate narration soundtrack choose **Full mix** in the gear settings. Generation
+follows sequence timing and remains local after the initial speech setup.
+
+The shared **Caption style** and title Text editor have a **Malayalam Google
+Fonts** selector. ClipCanvas bundles these choices for offline use:
+
+| Family | Suggested use |
+| --- | --- |
+| [Noto Sans Malayalam](https://fonts.google.com/specimen/Noto+Sans+Malayalam) | Clear everyday captions; default for Malayalam generation/SRT with a generic project font |
+| [Manjari](https://fonts.google.com/specimen/Manjari) | Soft, rounded captions and conversational videos |
+| [Anek Malayalam](https://fonts.google.com/specimen/Anek+Malayalam) | Strong caption emphasis and titles |
+
+These are our video-legibility choices. Bold and size are editable. An explicitly
+chosen project family stays selected when generating or importing captions. Font
+shortcuts change the family without changing cue words, timing, or size. All
+three fonts include their original SIL Open Font License 1.1 and a pinned Google
+Fonts source manifest in `clipcanvas/fonts/`. Registration is private to the app;
+preview and export share Pango shaping and the same bundled font files.
+
+Regression checks cover Malayalam glyphs including conjuncts and chillus, regular
+and bold styles, sample-identical preview/lossless-export pixels, distinct family
+shapes, Unicode SRT round trips, language persistence, and undo/save/reopen.
+
+
+Turbo uses the CTranslate2 conversion of
+[Whisper large-v3-turbo](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo)
+through the existing pinned faster-whisper runtime. It is an optional per-user
+model download, not part of the Ubuntu installer. It still runs on the CPU and
+may take longer than the video. Word and timing correction remain necessary.

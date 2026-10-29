@@ -59,9 +59,18 @@ class LayerTools:
 
     def make_captions_panel(self):
         panel=row_box();panel.set_border_width(12)
+        self.caption_language=Gtk.ComboBoxText()
+        self.caption_model_hint=caption('')
+        self.caption_language.get_accessible().set_name('Caption language')
+        self.caption_language.set_tooltip_text('Language spoken in the video. Malayalam creates Malayalam text, ready to edit or export as SRT.')
+        self.sync_caption_language()
+        self.caption_language_handler=self.caption_language.connect('changed',self.caption_language_changed)
+        panel.pack_start(self.caption_language,False,False,0)
+        self.caption_model_hint.get_style_context().add_class('dim-label')
+        panel.pack_start(self.caption_model_hint,False,False,0)
         generation=row_box(False,4)
         self.generate_button=action('Generate captions',self.generate);self.generate_button.get_style_context().add_class('suggested-action')
-        self.generate_button.set_tooltip_text('Generate editable captions from speech. Defaults: Small model and automatic language detection.')
+        self.generate_button.set_tooltip_text('Generate editable captions with the selected language and speech model.')
         generation.pack_start(self.generate_button,True,True,0)
         self.caption_settings_button=ui_theme.icon_button('preferences-system-symbolic',self.configure_generation,'Caption settings',style='quiet')
         generation.pack_start(self.caption_settings_button,False,False,0);panel.pack_start(generation,False,False,0)
@@ -355,13 +364,18 @@ class LayerTools:
         except Exception as e:w.error(str(e));return
         self.replace_captions(items)
 
-    def replace_captions(self,items):
+    def replace_captions(self,items,language=None):
+        from . import bundled_fonts
         w=self.owner
         if w.project['captions']:
             dialog=Gtk.MessageDialog(transient_for=w,modal=True,message_type=Gtk.MessageType.QUESTION,buttons=Gtk.ButtonsType.OK_CANCEL,text='Replace existing captions?')
             dialog.format_secondary_text('You can undo this replacement.');answer=dialog.run();dialog.destroy()
             if answer!=Gtk.ResponseType.OK:return False
-        w.checkpoint();w.project['captions']=items;w.selected=('captions',0) if items else None;w.selection={('captions',items[0]['id'])} if items else set();w.changed();w.media_stack.set_visible_child_name('Captions')
+        w.checkpoint();w.project['captions']=items
+        if items and (language=='ml' or any(bundled_fonts.has_malayalam(item['text']) for item in items)):
+            if w.project['caption_style']['font_family'] in ('Sans','Serif','Sans Serif'):
+                w.project['caption_style']['font_family']='Noto Sans Malayalam'
+        w.selected=('captions',0) if items else None;w.selection={('captions',items[0]['id'])} if items else set();w.changed();w.media_stack.set_visible_child_name('Captions')
         w.reveal_timeline_selection()
         w.set_status(f'Added {len(items)} editable captions.')
         return True
@@ -389,8 +403,38 @@ class LayerTools:
         language=saved.get('language')
         language=language.strip().lower() if isinstance(language,str) else None
         return {'source':saved.get('source') if saved.get('source') in ('video','mix') else 'video',
-                'model_name':saved.get('model_name') if saved.get('model_name') in ('tiny','small') else 'small',
+                'model_name':saved.get('model_name') if saved.get('model_name') in ('tiny','small','large-v3-turbo') else 'small',
                 'language':language if language and re.fullmatch(r'[a-z]{2,3}',language) else None}
+
+    def sync_caption_language(self):
+        from . import captions
+        handler=getattr(self,'caption_language_handler',None)
+        if handler:self.caption_language.handler_block(handler)
+        try:
+            language=self.generation_settings()['language'] or ''
+            self.caption_language.remove_all()
+            for code,title in captions.LANGUAGES:self.caption_language.append(code,title)
+            if language not in dict(captions.LANGUAGES):self.caption_language.append(language,'Language · '+language)
+            self.caption_language.set_active_id(language)
+            name=self.generation_settings()['model_name']
+            if name=='large-v3-turbo':text='Turbo multilingual · about 1.6 GB on first use.'
+            elif language=='ml':text='For clearer Malayalam, choose Turbo in Caption settings.'
+            else:text=name.title()+' speech model · change in Caption settings.'
+            self.caption_model_hint.set_text(text)
+        finally:
+            if handler:self.caption_language.handler_unblock(handler)
+
+    def caption_language_changed(self,combo):
+        w=self.owner
+        if w.busy:self.sync_caption_language();return
+        settings=self.generation_settings();previous=settings['language'];settings['language']=combo.get_active_id() or None
+        if settings['language']=='ml' and previous!='ml':settings['model_name']='large-v3-turbo'
+        try:w.preferences.set('caption_generation',settings)
+        except OSError as error:
+            self.sync_caption_language();w.error('Could not save caption language: '+str(error));return
+        title=combo.get_active_text()
+        self.sync_caption_language()
+        w.set_status(title+' selected. Click Generate captions to start.')
 
     def configure_generation(self):
         from . import captions
@@ -401,7 +445,7 @@ class LayerTools:
         content=dialog.get_content_area();content.set_border_width(18);content.set_spacing(12)
         content.pack_start(caption('Speech recognition runs locally. The first use downloads a speech model and supporting software; later use works offline.'),False,False,0)
         source=Gtk.ComboBoxText();source.append('video','Speech in the original video clips');source.append('mix','Full mix · include soundtracks');source.set_active_id(settings['source']);content.pack_start(source,False,False,0)
-        choice=Gtk.ComboBoxText();choice.append('small','Small · better accuracy, slower');choice.append('tiny','Tiny · quick, lower accuracy');choice.set_active_id(settings['model_name']);content.pack_start(choice,False,False,0)
+        choice=Gtk.ComboBoxText();choice.append('large-v3-turbo','Turbo · recommended for Malayalam');choice.append('small','Small · smaller download');choice.append('tiny','Tiny · quick, lower accuracy');choice.set_active_id(settings['model_name']);content.pack_start(choice,False,False,0)
         download=caption('')
         def model_status(*_):
             status=captions.runtime_status(model=choice.get_active_id())
@@ -417,6 +461,7 @@ class LayerTools:
             settings={'source':source.get_active_id(),'model_name':choice.get_active_id(),'language':value}
             try:w.preferences.set('caption_generation',settings)
             except OSError as error:message.set_text('Could not save caption settings: '+str(error));continue
+            self.sync_caption_language()
             w.set_status('Caption settings saved. Click Generate captions to start.');break
         dialog.destroy()
 
@@ -431,7 +476,8 @@ class LayerTools:
         snapshot=copy.deepcopy(w.project);w.canvas.pause();w.set_busy(True);w.cancel_event=threading.Event()
         if w.project_path:snapshot['_project_path']=w.project_path
         progress_dialog=Gtk.Dialog(title='Generating captions',transient_for=w,modal=True);progress_dialog.add_button('Cancel',Gtk.ResponseType.CANCEL)
-        content=progress_dialog.get_content_area();content.set_border_width(18);info=caption('Preparing local speech recognition with '+model_name.title()+'…');content.pack_start(info,False,False,0)
+        model_title='Turbo' if model_name=='large-v3-turbo' else model_name.title()
+        content=progress_dialog.get_content_area();content.set_border_width(18);info=caption('Preparing local speech recognition with '+model_title+'…');content.pack_start(info,False,False,0)
         bar=Gtk.ProgressBar();content.pack_start(bar,False,False,12)
         progress_dialog.connect('response',lambda *_:w.cancel_event.set());progress_dialog.connect('delete-event',lambda *_:(w.cancel_event.set() or True));progress_dialog.show_all()
         cancel=w.cancel_event;audio=w.temp/'speech-input.wav';active={'value':True}
@@ -446,7 +492,7 @@ class LayerTools:
                 if cancel.is_set():w.set_status('Caption generation cancelled. Existing captions are unchanged.')
                 else:w.error(str(error))
             else:
-                if self.replace_captions(result['captions']):
+                if self.replace_captions(result['captions'],language=result.get('language')):
                     w.set_status(f'Generated {len(result["captions"])} captions · language {result.get("language","auto")}. Select a caption to correct it.' if result['captions'] else 'No speech was detected. Try the full mix or another language/model.')
             return False
         def work():

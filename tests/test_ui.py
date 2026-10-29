@@ -1125,6 +1125,47 @@ class DesktopWorkflowTests(unittest.TestCase):
             release.set();w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_malayalam_language_generation_fonts_undo_and_reopen(self):
+        from clipcanvas import captions,bundled_fonts
+        from clipcanvas.text_style_ui import TextStyleEditor
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'malayalam-captions-recovery');reopened=None
+        errors=[];w.error=errors.append
+        try:
+            w.start_project(640,360);w.project['clips']=[model.new_card(duration=5)]
+            w.refresh();w.cancel_scrub();before=copy.deepcopy(w.project)
+            tools=w.layer_tools;tools.caption_language.set_active_id('ml')
+            self.assertEqual(tools.generation_settings(),{'source':'video','model_name':'large-v3-turbo','language':'ml'})
+            self.assertEqual(w.project,before)
+            result={'captions':[model.new_caption('മലയാളം അടിക്കുറിപ്പുകൾ',.2,2.2)],'language':'ml'}
+            with mock.patch.object(captions,'setup_transcription'), \
+                 mock.patch.object(captions,'generate_from_audio',return_value=result) as transcribe:
+                tools.generate_button.clicked();self.pump(lambda:not w.busy)
+                self.assertEqual(transcribe.call_args.kwargs['language'],'ml')
+                self.assertEqual(transcribe.call_args.kwargs['model'],'large-v3-turbo')
+            self.assertEqual(w.project['captions'][0]['text'],result['captions'][0]['text'])
+            self.assertEqual(w.project['caption_style']['font_family'],'Noto Sans Malayalam')
+            w.undo();self.assertEqual(w.project,before);w.redo()
+            container=Gtk.Box();editor=TextStyleEditor(container,w.project['caption_style'])
+            editor.set_sample(result['captions'][0]['text'])
+            for family,_ in bundled_fonts.MALAYALAM_FONTS:
+                editor.malayalam_font.set_active_id(family)
+                style=editor.read_into(copy.deepcopy(w.project['caption_style']))
+                self.assertEqual(style['font_family'],family)
+                self.assertEqual(editor.sample,result['captions'][0]['text'])
+                w.project['caption_style']=style
+            saved=self.fixtures.root/'malayalam.clipcanvas';model.save_project(w.project,saved)
+            self.assertEqual(model.load_project(saved),w.project)
+            reopened=ClipCanvasWindow(recovery_dir=self.fixtures.root/'malayalam-captions-reopened',preferences_dir=w.preferences.path.parent)
+            self.assertEqual(reopened.layer_tools.caption_language.get_active_id(),'ml')
+            self.assertEqual(reopened.layer_tools.generation_settings()['language'],'ml')
+            with mock.patch.object(tools,'generate_job') as generate:
+                tools.caption_language.set_active_id('en');tools.generate_button.clicked()
+                self.assertEqual(generate.call_args.kwargs['language'],'en')
+            self.assertFalse(errors)
+        finally:
+            if reopened is not None:reopened.cleanup();reopened.destroy()
+            w.cleanup();w.destroy()
+
     def test_optional_caption_settings_cancel_validate_and_survive_restart(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'caption-settings-recovery');reopened=None
         try:

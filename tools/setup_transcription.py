@@ -20,7 +20,7 @@ FASTER_WHISPER_VERSION = "1.2.1"
 HUGGINGFACE_HUB_VERSION = "0.36.0"
 # PyAV 19 removed metadata_errors, which faster-whisper 1.2.1 still passes.
 PYAV_VERSION = "16.1.0"
-MODELS = ("tiny", "tiny.en", "base", "base.en", "small", "small.en")
+MODELS = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "large-v3-turbo")
 
 
 def emit(type_, **values):

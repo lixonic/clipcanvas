@@ -4,7 +4,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, Pango
-from . import text_styles, visuals
+from . import text_styles, visuals, bundled_fonts
 
 
 def column(spacing=8):
@@ -37,7 +37,17 @@ class TextStyleEditor:
         self.preview.connect('draw', self.draw_preview)
         parent.pack_start(self.preview, False, False, 0)
         self.font = Gtk.FontButton()
+        self.font.set_preview_text(bundled_fonts.MALAYALAM_SAMPLE)
         parent.pack_start(self.font, False, False, 0)
+        self.malayalam_font = Gtk.ComboBoxText()
+        self.malayalam_font.get_accessible().set_name('Malayalam Google Fonts')
+        self.malayalam_font.append('', 'Malayalam Google Fonts…')
+        for family, title in bundled_fonts.MALAYALAM_FONTS:
+            self.malayalam_font.append(family, title)
+        self.malayalam_font.set_active_id('')
+        self.malayalam_font.set_tooltip_text('Bundled for offline preview and export. Choose a family, then adjust size and Bold below.')
+        parent.pack_start(self.malayalam_font, False, False, 0)
+        self.malayalam_font.connect('changed', self.choose_malayalam_font)
         row = Gtk.Box(spacing=12)
         self.bold = Gtk.CheckButton(label='Bold');self.italic = Gtk.CheckButton(label='Italic')
         row.pack_start(self.bold, True, True, 0);row.pack_start(self.italic, True, True, 0)
@@ -122,6 +132,14 @@ class TextStyleEditor:
         if not self.loading:
             self.preview.queue_draw()
             for button in self.preset_buttons.values():button.get_style_context().remove_class('suggested-action')
+
+    def choose_malayalam_font(self, combo):
+        family = combo.get_active_id()
+        if not family:return
+        style = self.read_into(copy.deepcopy(self.base))
+        style['font_family'] = family
+        self.set_style(style)
+        if not bundled_fonts.has_malayalam(self.sample):self.set_sample(bundled_fonts.MALAYALAM_SAMPLE)
 
     def set_sample(self, text):
         self.sample = text[:150] or 'Your words stay editable';self.preview.queue_draw()

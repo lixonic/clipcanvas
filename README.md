@@ -1,11 +1,11 @@
-# ClipCanvas 0.11.7
+# ClipCanvas 0.12.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.11.7. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.12.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -78,6 +78,8 @@ Version 0.11.4 makes short text layers stretchable at minimum timeline zoom and
 offers Fit to full video for watermarks, with a visible drag preview.
 Version 0.11.5 moves the playhead and preview to the point clicked inside a
 video or audio clip, including on a zoomed and scrolled timeline.
+Version 0.12.0 adds a Malayalam caption language selector and bundles Noto Sans
+Malayalam, Manjari and Anek Malayalam for offline text, caption previews and export.
 Version 0.11.7 fixes silent WAV splits with incorrect byte-rate headers and speeds
 up forward scrubbing and paused transition seeks.
 Version 0.11.6 shows detailed source-sample waveforms and preserves continuous
@@ -95,18 +97,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.11.7_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.12.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.11.7_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.12.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.11.7_all.deb
+   sudo apt install ./clipcanvas_0.12.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -305,14 +307,17 @@ extract an audio track when you want their sound.
 ## Generate and edit captions
 
 1. Click **Captions → Generate captions**. Recognition starts immediately with
-   **Small** for better accuracy and automatic language detection.
+   **Small** for better accuracy and automatic language detection. Choose
+   **Malayalam · മലയാളം** above Generate for Malayalam videos; this selects
+   **Turbo**, the stronger multilingual model.
 2. Optionally use the gear beside Generate to change **Caption settings**.
    Original-video speech is the default, recognizing clips even when muted in
    the mix. Choose **Full mix** for narration in separate soundtracks. Tiny is
    available for quick drafts; language can be detected or set with a code such
    as `en`, `hi`, `ml` or `ta`. **Apply** remembers choices across app launches;
    it does not start generation.
-3. The first use downloads about 490 MB for Small (75 MB for optional Tiny), plus
+3. The first use downloads about 1.6 GB for Turbo, 490 MB for Small or 75 MB
+   for optional Tiny, plus
    supporting libraries, into a private environment in your user data folder.
    The job follows the current sequence, trims, speed and transition timing.
 4. Progress and cancellation are available. No footage or audio is uploaded.
@@ -325,7 +330,11 @@ extract an audio track when you want their sound.
    tab or **Caption style**. The same editable controls used for titles apply
    to generated, imported and manually entered captions. Appearance changes
    apply to all cues; words/timing change only for the selected cue.
-   **Caption style** also exposes shared width and vertical position.
+   **Caption style** also exposes shared width and vertical position. Its
+   **Malayalam Google Fonts** selector offers bundled Noto Sans Malayalam
+   (everyday captions), Manjari (soft rounded text) and Anek Malayalam (bold
+   captions/titles). Generated Malayalam and imported Malayalam SRT use Noto
+   Sans Malayalam when the project still uses a generic default font.
    Captions appear in preview and are
    burned into exported MP4s. **Import SRT / Export SRT** exchanges editable
    subtitle files; SRT stores words and timing, not styling.

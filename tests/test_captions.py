@@ -49,6 +49,26 @@ class CaptionTests(unittest.TestCase):
             self.assertEqual(project,before);self.assertEqual(image.read_bytes(),b'original image')
             self.assertFalse(list(root.glob('.clipcanvas-captions-*')))
 
+    def test_malayalam_generation_stays_offline_and_retains_unicode_timing(self):
+        with tempfile.TemporaryDirectory() as d:
+            source=Path(d)/'speech.wav';source.touch()
+            expected={'language':'ml','captions':[{'text':'കേരളത്തിലെ മലയാളം വാർത്തകൾ', 'start':.4,'end':2.7},
+                                                {'text':'നമസ്കാരം ലോകമേ', 'start':2.8,'end':4.1}]}
+            status={'ready':True,'python':'private-python','model_path':d}
+            with mock.patch.object(captions,'runtime_status',return_value=status), \
+                 mock.patch.object(captions,'_run_worker',return_value=expected) as worker:
+                result=captions.generate_from_audio(source,model='small',language='ml',runtime_dir=d)
+                command,_,_,environment=worker.call_args.args
+                self.assertEqual(command[-1],'ml');self.assertEqual(environment['HF_HUB_OFFLINE'],'1')
+                self.assertEqual(result['language'],'ml')
+                self.assertEqual([{k:item[k] for k in ('start','end','text')} for item in result['captions']],expected['captions'])
+                exported=Path(d)/'Malayalam.srt';captions.save_srt(dict(captions=result['captions']),exported)
+                self.assertEqual(captions.load_srt(exported)[0]['text'],expected['captions'][0]['text'])
+                worker.reset_mock()
+                with self.assertRaisesRegex(ValueError,'multilingual'):
+                    captions.generate_from_audio(source,model='small.en',language='ml')
+                worker.assert_not_called()
+
     def test_ready_setup_is_offline_and_cancel_does_not_start_worker(self):
         ready={'ready':True,'model':'tiny'}
         with mock.patch.object(captions,'runtime_status',return_value=ready),mock.patch.object(captions,'_run_worker') as worker:

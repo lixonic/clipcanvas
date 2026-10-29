@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 — 2026-10-29
+
+- Add a visible, remembered Malayalam caption language choice alongside automatic
+  detection, English, Hindi and Tamil. Choosing Malayalam selects the stronger
+  multilingual Turbo model (about 1.6 GB first download). Small/Tiny remain
+  available. Local recognition explicitly transcribes
+  the source language; reject English-only models for non-English speech.
+- Bundle Noto Sans Malayalam, Manjari and Anek Malayalam from Google Fonts, with
+  original licenses and a pinned source/checksum manifest. Register app fonts
+  locally for consistent preview, font selection and export without downloads.
+- Add Malayalam family shortcuts and a Malayalam font-picker preview in the shared
+  caption/title style editor. Generated/imported Malayalam uses Noto Sans Malayalam
+  when replacing a generic default; an existing chosen family is preserved.
+- Verify Unicode/SRT timing, glyph coverage, distinct font rendering, preview/export
+  agreement, language persistence, editable generated cues and undo/save/reopen.
+
 ## 0.11.7 — 2026-10-29
 
 - Fix silent right-hand WAV splits when a source header has an incorrect byte

@@ -21,10 +21,12 @@ import threading
 
 FASTER_WHISPER_VERSION = "1.2.1"
 MODEL_DOWNLOAD_MB = {"tiny": 75, "tiny.en": 75, "base": 145, "base.en": 145,
-                     "small": 490, "small.en": 490}
+                     "small": 490, "small.en": 490, "large-v3-turbo": 1620}
 MAX_SRT_BYTES = 10 * 1024 * 1024
 MAX_CAPTIONS = 5000
 MAX_SECONDS = 86400 * 7
+LANGUAGES = (('', 'Automatic language detection'), ('ml', 'Malayalam · മലയാളം'),
+             ('en', 'English'), ('hi', 'Hindi · हिन्दी'), ('ta', 'Tamil · தமிழ்'))
 _STAMP = r"(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})"
 _TIMING = re.compile(r"^" + _STAMP + r"\s+-->\s+" + _STAMP + r"$")
 
@@ -164,7 +166,7 @@ def transcription_dir(runtime_dir=None):
 
 def _model_name(model):
     if model not in MODEL_DOWNLOAD_MB:
-        raise ValueError("Choose tiny, base or small (or an English-only .en variant) for local captions.")
+        raise ValueError("Choose Tiny, Base, Small or Turbo for local captions.")
     return model
 
 
@@ -299,6 +301,9 @@ def generate_from_audio(path, runtime_dir=None, model="small", language=None, pr
         raise CaptionError("Choose a readable local audio or video file for captions.")
     if language is not None and (not isinstance(language, str) or not re.fullmatch(r"[a-z]{2,3}", language)):
         raise ValueError("Use a language code such as en, hi or ml, or automatic detection.")
+    model = _model_name(model)
+    if model.endswith('.en') and language not in (None, 'en'):
+        raise ValueError('Choose a multilingual model (Tiny, Base or Small) for Malayalam or other non-English speech.')
     status = runtime_status(runtime_dir, model)
     if not status["ready"]:
         raise CaptionError("Download the local speech model in Captions first. After setup, recognition works offline.")
@@ -335,7 +340,7 @@ def _worker():
         model = WhisperModel(model_path, device="cpu", compute_type="int8",
                              cpu_threads=min(4, os.cpu_count() or 2), num_workers=1,
                              local_files_only=True)
-        segments, info = model.transcribe(source, language=language or None,
+        segments, info = model.transcribe(source, language=language or None, task='transcribe',
                                          beam_size=5, vad_filter=True,
                                          word_timestamps=True, condition_on_previous_text=False)
         captions = []

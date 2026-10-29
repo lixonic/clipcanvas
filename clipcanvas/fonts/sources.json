@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "revision": "9862abc066c9b83bf84c3e8ed1fc2d8d48f9bbf0",
+  "files": {
+    "notosansmalayalam/METADATA.pb": "04c0c4f45bfd7eade8ee48dd6dc56586eda3e3514c355fc078cef966bc47cc1d",
+    "notosansmalayalam/NotoSansMalayalam[wdth,wght].ttf": "312e0e7c3cc15fa09eb42a8f749eeb246b593ed420e3c81aafe8d910c3a6fb56",
+    "notosansmalayalam/OFL.txt": "1df18163a0bf60f02131401ba1609df90051f40c4047684dda1c8a2e9586f7f2",
+    "manjari/METADATA.pb": "d74e454215a47f514d4998353960798294e4d07605ae7e7b9cc1213ba41f35c4",
+    "manjari/Manjari-Bold.ttf": "f19fef695b28e5448ae87451dfbab426676cadf4b59340558a157c0071b69d26",
+    "manjari/Manjari-Regular.ttf": "16460924696bfea2a2f71b4201d8786867c6413b548ecbd22bc6bfe55be90f95",
+    "manjari/Manjari-Thin.ttf": "0eab2fd482b2b0e6cd469c53d09513a2303ff91c86dc8c1ba42acfc73242bd72",
+    "manjari/OFL.txt": "2e144823e28b854ff5e1d41db9a2180fdb1d8e44a71c2ae4fca5c4b2a5adde4c",
+    "anekmalayalam/AnekMalayalam[wdth,wght].ttf": "319ccd3dc61afce2a5f2e5f3ce16f555c1f385390e80d12af7b9d017dd4993fe",
+    "anekmalayalam/METADATA.pb": "ec77c4072e62355bc1d100acce4ab8a42405f91623dea15d35284dc257debe66",
+    "anekmalayalam/OFL.txt": "de62be758bba267e653a5f457dfebb4680957e2c343eb3e7de15aff4746bed05"
+  }
+}
