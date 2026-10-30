@@ -1,11 +1,11 @@
-# ClipCanvas 0.13.0
+# ClipCanvas 0.13.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.13.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.13.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -79,6 +79,8 @@ Version 0.11.4 makes short text layers stretchable at minimum timeline zoom and
 offers Fit to full video for watermarks, with a visible drag preview.
 Version 0.11.5 moves the playhead and preview to the point clicked inside a
 video or audio clip, including on a zoomed and scrolled timeline.
+Version 0.13.1 fixes Malayalam captions using a dedicated Malayalam speech model,
+upgrades saved language settings and rejects results in another language/script.
 Version 0.13.0 adds timeline clip desaturation: Picture → Saturation (0–100%),
 right-click Desaturate/Restore original color for individual or selected clips,
 and matching timeline thumbnails, preview and export.
@@ -101,18 +103,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.13.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.13.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.13.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.13.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.13.0_all.deb
+   sudo apt install ./clipcanvas_0.13.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -316,14 +318,16 @@ extract an audio track when you want their sound.
 1. Click **Captions → Generate captions**. Recognition starts immediately with
    **Small** for better accuracy and automatic language detection. Choose
    **Malayalam · മലയാളം** above Generate for Malayalam videos; this selects
-   **Turbo**, the stronger multilingual model.
+   **Malayalam**, a model trained specifically for Malayalam speech. Saved
+   Small/Tiny/Turbo settings switch automatically when Malayalam is selected.
 2. Optionally use the gear beside Generate to change **Caption settings**.
    Original-video speech is the default, recognizing clips even when muted in
    the mix. Choose **Full mix** for narration in separate soundtracks. Tiny is
    available for quick drafts; language can be detected or set with a code such
    as `en`, `hi`, `ml` or `ta`. **Apply** remembers choices across app launches;
    it does not start generation.
-3. The first use downloads about 1.6 GB for Turbo, 490 MB for Small or 75 MB
+3. The first use downloads about 1.5 GB for Malayalam, 1.6 GB for Turbo,
+   490 MB for Small or 75 MB
    for optional Tiny, plus
    supporting libraries, into a private environment in your user data folder.
    The job follows the current sequence, trims, speed and transition timing.

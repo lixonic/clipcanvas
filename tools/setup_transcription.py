@@ -13,6 +13,10 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from clipcanvas.captions import (MODEL_DOWNLOAD_MB, MALAYALAM_MODEL, MALAYALAM_REPO,
+                                MALAYALAM_REVISION, MALAYALAM_TOKENIZER_REPO,
+                                MALAYALAM_TOKENIZER_REVISION)
 
 FASTER_WHISPER_VERSION = "1.2.1"
 # Faster-whisper 1.2.1's download helper uses the 0.x Hub API. Keep that API
@@ -20,7 +24,7 @@ FASTER_WHISPER_VERSION = "1.2.1"
 HUGGINGFACE_HUB_VERSION = "0.36.0"
 # PyAV 19 removed metadata_errors, which faster-whisper 1.2.1 still passes.
 PYAV_VERSION = "16.1.0"
-MODELS = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "large-v3-turbo")
+MODELS = tuple(MODEL_DOWNLOAD_MB)
 
 
 def emit(type_, **values):
@@ -74,9 +78,28 @@ def run_setup(root, model):
         "download_model(sys.argv[1], output_dir=sys.argv[2]); "
         "WhisperModel(sys.argv[2], device='cpu', compute_type='int8', local_files_only=True, cpu_threads=2)"
     )
-    subprocess.run([str(python), "-I", "-u", "-c", worker, model, str(model_path)],
+    arguments = [model, str(model_path)]
+    if model == MALAYALAM_MODEL:
+        # This conversion omits tokenizer.json. Include the matching standard
+        # medium tokenizer explicitly so recognition never fetches a fallback.
+        worker = (
+            "import sys; from huggingface_hub import snapshot_download, hf_hub_download; "
+            "from faster_whisper import WhisperModel; "
+            "snapshot_download(sys.argv[1], revision=sys.argv[3], local_dir=sys.argv[2], "
+            "allow_patterns=['model.bin','config.json','preprocessor_config.json','vocabulary.json','README.md','LICENSE*']); "
+            "hf_hub_download(sys.argv[4], 'tokenizer.json', revision=sys.argv[5], local_dir=sys.argv[2]); "
+            "WhisperModel(sys.argv[2], device='cpu', compute_type='int8', local_files_only=True, cpu_threads=2)"
+        )
+        arguments = [MALAYALAM_REPO, str(model_path), MALAYALAM_REVISION,
+                     MALAYALAM_TOKENIZER_REPO, MALAYALAM_TOKENIZER_REVISION]
+    subprocess.run([str(python), "-I", "-u", "-c", worker, *arguments],
                    check=True, env=environment)
-    atomic_json(model_path / "ready.json", {"model": model, "device": "cpu", "compute_type": "int8"})
+    marker = {"model": model, "device": "cpu", "compute_type": "int8"}
+    if model == MALAYALAM_MODEL:
+        marker.update(repo=MALAYALAM_REPO, revision=MALAYALAM_REVISION,
+                      tokenizer_repo=MALAYALAM_TOKENIZER_REPO,
+                      tokenizer_revision=MALAYALAM_TOKENIZER_REVISION)
+    atomic_json(model_path / "ready.json", marker)
     emit("result", result={"runtime_dir": str(root), "model": model, "model_path": str(model_path), "ready": True})
 
 

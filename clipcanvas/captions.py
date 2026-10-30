@@ -20,8 +20,14 @@ import threading
 
 
 FASTER_WHISPER_VERSION = "1.2.1"
+MALAYALAM_MODEL = "malayalam"
+MALAYALAM_REPO = "adalat-ai/ct2-whisper-medium-ml-rmft"
+MALAYALAM_REVISION = "c57a16c07730e26918d2176c08d92bf62c7148c6"
+MALAYALAM_TOKENIZER_REPO = "Systran/faster-whisper-medium"
+MALAYALAM_TOKENIZER_REVISION = "08e178d48790749d25932bbc082711ddcfdfbc4f"
 MODEL_DOWNLOAD_MB = {"tiny": 75, "tiny.en": 75, "base": 145, "base.en": 145,
-                     "small": 490, "small.en": 490, "large-v3-turbo": 1620}
+                     "small": 490, "small.en": 490, "large-v3-turbo": 1620,
+                     MALAYALAM_MODEL: 1535}
 MAX_SRT_BYTES = 10 * 1024 * 1024
 MAX_CAPTIONS = 5000
 MAX_SECONDS = 86400 * 7
@@ -166,8 +172,16 @@ def transcription_dir(runtime_dir=None):
 
 def _model_name(model):
     if model not in MODEL_DOWNLOAD_MB:
-        raise ValueError("Choose Tiny, Base, Small or Turbo for local captions.")
+        raise ValueError("Choose Malayalam, Tiny, Base, Small or Turbo for local captions.")
     return model
+
+
+def model_for_language(model, language):
+    """Malayalam must not reuse a saved generic or English-only model."""
+    _model_name(model)
+    if language == 'ml':
+        return MALAYALAM_MODEL
+    return 'small' if model == MALAYALAM_MODEL else model
 
 
 def runtime_status(runtime_dir=None, model="small"):
@@ -182,6 +196,13 @@ def runtime_status(runtime_dir=None, model="small"):
     installed = python.is_file() and versions.get("faster_whisper") == "1.2.1" and versions.get("av") == "16.1.0"
     ready = installed and (model_path / "ready.json").is_file() and all(
         (model_path / name).is_file() for name in ("model.bin", "config.json", "tokenizer.json"))
+    if ready and model == MALAYALAM_MODEL:
+        try:
+            marker = json.loads((model_path / "ready.json").read_text())
+            ready = (marker.get('revision') == MALAYALAM_REVISION and
+                     marker.get('tokenizer_revision') == MALAYALAM_TOKENIZER_REVISION)
+        except (OSError, ValueError):
+            ready = False
     return {"runtime_dir": str(root), "python": str(python), "installed": installed,
             "ready": ready, "model": model, "model_path": str(model_path),
             "download_mb": MODEL_DOWNLOAD_MB[model]}
@@ -303,7 +324,8 @@ def generate_from_audio(path, runtime_dir=None, model="small", language=None, pr
         raise ValueError("Use a language code such as en, hi or ml, or automatic detection.")
     model = _model_name(model)
     if model.endswith('.en') and language not in (None, 'en'):
-        raise ValueError('Choose a multilingual model (Tiny, Base or Small) for Malayalam or other non-English speech.')
+        raise ValueError('Choose a multilingual model for non-English speech.')
+    model = model_for_language(model, language)
     status = runtime_status(runtime_dir, model)
     if not status["ready"]:
         raise CaptionError("Download the local speech model in Captions first. After setup, recognition works offline.")
@@ -322,8 +344,23 @@ def generate_from_audio(path, runtime_dir=None, model="small", language=None, pr
         entries = _entries(result.get("captions"))
     except ValueError as error:
         raise CaptionError("The caption worker returned invalid timing or text.") from error
+    validate_language(entries, result['language'], language)
     return {"captions": [new_caption(item["text"], item["start"], item["end"]) for item in entries],
             "language": result["language"]}
+
+
+def validate_language(entries, actual, requested):
+    if requested and actual != requested:
+        raise CaptionError(f'The speech model returned {actual} instead of {requested}. Existing captions were kept. Regenerate with the selected language.')
+    if requested == 'ml' and entries:
+        total = malayalam = 0
+        for item in entries:
+            for char in item['text']:
+                if char.isalpha():
+                    total += 1
+                    malayalam += '\u0d00' <= char <= '\u0d7f'
+        if not malayalam or malayalam < total / 2:
+            raise CaptionError('Malayalam recognition returned mostly text in another script. Existing captions were kept. Check that the selected audio contains Malayalam speech.')
 
 
 def _emit(message):
@@ -340,9 +377,19 @@ def _worker():
         model = WhisperModel(model_path, device="cpu", compute_type="int8",
                              cpu_threads=min(4, os.cpu_count() or 2), num_workers=1,
                              local_files_only=True)
+        # Malayalam uses many tokens per word. Short recognition windows avoid
+        # truncating speech at Whisper's decoder token limit. This fine-tuned
+        # model emits text; cross-attention supplies editable word timings.
+        # CTranslate2's effective generation cap is half max_length. Permit up
+        # to 444 text tokens, within Whisper's 448-token decoder context, so a
+        # fast phrase cannot end midway through a multi-byte Malayalam letter.
+        if language == 'ml':
+            model.max_length = 888
+        options = dict(chunk_length=7, without_timestamps=True, temperature=0.0, max_new_tokens=884,
+                       vad_parameters={'max_speech_duration_s': 7}) if language == 'ml' else {}
         segments, info = model.transcribe(source, language=language or None, task='transcribe',
-                                         beam_size=5, vad_filter=True,
-                                         word_timestamps=True, condition_on_previous_text=False)
+                                         beam_size=1 if language == 'ml' else 5, vad_filter=True,
+                                         word_timestamps=True, condition_on_previous_text=False, **options)
         captions = []
         # Word timestamps make shorter readable cues instead of one long 30s
         # sentence. Split at punctuation, ~7 words, 52 chars or 4 seconds.

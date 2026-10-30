@@ -323,3 +323,18 @@ and verify glyphs, timing and the selected family. Undo generation and ensure
 both cues and the previous font return. Cancel generation/replacement and ensure
 existing cues and appearance remain unchanged. Switch to English or Automatic
 and confirm the saved caption language follows the selection.
+
+
+### Malayalam speech model and language validation (0.13.1)
+
+Selected C23 outcome: Malayalam videos generate captions in Malayalam script,
+even when saved preferences previously selected Small. Malayalam now always
+uses its dedicated locally installed model. English/Hindi results, and results
+labelled Malayalam but containing mostly another script, fail without replacing
+existing captions. Other languages continue to use the selected generic model.
+
+Save your project and restart after installing the update. Select Malayalam and
+Generate captions again to replace earlier incorrect cues. The first run downloads
+about 1.5 GB; later generation works offline. Tests cover old saved settings,
+worker language/task, short recognition windows, setup provenance and tokenizer,
+output-script validation, preserved edits after failure, and Malayalam font export.

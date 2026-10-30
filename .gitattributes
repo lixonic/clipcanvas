@@ -17,3 +17,5 @@ LICENSE text eol=lf
 *.gz binary
 *.mp4 binary
 *.wav binary
+# Preserve upstream license text, including its original whitespace/checksum.
+clipcanvas/fonts/**/OFL.txt -whitespace

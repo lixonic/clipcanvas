@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.1 — 2026-10-30
+
+- Use a pinned Malayalam-specific speech model and offline tokenizer for Malayalam
+  captions. Upgrade saved Malayalam Small/Tiny/Turbo choices automatically and
+  keep the selected language explicit throughout generation.
+- Decode Malayalam in short windows to prevent token-limit truncation, retaining
+  aligned editable word timings. Reject wrong-language or predominantly
+  non-Malayalam output before replacing existing captions.
+- Check persisted settings, model setup, language/script validation, cancellation
+  and caption preservation. Restore original bundled font license bytes to match
+  the pinned Google Fonts checksums.
+
 ## 0.13.0 — 2026-10-30
 
 - Add Picture → Saturation (0–100%) for video clips, images and color cards.

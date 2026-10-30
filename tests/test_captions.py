@@ -55,11 +55,12 @@ class CaptionTests(unittest.TestCase):
             expected={'language':'ml','captions':[{'text':'കേരളത്തിലെ മലയാളം വാർത്തകൾ', 'start':.4,'end':2.7},
                                                 {'text':'നമസ്കാരം ലോകമേ', 'start':2.8,'end':4.1}]}
             status={'ready':True,'python':'private-python','model_path':d}
-            with mock.patch.object(captions,'runtime_status',return_value=status), \
+            with mock.patch.object(captions,'runtime_status',return_value=status) as runtime, \
                  mock.patch.object(captions,'_run_worker',return_value=expected) as worker:
                 result=captions.generate_from_audio(source,model='small',language='ml',runtime_dir=d)
                 command,_,_,environment=worker.call_args.args
                 self.assertEqual(command[-1],'ml');self.assertEqual(environment['HF_HUB_OFFLINE'],'1')
+                runtime.assert_called_once_with(d,captions.MALAYALAM_MODEL)
                 self.assertEqual(result['language'],'ml')
                 self.assertEqual([{k:item[k] for k in ('start','end','text')} for item in result['captions']],expected['captions'])
                 exported=Path(d)/'Malayalam.srt';captions.save_srt(dict(captions=result['captions']),exported)
@@ -68,6 +69,59 @@ class CaptionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'multilingual'):
                     captions.generate_from_audio(source,model='small.en',language='ml')
                 worker.assert_not_called()
+
+    def test_malayalam_rejects_wrong_language_and_script_without_replacing_captions(self):
+        with tempfile.TemporaryDirectory() as d:
+            source=Path(d)/'speech.wav';source.write_bytes(b'original recording')
+            status={'ready':True,'python':'private-python','model_path':d}
+            for language,text in [('hi','हमें बस'),('en','As soon as the mother comes'),
+                                  ('ml','As soon as the mother comes'),('ml','हमें बस')]:
+                with self.subTest(language=language,text=text):
+                    result={'language':language,'captions':[{'text':text,'start':0,'end':2}]}
+                    with mock.patch.object(captions,'runtime_status',return_value=status), \
+                         mock.patch.object(captions,'_run_worker',return_value=result):
+                        with self.assertRaisesRegex(captions.CaptionError,'Existing captions were kept'):
+                            captions.generate_from_audio(source,model='small',language='ml')
+            captions.validate_language([{'text':'അമ്മ വരുമ്പോൾ KSRTC ബസ്'}],'ml','ml')
+            captions.validate_language([],'ml','ml')
+            self.assertEqual(source.read_bytes(),b'original recording')
+
+    def test_malayalam_worker_forces_transcription_and_short_timed_windows(self):
+        from types import SimpleNamespace
+        speech=mock.Mock()
+        speech.transcribe.return_value=([SimpleNamespace(words=[
+            SimpleNamespace(word=' മലയാളം',start=.2,end=1.2),
+            SimpleNamespace(word=' വാർത്തകൾ',start=1.2,end=2.4)],text='',start=.2,end=2.4)],
+            SimpleNamespace(language='ml',duration=3))
+        with mock.patch.dict(sys.modules,{'faster_whisper':SimpleNamespace(WhisperModel=mock.Mock(return_value=speech))}), \
+             mock.patch.object(sys,'argv',['captions.py','--worker','speech.wav','local-model','ml']), \
+             mock.patch.object(captions,'_emit') as emit:
+            self.assertEqual(captions._worker(),0)
+        options=speech.transcribe.call_args.kwargs
+        self.assertEqual(options['language'],'ml');self.assertEqual(options['task'],'transcribe')
+        self.assertEqual(options['chunk_length'],7);self.assertTrue(options['word_timestamps'])
+        self.assertEqual(options['beam_size'],1);self.assertEqual(options['temperature'],0.0)
+        self.assertEqual(speech.max_length,888);self.assertEqual(options['max_new_tokens'],884)
+        result=emit.call_args.args[0]['result']
+        self.assertEqual(result['captions'],[{'start':.2,'end':2.4,'text':'മലയാളം വാർത്തകൾ'}])
+
+    def test_malayalam_setup_requires_the_pinned_model_and_tokenizer(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('setup_transcription',Path(__file__).resolve().parents[1]/'tools/setup_transcription.py')
+        setup=importlib.util.module_from_spec(spec);spec.loader.exec_module(setup)
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);python=root/'venv/bin/python';python.parent.mkdir(parents=True);python.touch()
+            with mock.patch.object(setup.subprocess,'run') as run,mock.patch.object(setup,'emit'):
+                setup.run_setup(root,captions.MALAYALAM_MODEL)
+            command=run.call_args.args[0]
+            self.assertIn(captions.MALAYALAM_REPO,command)
+            self.assertIn(captions.MALAYALAM_REVISION,command)
+            self.assertIn(captions.MALAYALAM_TOKENIZER_REVISION,command)
+            model_path=root/'models'/captions.MALAYALAM_MODEL
+            for name in ('model.bin','config.json','tokenizer.json'):(model_path/name).touch()
+            self.assertTrue(captions.runtime_status(root,captions.MALAYALAM_MODEL)['ready'])
+            (model_path/'ready.json').write_text('{}')
+            self.assertFalse(captions.runtime_status(root,captions.MALAYALAM_MODEL)['ready'])
 
     def test_ready_setup_is_offline_and_cancel_does_not_start_worker(self):
         ready={'ready':True,'model':'tiny'}

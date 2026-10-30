@@ -1,12 +1,13 @@
-# Local captions in ClipCanvas 0.12.0
+# Local captions in ClipCanvas 0.13.1
 
 Click **Captions → Generate captions** to start immediately with the **Small**
 model and automatic language detection. There is no required options dialog.
 Progress and Cancel appear while the background job runs. The language selector
 above Generate includes **Malayalam · മലയാളം**, English, Hindi, Tamil and automatic
-detection. Selecting Malayalam chooses **Turbo** for stronger multilingual
-recognition. The selected language/model is remembered for the next run. Other language
-codes saved through the gear remain available in this selector.
+detection. Selecting Malayalam always chooses the dedicated **Malayalam** speech model,
+including when older preferences saved Small, Tiny or Turbo. The language is
+passed explicitly to transcription; generation does not translate to English.
+The selected language/model is remembered for the next run. Other language codes saved through the gear remain available in this selector.
 
 The gear beside Generate opens **Caption settings** when you need to change
 the source, model or language. **Apply** saves these choices across launches;
@@ -43,7 +44,8 @@ change its timing. The row layout is saved in the project.
 ## One-time setup
 
 The first Generate downloads supporting Python libraries and the selected model.
-Model files are approximately 75 MB (Tiny), 490 MB (Small) or 1.6 GB (Turbo), plus several hundred
+Model files are approximately 75 MB (Tiny), 490 MB (Small), 1.5 GB (Malayalam)
+or 1.6 GB (Turbo), plus several hundred
 MB for libraries/cache. Allow about 1 GB of free space for a Tiny installation,
 and more for Small. No audio/video is uploaded, and no API key is required.
 Subsequent generation with an installed model is forced offline. Model setup is
@@ -56,6 +58,7 @@ ${XDG_DATA_HOME:-~/.local/share}/clipcanvas/transcription/
   venv/          isolated Python dependencies
   models/small/  default model and verification marker
   models/tiny/   present after choosing the optional draft model
+  models/malayalam/  Malayalam-specific model and offline tokenizer
   cache/         package/model download cache
   runtime.json   compatible runtime versions
 ```
@@ -95,7 +98,14 @@ Small is slower and usually a better choice for difficult audio. Accuracy,
 language detection, and timing vary with music, accents, noise and language.
 Review the result before sharing. Enabling Malayalam does not translate its
 speech into English. The stock Small model performed poorly on our Malayalam
-speech check; Turbo is the recommended Malayalam choice.
+speech check. Malayalam now uses a model trained for Malayalam speech; generic
+Small/Tiny/Turbo settings are automatically upgraded for this language. Speech
+is decoded in seven-second windows with aligned word timings to avoid losing
+the end of long Malayalam phrases to the decoder token limit. The effective
+text-token allowance is raised to 444 within Whisper’s decoder context; this
+also avoids cutting a multibyte Malayalam letter at the limit. A result that
+reports another language or contains mostly another script is rejected before
+it can replace the existing captions.
 
 ## Troubleshooting
 
@@ -122,11 +132,10 @@ folder separately if you no longer want those downloads.
 ## Malayalam captions and included fonts
 
 Select **Malayalam · മലയാളം** above **Generate captions**, then Generate. Use the
-multilingual **Turbo** model selected automatically when choosing Malayalam.
-Its first download is about 1.6 GB; later generation is offline. Small and Tiny
-remain available in Caption settings for smaller downloads, with lower Malayalam
-accuracy. English-only `.en` models cannot transcribe Malayalam. For a
-separate narration soundtrack choose **Full mix** in the gear settings. Generation
+**Malayalam** speech model selected automatically for this language.
+Its first download is about 1.5 GB; later generation is offline. Small, Tiny and
+Turbo remain available for other languages. English-only `.en` models cannot
+transcribe Malayalam. For a separate narration soundtrack choose **Full mix** in the gear settings. Generation
 follows sequence timing and remains local after the initial speech setup.
 
 The shared **Caption style** and title Text editor have a **Malayalam Google
@@ -150,8 +159,26 @@ and bold styles, sample-identical preview/lossless-export pixels, distinct famil
 shapes, Unicode SRT round trips, language persistence, and undo/save/reopen.
 
 
+Malayalam uses Adalat AI’s Apache-2.0
+[Malayalam R-MFT Whisper Medium conversion](https://huggingface.co/adalat-ai/ct2-whisper-medium-ml-rmft),
+pinned to revision `c57a16c07730e26918d2176c08d92bf62c7148c6`. Setup also downloads
+the standard multilingual medium tokenizer from Systran, pinned to
+`08e178d48790749d25932bbc082711ddcfdfbc4f`; this conversion does not include
+`tokenizer.json`. Both are kept in the model directory so recognition remains
+offline. The model card documents Malayalam training and short speech windows.
+Selecting Malayalam changes the next generation job; existing cue text is only
+replaced after a successful generation and the normal replacement confirmation.
+
 Turbo uses the CTranslate2 conversion of
 [Whisper large-v3-turbo](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo)
 through the existing pinned faster-whisper runtime. It is an optional per-user
 model download, not part of the Ubuntu installer. It still runs on the CPU and
 may take longer than the video. Word and timing correction remain necessary.
+
+
+The 0.13.1 real-speech check used a 15-second Malayalam reel sample through the
+complete offline caption API, requesting Malayalam with an old Small choice.
+It produced six Malayalam cues through 14.98 seconds without replacement
+characters. Recognition took 103 seconds on the test machine's CPU. This checks
+language, text integrity and end coverage; it is not a word-accuracy benchmark.
+Review generated words and timings before sharing.

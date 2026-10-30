@@ -398,13 +398,15 @@ class LayerTools:
         except Exception as e:w.error(str(e))
 
     def generation_settings(self):
+        from . import captions
         saved=self.owner.preferences.get('caption_generation',{})
         if not isinstance(saved,dict):saved={}
         language=saved.get('language')
         language=language.strip().lower() if isinstance(language,str) else None
+        language=language if language and re.fullmatch(r'[a-z]{2,3}',language) else None
+        name=saved.get('model_name') if saved.get('model_name') in ('tiny','small','large-v3-turbo',captions.MALAYALAM_MODEL) else 'small'
         return {'source':saved.get('source') if saved.get('source') in ('video','mix') else 'video',
-                'model_name':saved.get('model_name') if saved.get('model_name') in ('tiny','small','large-v3-turbo') else 'small',
-                'language':language if language and re.fullmatch(r'[a-z]{2,3}',language) else None}
+                'model_name':captions.model_for_language(name,language),'language':language}
 
     def sync_caption_language(self):
         from . import captions
@@ -417,24 +419,25 @@ class LayerTools:
             if language not in dict(captions.LANGUAGES):self.caption_language.append(language,'Language · '+language)
             self.caption_language.set_active_id(language)
             name=self.generation_settings()['model_name']
-            if name=='large-v3-turbo':text='Turbo multilingual · about 1.6 GB on first use.'
-            elif language=='ml':text='For clearer Malayalam, choose Turbo in Caption settings.'
+            if name==captions.MALAYALAM_MODEL:text='Malayalam speech model · about 1.5 GB on first use.'
+            elif name=='large-v3-turbo':text='Turbo multilingual · about 1.6 GB on first use.'
             else:text=name.title()+' speech model · change in Caption settings.'
             self.caption_model_hint.set_text(text)
         finally:
             if handler:self.caption_language.handler_unblock(handler)
 
     def caption_language_changed(self,combo):
+        from . import captions
         w=self.owner
         if w.busy:self.sync_caption_language();return
-        settings=self.generation_settings();previous=settings['language'];settings['language']=combo.get_active_id() or None
-        if settings['language']=='ml' and previous!='ml':settings['model_name']='large-v3-turbo'
+        settings=self.generation_settings();settings['language']=combo.get_active_id() or None
+        settings['model_name']=captions.model_for_language(settings['model_name'],settings['language'])
         try:w.preferences.set('caption_generation',settings)
         except OSError as error:
             self.sync_caption_language();w.error('Could not save caption language: '+str(error));return
         title=combo.get_active_text()
         self.sync_caption_language()
-        w.set_status(title+' selected. Click Generate captions to start.')
+        w.set_status(title+' selected. Click Generate captions to regenerate existing captions.')
 
     def configure_generation(self):
         from . import captions
@@ -445,20 +448,20 @@ class LayerTools:
         content=dialog.get_content_area();content.set_border_width(18);content.set_spacing(12)
         content.pack_start(caption('Speech recognition runs locally. The first use downloads a speech model and supporting software; later use works offline.'),False,False,0)
         source=Gtk.ComboBoxText();source.append('video','Speech in the original video clips');source.append('mix','Full mix · include soundtracks');source.set_active_id(settings['source']);content.pack_start(source,False,False,0)
-        choice=Gtk.ComboBoxText();choice.append('large-v3-turbo','Turbo · recommended for Malayalam');choice.append('small','Small · smaller download');choice.append('tiny','Tiny · quick, lower accuracy');choice.set_active_id(settings['model_name']);content.pack_start(choice,False,False,0)
+        choice=Gtk.ComboBoxText();choice.append(captions.MALAYALAM_MODEL,'Malayalam · trained for Malayalam speech');choice.append('large-v3-turbo','Turbo · multilingual');choice.append('small','Small · smaller download');choice.append('tiny','Tiny · quick, lower accuracy');choice.set_active_id(settings['model_name']);content.pack_start(choice,False,False,0)
         download=caption('')
         def model_status(*_):
             status=captions.runtime_status(model=choice.get_active_id())
             download.set_text('Model installed · recognition works offline.' if status['ready'] else f'First download: about {status["download_mb"]} MB for the model, plus speech libraries. No footage is uploaded.')
         choice.connect('changed',model_status);model_status();content.pack_start(download,False,False,0)
         language=Gtk.Entry();language.set_placeholder_text('Language code · leave empty to detect');language.set_tooltip_text('Examples: en, hi, ml, ta, ar. Empty detects the language.');language.set_text(settings['language'] or '');content.pack_start(language,False,False,0)
-        message=caption('Apply saves these settings for the next time you click Generate captions.');content.pack_start(message,False,False,0)
+        message=caption('Malayalam uses its dedicated speech model. Apply saves settings for the next Generate; existing captions need regeneration.');content.pack_start(message,False,False,0)
         dialog.show_all()
         while dialog.run()==Gtk.ResponseType.OK:
             value=language.get_text().strip().lower() or None
             if value and not re.fullmatch(r'[a-z]{2,3}',value):
                 message.set_text('Use a language code such as en, hi or ml, or leave it empty to detect.');language.grab_focus();continue
-            settings={'source':source.get_active_id(),'model_name':choice.get_active_id(),'language':value}
+            settings={'source':source.get_active_id(),'model_name':captions.model_for_language(choice.get_active_id(),value),'language':value}
             try:w.preferences.set('caption_generation',settings)
             except OSError as error:message.set_text('Could not save caption settings: '+str(error));continue
             self.sync_caption_language()
@@ -473,6 +476,7 @@ class LayerTools:
         w=self.owner
         if w.busy:return
         if not w.project['clips']:w.set_status('Add videos before generating captions.');return
+        model_name=captions.model_for_language(model_name,language)
         snapshot=copy.deepcopy(w.project);w.canvas.pause();w.set_busy(True);w.cancel_event=threading.Event()
         if w.project_path:snapshot['_project_path']=w.project_path
         progress_dialog=Gtk.Dialog(title='Generating captions',transient_for=w,modal=True);progress_dialog.add_button('Cancel',Gtk.ResponseType.CANCEL)

@@ -60,7 +60,7 @@ Sources: [Transitions](https://www.canva.com/features/video-transitions/), [elem
 |---|---|---|---|---|
 | C21 | Text titles and labels | Basic / premium fonts vary | Add and format positioned text over video. | Existing: editable Unicode titles, installed fonts, size, bold/italic, alignment, color and four shared presets |
 | C22 | Text effects | Basic / effect or asset varies | Add outlines, shadows, backgrounds, and other styles. | Partial: Clean/Outline/Shadow/Highlight presets, editable outlines, shadows and rounded line backgrounds; other effects pending |
-| C23 | Automatic speech captions | Varies | Generate captions from spoken video or audio. | Local Tiny/Small/Turbo speech recognition; Turbo selected for Malayalam; visible Malayalam/English/Hindi/Tamil selection and automatic detection (0.12.0); first-use download |
+| C23 | Automatic speech captions | Varies | Generate captions from spoken video or audio. | Local Tiny/Small/Turbo speech recognition and a dedicated Malayalam model; saved Malayalam settings upgrade automatically with language/script validation (0.13.1); visible Malayalam/English/Hindi/Tamil selection and automatic detection (0.12.0); first-use download |
 | C24 | Edit caption wording and timing | Varies | Correct recognition and move caption segments. | Existing: editable words and cue timing; manual cues, SRT import/export, undo/redo |
 | C25 | Styled and animated caption packs | Varies | Apply a consistent subtitle treatment, including motion. | Four shared editable static presets; bundled Noto Sans Malayalam, Manjari and Anek Malayalam with offline shaping (0.12.0); animated packs pending |
 | C26 | Caption translation | Varies | Generate captions in another supported language. | New work |
