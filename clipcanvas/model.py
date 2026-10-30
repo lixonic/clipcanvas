@@ -134,7 +134,7 @@ def new_clip(path, metadata=None):
             "volume": 1.0, "transition": "none", "transition_duration": 0.5,
             "transition_direction":"left","transition_colour":"#8b3dff",
             "position_x": 0.5, "position_y": 0.5, "speed": 1.0,
-            "rotation": 0, "flip_x": False, "flip_y": False,
+            "rotation": 0, "flip_x": False, "flip_y": False, "saturation": 1.0,
             "fade_in": 0.0, "fade_out": 0.0,
             "video_fade_in": 0.0, "video_fade_out": 0.0}
 
@@ -173,7 +173,7 @@ def new_card(color='#ffffff', duration=3.0):
             'duration': float(duration), 'in': 0.0, 'out': float(duration),
             'speed': 1.0, 'volume': 0.0, 'fit': 'fill',
             'fade_in': 0.0, 'fade_out': 0.0, 'position_x': .5, 'position_y': .5,
-            'rotation': 0, 'flip_x': False, 'flip_y': False,
+            'rotation': 0, 'flip_x': False, 'flip_y': False, 'saturation': 1.0,
             'transition': 'none', 'transition_duration': .5,
             'transition_direction':'left','transition_colour':'#8b3dff',
             'video_fade_in': 0.0, 'video_fade_out': 0.0}
@@ -379,6 +379,7 @@ def validate_project(project, check_files=True, require_clips=False):
                 # overlong fade is clamped to the audible segment when rendered.
                 _number(item.get(key, 0), f"{label} fade", 0, max(duration, duration / speed))
             if group == "clips":
+                _number(item.get('saturation', 1), f'{label} saturation', 0, 1)
                 _number(item.get('source_fps', 0), f'{label} original frame rate', 0, 240)
                 for key in ("video_fade_in", "video_fade_out"):
                     _number(item.get(key, 0), f"{label} picture fade", 0, max(duration, duration / speed))
@@ -533,7 +534,7 @@ def load_project(path):
                                      "transition_duration": 0.5,
                                      "transition_direction":"left","transition_colour":"#8b3dff",
                                      "position_x": 0.5, "position_y": 0.5,
-                                     "rotation": 0,
+                                     "rotation": 0, "saturation": 1.0,
                                      "flip_x": False, "flip_y": False,
                                      "video_fade_in": 0.0, "video_fade_out": 0.0})
                     if is_image(item):

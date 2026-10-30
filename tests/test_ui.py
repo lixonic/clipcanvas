@@ -1905,5 +1905,54 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
+    def test_desaturate_selection_picture_control_undo_and_reopen(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'desaturate-recovery')
+        errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/n) for n in ('landscape.mp4','portrait.mp4','music.wav')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and len(w.thumbs)==2 and bool(w.waves))
+            w.cancel_scrub();w.project['clips'].append(model.new_card('#dd4422',1))
+            w.changed();before=copy.deepcopy(w.project)
+            w.seek(.4)
+            menu=w.context_menu('clips',1,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
+            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            self.assertIn('Desaturate selected clips (3)',actions)
+            self.assertFalse(actions['Restore selected clips’ color (3)'].get_sensitive())
+            menu.popdown();history=len(w.history);actions['Desaturate selected clips (3)'].activate()
+            expected=copy.deepcopy(before)
+            for item in expected['clips']:item['saturation']=0
+            self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
+            self.assertAlmostEqual(w.playhead,.4,delta=1/30+.001)
+            w.apply_selected_saturation(0);self.assertEqual(len(w.history),history+1)
+            w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
+            w.select('clips',1,seek=False);w.open_properties('Picture')
+            self.assertEqual(w.fields['saturation'][0].get_value(),0)
+            w.fields['saturation'][0].set_value(45);w.apply_fields()
+            expected['clips'][1]['saturation']=.45;self.assertEqual(w.project,expected)
+            # A card's independent Picture page uses the same saved adjustment.
+            w.select('clips',2,seek=False);w.open_properties('Picture')
+            self.assertEqual(w.properties_stack.get_visible_child_name(),'Picture')
+            card_time=model.timeline(w.project)[2]['start']+.25;w.seek(card_time)
+            w.fields['saturation'][0].set_value(60);w.apply_fields()
+            expected['clips'][2]['saturation']=.6;self.assertEqual(w.project,expected)
+            self.assertAlmostEqual(w.playhead,card_time,delta=1/30+.001)
+            w.project_path=str(self.fixtures.root/'desaturated.clipcanvas');self.assertTrue(w.save())
+            w.open_project(w.project_path);self.assertEqual(w.project,expected)
+            w.select('clips',1,seek=False);w.select_modified('audio',0,Gdk.ModifierType.CONTROL_MASK)
+            w.apply_selected_saturation(1);expected['clips'][1]['saturation']=1
+            self.assertEqual(w.project,expected)
+            # Thumbnail rendering applies the edit without mutating the library.
+            pix=w.thumbs[w.project['clips'][0]['path']];original=bytes(pix.get_pixels())
+            surface=cairo.ImageSurface(cairo.FORMAT_RGB24,160,70)
+            w.timeline.paint_clip(cairo.Context(surface),w.project['clips'][0],0,0,0,160,70)
+            self.assertEqual(bytes(pix.get_pixels()),original)
+            self.assertTrue(w.timeline.saturation_thumbs)
+            self.assertFalse(errors)
+        finally:
+            if getattr(w,'active_context_menu',None):w.active_context_menu.popdown()
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
 if __name__ == '__main__':
     unittest.main()

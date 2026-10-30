@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.12.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.13.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.12.0_all.deb
+sudo apt install ./clipcanvas_0.13.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -105,3 +105,8 @@ Version 0.12.0 adds a visible Malayalam caption language choice and bundles thre
 Google Fonts: Noto Sans Malayalam, Manjari and Anek Malayalam. Selecting Malayalam
 uses multilingual Turbo (about 1.6 GB on first use). Fonts work offline
 in captions, titles, preview and export, with their SIL Open Font Licenses.
+
+Version 0.13.0 adds Picture → Saturation (0–100%) and right-click Desaturate/Restore
+original color for one or more timeline clips. Video, photo and color-card
+thumbnails, scrubbing, playback and export reflect the effect; originals and
+overlay colors are preserved. See [desaturation and validation](../../docs/DESATURATION.md).

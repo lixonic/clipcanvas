@@ -215,6 +215,21 @@ def load_image(path):
     return _image(str(path), stat.st_size, stat.st_mtime_ns)
 
 
+def saturated_picture(pixbuf, saturation=1):
+    """Adjust a copy so shared source frames and library thumbnails keep color."""
+    if saturation == 1:
+        return pixbuf
+    result = pixbuf.copy()
+    pixbuf.saturate_and_pixelate(result, saturation, False)
+    return result
+
+
+def saturated_rgb(color, saturation=1):
+    red, green, blue = rgba(color)[:3]
+    gray = .299*red + .587*green + .114*blue
+    return tuple(gray+(channel-gray)*saturation for channel in (red, green, blue))
+
+
 def _picture(cr, pixbuf, width, height, fit='fit'):
     if isinstance(pixbuf, cairo.ImageSurface):
         sw, sh = pixbuf.get_width(), pixbuf.get_height()

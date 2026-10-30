@@ -72,6 +72,17 @@ def with_volume(project, selection, volume):
     return candidate
 
 
+def with_saturation(project, selection, saturation):
+    """Adjust selected main-sequence pictures with one undoable operation."""
+    model._number(saturation, 'Selection saturation', 0, 1)
+    candidate = copy.deepcopy(project)
+    for group, _, item in selected_items(candidate, selection):
+        if group == 'clips':
+            item['saturation'] = saturation
+    model.validate_project(candidate, check_files=False)
+    return candidate
+
+
 def with_audio_placement(project, index, start, lane_id):
     """Move one audio clip without changing its trim, fades, effects or source."""
     candidate=copy.deepcopy(project)

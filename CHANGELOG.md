@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 — 2026-10-30
+
+- Add Picture → Saturation (0–100%) for video clips, images and color cards.
+  Right-click Desaturate makes selected timeline clips black and white in one
+  undoable edit; Restore original color returns them to 100%. Timeline thumbnails
+  show the adjustment without changing library assets or original media.
+- Keep desaturation in paused native scrubbing, live/prepared preview, transitions
+  and export. Apply it before overlays so titles, captions and logos retain their
+  own colors. Preserve settings through save/reopen, split, duplicate and paste;
+  older projects open with their original color.
+- Verify partial/full desaturation using generated media, preview/export pixel
+  comparisons and native GTK selection, undo/redo and save/reopen workflows.
+
 ## 0.12.0 — 2026-10-29
 
 - Add a visible, remembered Malayalam caption language choice alongside automatic

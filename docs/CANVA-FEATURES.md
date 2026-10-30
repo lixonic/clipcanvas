@@ -91,7 +91,7 @@ Sources: [Audio formats](https://www.canva.com/help/upload-formats-requirements-
 | ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
 | C39 | Video filter presets | Basic | Apply a look and adjust its strength. | New work |
-| C40 | Basic color and light adjustments | Basic | Tune brightness, contrast, saturation, temperature, tint, highlights, and shadows. | New work |
+| C40 | Basic color and light adjustments | Basic | Tune brightness, contrast, saturation, temperature, tint, highlights, and shadows. | Partial: timeline clip saturation/desaturation (0–100%), group black & white/restore, preview/export (0.13.0); other adjustments pending |
 | C41 | Blur and vignette effects | Basic / effect varies | Soften the picture or darken its edges. | New work |
 | C42 | AI video background removal | Pro | Isolate a subject and replace its background. | New work |
 | C43 | Enhance Voice | Pro | Reduce background noise around speech; usage allowance applies. | New work |

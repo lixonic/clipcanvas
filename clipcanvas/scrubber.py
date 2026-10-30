@@ -141,7 +141,7 @@ class ScrubSession:
         surface = cairo.ImageSurface(cairo.FORMAT_RGB24, width, height)
         cr = cairo.Context(surface)
         if model.is_card(clip):
-            cr.set_source_rgb(*visuals.rgba(clip['color'])[:3]); cr.paint()
+            cr.set_source_rgb(*visuals.saturated_rgb(clip['color'], clip.get('saturation', 1))); cr.paint()
         else:
             metadata = engine.probe(clip['path'])
             # Preserve unusual aspect/rotation metadata through the established
@@ -160,6 +160,7 @@ class ScrubSession:
             except Exception:
                 self.close(); self.last_backend = 'composition'
                 return engine.preview_frame(project, seconds, cancel, preview_edge)
+            pixbuf = visuals.saturated_picture(pixbuf, clip.get('saturation', 1))
             rotation = {90: GdkPixbuf.PixbufRotation.CLOCKWISE,
                         180: GdkPixbuf.PixbufRotation.UPSIDEDOWN,
                         270: GdkPixbuf.PixbufRotation.COUNTERCLOCKWISE}.get(clip.get('rotation', 0))
