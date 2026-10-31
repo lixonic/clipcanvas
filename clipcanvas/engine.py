@@ -22,7 +22,7 @@ import threading
 import time
 
 from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card, is_image, is_still
-from . import audio_effects, transitions
+from . import audio_effects, transitions, color_grading
 
 
 class RenderError(RuntimeError):
@@ -715,11 +715,10 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
                         f"x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
                         f"d={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}")
         picture_index = 0 if (proxies or {}).get(clip.get('path')) and preview and not audio_only else metadata['video_index']
-        picture = [f"[{video_input}:{picture_index}]{framing}", "setsar=1", "format=yuv420p",
+        preparation = ','.join(color_grading.filters(clip)+[framing])
+        picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
-        if clip.get('saturation', 1) != 1:
-            picture.append(f"hue=s={_fmt(clip['saturation'])}")
         if seek:picture.append(f"setpts=PTS+{_fmt(seek)}/TB")
         picture_fade_in = min(float(clip.get("video_fade_in", 0)), duration)
         picture_fade_out = min(float(clip.get("video_fade_out", 0)), duration)

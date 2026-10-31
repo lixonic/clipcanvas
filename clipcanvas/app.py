@@ -20,7 +20,7 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 import cairo
 
-from . import model, engine, storage, track_layout, audio_effects, workflow, transitions, visuals
+from . import model, engine, storage, track_layout, audio_effects, workflow, transitions, visuals, color_grading
 from .preferences import Preferences
 from . import __version__
 from .player import VideoCanvas
@@ -28,6 +28,7 @@ from .player import VideoCanvas
 from . import ui_theme
 from .layer_ui import LayerTools
 from .effect_ui import TransitionEditor
+from .color_grading_ui import ColorGradingDialog
 
 # Kept as an import for third-party launchers and the native integration checks.
 CSS = ui_theme.CSS
@@ -403,13 +404,13 @@ class Timeline(Gtk.DrawingArea):
         colors=ui_theme.palette(self)
         cr.save();rounded(cr,x,y,width,height);cr.clip()
         pix=self.owner.thumbs.get(clip.get('path'))
-        if model.is_card(clip):cr.set_source_rgb(*visuals.saturated_rgb(clip['color'],clip.get('saturation',1)));cr.paint()
+        if model.is_card(clip):cr.set_source_rgb(*visuals.graded_rgb(clip));cr.paint()
         elif pix:
-            if clip.get('saturation',1)!=1:
-                key=(pix,clip['saturation'])
+            if color_grading.active(clip):
+                key=(pix,color_grading.signature(clip))
                 if key not in self.saturation_thumbs:
                     if len(self.saturation_thumbs)>=64:self.saturation_thumbs.pop(next(iter(self.saturation_thumbs)))
-                    self.saturation_thumbs[key]=visuals.saturated_picture(pix,clip['saturation'])
+                    self.saturation_thumbs[key]=visuals.graded_picture(pix,clip)
                 pix=self.saturation_thumbs[key]
             factor=height/pix.get_height();pw=pix.get_width()*factor
             left,_,right,_=cr.clip_extents();stride=max(1,int(pw));base=int(x)
@@ -423,7 +424,7 @@ class Timeline(Gtk.DrawingArea):
             rounded(cr,x+7,y+6,min(width-14,14+len(duration_text)*6),20,4);rgb(cr,'#21172c',.75);cr.fill()
             draw_text(cr,duration_text,x+13,y+20,'#ffffff',10,True)
         rgb(cr,'#21172c',.70);cr.rectangle(x,y+height-27,width,27);cr.fill()
-        draw_text(cr,f'{index+1}  '+('FX · ' if audio_effects.active(clip) else '')+model.item_name(clip),x+8,y+height-9,'#ffffff',11,True)
+        draw_text(cr,f'{index+1}  '+('COLOR · ' if color_grading.active(clip) else '')+('FX · ' if audio_effects.active(clip) else '')+model.item_name(clip),x+8,y+height-9,'#ffffff',11,True)
         cr.restore();rounded(cr,x,y,width,height);rgb(cr,colors['accent'] if selected else '#ffffff');cr.set_line_width(3 if selected else 1);cr.stroke()
         if selected and width>=24:
             for edge in (x+3,x+width-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+25,2,27);cr.fill()
@@ -795,8 +796,9 @@ class ClipCanvasWindow(Gtk.Window):
         self.context_title.set_max_width_chars(28);self.context_toolbar.pack_start(self.context_title,True,True,0)
         self.edit_button=ui_theme.icon_button('document-properties-symbolic',lambda:self.open_properties('Timing'),'Timing, image duration and motion, or playback speed',label='Edit')
         self.picture_button=ui_theme.icon_button('image-x-generic-symbolic',lambda:self.open_properties('Picture'),'Saturation, crop, rotate, flip and picture fades',label='Picture')
+        self.color_button=ui_theme.icon_button('applications-graphics-symbolic',self.edit_color_grading,'Grade clip color with before/after preview',label='Color')
         self.sound_button=ui_theme.icon_button('audio-volume-high-symbolic',lambda:self.open_properties('Sound'),'Volume and audio fade in/out',label='Audio')
-        for item in (self.edit_button,self.picture_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
+        for item in (self.edit_button,self.picture_button,self.color_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
         center.pack_start(self.context_toolbar,False,False,0)
         self.canvas=VideoCanvas();self.canvas.set_size_request(320,200)
         self.canvas.on_position=self.on_position;self.canvas.on_error=self.playback_error
@@ -1295,7 +1297,7 @@ class ClipCanvasWindow(Gtk.Window):
         else:self.canvas.set_still(None)
 
     def display_still(self,pix,item):
-        pix=visuals.saturated_picture(pix,item.get('saturation',1))
+        pix=visuals.graded_picture(pix,item)
         rotation={90:GdkPixbuf.PixbufRotation.CLOCKWISE,180:GdkPixbuf.PixbufRotation.UPSIDEDOWN,
                   270:GdkPixbuf.PixbufRotation.COUNTERCLOCKWISE}.get(item.get('rotation',0))
         if rotation is not None:pix=pix.rotate_simple(rotation)
@@ -1309,6 +1311,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.apply_button.set_label('Apply changes')
         for child in self.inspector.get_children():self.inspector.remove(child)
         item=self.selected_item();self.fields={};self.property_pages={}
+        self.color_button.set_sensitive(item is not None and self.selected[0]=='clips')
         if item and self.selected[0] in ('layers','captions'):
             self.layer_tools.show_properties();return
         ready=item is not None
@@ -1441,13 +1444,13 @@ class ClipCanvasWindow(Gtk.Window):
     def add_saturation_control(self,parent,item):
         parent.pack_start(label('Saturation (%)'),False,False,0)
         row=box(Gtk.Orientation.HORIZONTAL,8)
-        adjustment=Gtk.Adjustment(value=item.get('saturation',1)*100,lower=0,upper=100,step_increment=1,page_increment=10)
+        adjustment=Gtk.Adjustment(value=item.get('saturation',1)*100,lower=0,upper=200,step_increment=1,page_increment=10)
         scale=Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL,adjustment=adjustment)
         scale.set_draw_value(False);scale.set_hexpand(True);scale.set_size_request(140,-1)
         control=Gtk.SpinButton(adjustment=adjustment,climb_rate=1,digits=0);control.set_width_chars(3)
         row.pack_start(scale,True,True,0);row.pack_start(control,False,False,0)
         parent.pack_start(row,False,False,0);self.fields['saturation']=(control,100)
-        hint=label('0% is black & white · 100% is original color','dim-label')
+        hint=label('0% is black & white · 100% is original · 200% boosts color. More controls in Color.','dim-label')
         hint.set_line_wrap(True);hint.set_max_width_chars(30);parent.pack_start(hint,False,False,0)
 
     def open_properties(self,page='Timing',anchor=None,rectangle=None):
@@ -1506,8 +1509,9 @@ class ClipCanvasWindow(Gtk.Window):
         if kind=='clips':
             picture_items=self.selected_picture_items();picture_count=len(picture_items)
             action('Picture…',lambda:self.open_properties('Picture'))
+            action('Color grading…',self.edit_color_grading)
             action(f'Desaturate selected clips ({picture_count})' if picture_count>1 else 'Desaturate',lambda:self.apply_selected_saturation(0),any(item.get('saturation',1)>0 for _,_,item in picture_items))
-            action(f'Restore selected clips’ color ({picture_count})' if picture_count>1 else 'Restore original color',lambda:self.apply_selected_saturation(1),any(item.get('saturation',1)<1 for _,_,item in picture_items))
+            action(f'Restore selected clips’ color ({picture_count})' if picture_count>1 else 'Restore original color',lambda:self.apply_selected_saturation(1),any(item.get('saturation',1)!=1 for _,_,item in picture_items))
             if model.is_image(self.selected_item()):action('Image motion…',lambda:self.open_properties('Motion'))
             action('Insert color card before…',lambda:self.add_card(index))
             action('Insert color card after…',lambda:self.add_card(index+1))
@@ -1565,6 +1569,26 @@ class ClipCanvasWindow(Gtk.Window):
     def extraction_available(self,item):
         return (not model.is_still(item) and self.media_metadata.get(item['path'],{}).get('has_audio') is not False
                 and not any(a.get('source_clip_id')==item['id'] for a in self.project['audio']))
+
+    def edit_color_grading(self):
+        item=self.selected_item()
+        if self.busy or not item or self.selected[0]!='clips':return
+        index=self.selected[1];at=self.playhead
+        items=self.selected_picture_items()
+        selection={(kind,clip['id']) for kind,_,clip in items}
+        self.properties_popover.popdown();self.cancel_scrub();self.canvas.pause();self.update_play_button(False)
+        dialog=ColorGradingDialog(self,self.project,index,at,len(items),selection)
+        try:
+            if dialog.run()!=Gtk.ResponseType.OK:return
+            grade,saturation=dialog.read()
+            if not dialog.apply_selection.get_active():selection={('clips',item['id'])}
+            # Opening and applying untouched controls must not create an undo step.
+            if all(color_grading.settings(clip)==grade and clip.get('saturation',1)==saturation
+                   for kind,_,clip in workflow.selected_items(self.project,selection)):return
+            candidate=workflow.with_color_grade(self.project,selection,grade,saturation)
+        finally:dialog.destroy()
+        self.checkpoint();self.project=candidate;self.changed();self.seek(at)
+        self.set_status(f'Color grade applied to {len(selection)} clip(s). Undo restores their previous settings.')
 
     def apply_selected_saturation(self,saturation):
         if self.busy:return

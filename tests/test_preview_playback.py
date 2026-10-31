@@ -175,7 +175,8 @@ class PreviewPlaybackTests(unittest.TestCase):
             try:
                 self.pump(lambda:waiting.is_set() and False in states and len(audio)>5)
                 self.pump(lambda:player.buffering and states[-1] and len(states)>2)
-                self.assertEqual(player.pipeline.get_state(0)[1],Gst.State.PAUSED)
+                # GStreamer completes the requested pause asynchronously.
+                self.pump(lambda:player.pipeline.get_state(0)[1]==Gst.State.PAUSED)
                 player.pause();gate.set()
                 self.pump(lambda:not player.buffering)
                 self.assertEqual(player.pipeline.get_state(0)[1],Gst.State.PAUSED)

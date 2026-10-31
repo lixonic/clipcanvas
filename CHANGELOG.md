@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.14.0 — 2026-10-31
+
+- Add a Color grading editor for timeline videos, images and color cards, with
+  Pixar-inspired animation, Horror, Adventure, Romantic and Mystery presets.
+  Include Neutral, Warm, Cool, Soft and Punchy starting looks. Every preset is
+  editable, with a 0–100% look strength, reset, bypass and original-color comparison.
+- Adjust exposure, contrast, midtones/gamma, shadows, highlights, temperature,
+  tint and saturation (now 0–200%). Show a cancellable asynchronous composition
+  preview while editing; apply to one clip or selected clips in one undo step.
+- Share primary grading between timeline thumbnails, native scrubbing, live and
+  prepared playback, transitions and export. Preserve overlay colors, source
+  files, audio, save/reopen, recovery, split and clipboard behavior. Older projects
+  retain their original appearance. Project format remains 8.
+- Validate cinematic looks, grading controls, bypass/strength, preview/export
+  agreement, images/cards, transitions, overlays and native GTK workflows using
+  generated media.
+- Stabilize the existing buffering test by waiting for GStreamer's asynchronous
+  pause transition; the timing failure also reproduces on unmodified 0.13.1.
+
 ## 0.13.1 — 2026-10-30
 
 - Use a pinned Malayalam-specific speech model and offline tokenizer for Malayalam

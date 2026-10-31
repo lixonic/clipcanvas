@@ -2,7 +2,7 @@
 import copy
 import json
 import uuid
-from . import model, track_layout
+from . import model, track_layout, color_grading
 
 GROUPS = ('clips', 'audio', 'layers', 'captions')
 CLIPBOARD_PREFIX = 'ClipCanvas timeline\n'
@@ -74,11 +74,24 @@ def with_volume(project, selection, volume):
 
 def with_saturation(project, selection, saturation):
     """Adjust selected main-sequence pictures with one undoable operation."""
-    model._number(saturation, 'Selection saturation', 0, 1)
+    model._number(saturation, 'Selection saturation', 0, 2)
     candidate = copy.deepcopy(project)
     for group, _, item in selected_items(candidate, selection):
         if group == 'clips':
             item['saturation'] = saturation
+            if 'color_grade' in item:item['color_grade']['enabled'] = True
+    model.validate_project(candidate, check_files=False)
+    return candidate
+
+
+def with_color_grade(project, selection, grade, saturation):
+    """Replace selected picture grades; keep timing, sources and sound intact."""
+    color_grading.validate(grade)
+    model._number(saturation, 'Selection saturation', 0, 2)
+    candidate = copy.deepcopy(project)
+    for group, _, item in selected_items(candidate, selection):
+        if group == 'clips':
+            item.update(color_grade=copy.deepcopy(grade), saturation=saturation)
     model.validate_project(candidate, check_files=False)
     return candidate
 

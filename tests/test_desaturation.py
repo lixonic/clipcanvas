@@ -113,7 +113,7 @@ class DesaturationTests(unittest.TestCase):
         for item in before['clips']:item.pop('saturation')
         path.write_text(json.dumps(before))
         self.assertEqual([item['saturation'] for item in model.load_project(path)['clips']], [1, 1, 1])
-        for value in (-.01, 1.01, True, float('nan'), float('inf'), '0', None):
+        for value in (-.01, 2.01, True, float('nan'), float('inf'), '0', None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 workflow.with_saturation(p, selected, value)
         self.assertEqual([item['saturation'] for item in p['clips']], [1, 1, 1])

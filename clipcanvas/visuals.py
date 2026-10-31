@@ -17,7 +17,7 @@ gi.require_version('GdkPixbuf', '2.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 
-from . import animations, bundled_fonts
+from . import animations, bundled_fonts, color_grading
 
 bundled_fonts.register()
 
@@ -227,7 +227,32 @@ def saturated_picture(pixbuf, saturation=1):
 def saturated_rgb(color, saturation=1):
     red, green, blue = rgba(color)[:3]
     gray = .299*red + .587*green + .114*blue
-    return tuple(gray+(channel-gray)*saturation for channel in (red, green, blue))
+    return tuple(min(1,max(0,gray+(channel-gray)*saturation)) for channel in (red, green, blue))
+
+
+def graded_picture(pixbuf, clip):
+    """Translate channel bytes in native code, preserving alpha and row padding."""
+    if color_grading.rgb_active(clip):
+        width, height = pixbuf.get_width(), pixbuf.get_height()
+        channels, stride = pixbuf.get_n_channels(), pixbuf.get_rowstride()
+        source = pixbuf.get_pixels()
+        result = bytearray(source)
+        tables = color_grading.tables(clip)
+        for row in range(height):
+            start, end = row*stride, row*stride+width*channels
+            for channel in range(3):
+                result[start+channel:end:channels] = source[start+channel:end:channels].translate(tables[channel])
+        pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(bytes(result)),
+            GdkPixbuf.Colorspace.RGB, pixbuf.get_has_alpha(), 8, width, height, stride)
+    return saturated_picture(pixbuf, color_grading.saturation(clip))
+
+
+def graded_rgb(clip):
+    color = clip['color']
+    if color_grading.rgb_active(clip):
+        tables = color_grading.tables(clip)
+        color = '#'+''.join(f'{table[int(color[1+index*2:3+index*2],16)]:02x}' for index,table in enumerate(tables))
+    return saturated_rgb(color, color_grading.saturation(clip))
 
 
 def _picture(cr, pixbuf, width, height, fit='fit'):

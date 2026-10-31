@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.13.1_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.14.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.13.1_all.deb
+sudo apt install ./clipcanvas_0.14.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -115,3 +115,9 @@ Version 0.13.1 fixes Malayalam caption generation: saved Malayalam settings
 use a dedicated Malayalam speech model (about 1.5 GB first download), with short
 recognition windows and checks against wrong-language or wrong-script output.
 Save your project and restart after upgrading, then Generate captions again.
+
+Version 0.14.0 adds **Color** grading with Pixar-inspired animation, Horror,
+Adventure, Romantic and Mystery presets, adjustable strength and full primary
+color/light sliders. Compare original color, bypass/reset, and apply to selected
+clips with Undo/Redo. Video, photo and card previews/exports share the grade.
+Save and restart after upgrading. See [color grading](../../docs/COLOR-GRADING.md).

@@ -19,7 +19,7 @@ import tempfile
 import uuid
 
 from .text_styles import effect_defaults
-from . import track_layout, audio_effects
+from . import track_layout, audio_effects, color_grading
 
 
 TRANSITIONS = ("none", "fade", "wipeleft", "slideright", "dissolve", "slide",
@@ -379,7 +379,8 @@ def validate_project(project, check_files=True, require_clips=False):
                 # overlong fade is clamped to the audible segment when rendered.
                 _number(item.get(key, 0), f"{label} fade", 0, max(duration, duration / speed))
             if group == "clips":
-                _number(item.get('saturation', 1), f'{label} saturation', 0, 1)
+                _number(item.get('saturation', 1), f'{label} saturation', 0, 2)
+                if 'color_grade' in item:color_grading.validate(item['color_grade'])
                 _number(item.get('source_fps', 0), f'{label} original frame rate', 0, 240)
                 for key in ("video_fade_in", "video_fade_out"):
                     _number(item.get(key, 0), f"{label} picture fade", 0, max(duration, duration / speed))
