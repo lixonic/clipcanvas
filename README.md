@@ -1,11 +1,11 @@
-# ClipCanvas 0.14.0
+# ClipCanvas 0.15.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.14.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.15.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,8 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.15.0 adds **Apply transition to all clips** beneath Apply changes in the
+Transition panel. Copy the chosen effect and settings to every join with one Undo.
 Version 0.14.0 adds the Color grading editor with Pixar-inspired animation,
 Horror, Adventure, Romantic and Mystery presets, adjustable look strength,
 exposure/contrast/gamma, shadows/highlights, temperature/tint and saturation.
@@ -108,18 +110,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.14.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.15.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.14.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.15.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.14.0_all.deb
+   sudo apt install ./clipcanvas_0.15.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -165,6 +167,11 @@ separate application and does not change VLC.
    running time. The popover displays the actual overlap, limited to half of
    either adjacent clip. The final clip's plus button adds videos; it is not an
    outgoing transition.
+   To use the same effect everywhere, press **Apply transition to all clips**
+   beneath Apply changes. It copies only the transition, duration, direction and
+   color to all existing joins; Undo restores their previous individual settings.
+   Choose **None** and apply to all to remove every transition. Each join still
+   limits its overlap to half of its neighboring clips.
 5. **Add soundtracks.** Use **Add audio** or drag local audio files into the app.
    WAV is supported, including 16-bit PCM, 24-bit PCM, and 32-bit floating-point
    audio. Add separate layers for music, voice-over, and effects. Select a layer

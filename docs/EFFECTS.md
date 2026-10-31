@@ -5,6 +5,23 @@ picker. Choose a tile, set the duration and press **Apply changes**. Applied
 joins use the white bowtie icon; hovering an unused join shows a plus. The
 tooltip identifies the effect. Cards use the same picker.
 
+As of **0.15.0**, a second button, **Apply transition to all clips**, appears
+beneath **Apply changes** on the Transition page. Choose an effect and its
+duration/direction/color, then press this button to replace every existing clip
+join in one Undo step. Videos, images and color cards are included regardless of
+selection; the final clip has no outgoing join. Its transition controls can still
+supply settings for the other joins. Choose **None** to remove all transitions.
+
+This action copies only the transition controls; other pending inspector edits
+are not applied. Actual overlaps remain limited independently to half of each
+neighboring clip, so adding transitions shortens the overall timeline. Soundtrack,
+caption and layer start times remain absolute, as with individual transition edits.
+Undo/Redo and saving/reopening retain all individual join settings. With fewer
+than two clips, the button is disabled. Applying unchanged settings adds no Undo
+step. The project format remains version 8.
+
+![Separate transition apply buttons in ClipCanvas 0.15.0](images/transition-apply-all-0.15.0.png)
+
 | Choice | ClipCanvas behavior |
 |---|---|
 | None | Cut directly to the next clip |
@@ -117,3 +134,20 @@ Version 0.10.3 keeps animated text/caption playback from starving the live audio
 stream by replacing interpreted per-pixel opacity, wipe and blur processing with
 native operations. Sound files and settings are retained. See
 [animation/audio validation](ANIMATION-AUDIO.md).
+
+## Apply-to-all validation (0.15.0)
+
+Selected features: **C15/C16**. The requested outcome is a separate button in the
+existing Transition panel that applies the chosen transition to every clip join.
+`tests/test_bulk_transitions.py` checks actual GTK button clicks for video, image,
+card and last-clip selection, page visibility, one-step Undo/Redo, ignored pending
+volume changes, no-op handling, single-clip disabling and mixed-clip persistence.
+Generated-media checks verify short-clip overlap limits, both joins' preview and
+lossless export frames, audio presence and removing all transitions with None.
+
+Manual check: add three clips including a short photo/card, open a join, select
+Colour Wipe and a duration/direction/color, and press Apply transition to all clips.
+Check both joins while scrubbing/playing and in an export; Undo once to restore
+their individual settings. Repeat with None, from the last clip, and after
+save/reopen. Confirm Picture/Sound pages hide the extra button and a single-clip
+timeline disables it.

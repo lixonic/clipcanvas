@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.15.0 — 2026-10-31
+
+- Add a second Transition-panel button, **Apply transition to all clips**, below
+  Apply changes. Copy the chosen effect, duration, direction and color to every
+  existing join in one undoable edit. Choose None to remove all transitions.
+- Support videos, images and color cards, including opening the controls from
+  the last clip. Keep the final clip's unused outgoing settings and all other
+  picture, audio, grading and timing edits. Short clips limit each actual overlap
+  independently. Disable the action when there is no join; unchanged settings
+  do not add an Undo step.
+- Verify native button visibility, mixed clips, ignored pending inspector edits,
+  Undo/Redo, save/reopen, validation and matching preview/export frames at every join.
+
 ## 0.14.0 — 2026-10-31
 
 - Add a Color grading editor for timeline videos, images and color cards, with

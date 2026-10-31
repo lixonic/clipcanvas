@@ -45,8 +45,8 @@ Sources: [Import requirements](https://www.canva.com/help/upload-formats-require
 
 | ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
-| C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Implemented: nine illustrated choices from the supplied screenshots; compact join controls; Match & Move pairs editable layers |
-| C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Implemented: duration slider/spin, actual overlap feedback, direction and colour where applicable |
+| C15 | Clip transitions | Basic / premium options vary | Apply dissolves, slides, wipes, and other scene changes. | Implemented: nine illustrated choices; compact join controls; Match & Move pairs editable layers; separate apply-to-all button with Undo (0.15.0) |
+| C16 | Transition duration and direction | Basic | Adjust how the scene change moves and how long it lasts. | Implemented: duration slider/spin, actual overlap feedback, direction and colour; copy all four settings to every join (0.15.0) |
 | C17 | Text, element, and scene animation presets | Basic / premium options vary | Add ready-made motion to titles and visuals. | Implemented subset: Rise/Pan/Fade/Pop/Wipe/Blur on entry/exit; Reveal/Highlight/Snake for text/captions; slow zoom in/out across photo scenes |
 | C18 | Timed overlay appearance and disappearance | Basic | Set an item's start and end independently of the scene. | Independent start/end; narrow-layer edge stretching with drag preview; Fit to full video for text/image/video watermarks (0.11.4) |
 | C19 | Custom motion paths | Basic | Record a visual element's route by dragging it. | New work |

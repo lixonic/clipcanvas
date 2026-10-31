@@ -96,6 +96,21 @@ def with_color_grade(project, selection, grade, saturation):
     return candidate
 
 
+def with_all_transitions(project, settings):
+    """Copy transition controls to every existing join, preserving other edits."""
+    if not isinstance(settings, dict):
+        raise ValueError('Transition settings are invalid.')
+    values = {'transition': settings.get('transition', 'none'),
+              'transition_duration': settings.get('transition_duration', .5),
+              'transition_direction': settings.get('transition_direction', 'left'),
+              'transition_colour': settings.get('transition_colour', '#8b3dff')}
+    candidate = copy.deepcopy(project)
+    for clip in candidate['clips'][:-1]:
+        clip.update(values)
+    model.validate_project(candidate, check_files=False)
+    return candidate
+
+
 def with_audio_placement(project, index, start, lane_id):
     """Move one audio clip without changing its trim, fades, effects or source."""
     candidate=copy.deepcopy(project)

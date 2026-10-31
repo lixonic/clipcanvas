@@ -857,7 +857,12 @@ class ClipCanvasWindow(Gtk.Window):
         self.properties_scroll.add(self.inspector)
         properties.pack_start(self.properties_scroll,True,True,0)
         self.apply_button=button('Apply changes',self.apply_fields,'suggested-action')
-        properties.pack_start(self.apply_button,False,False,0);self.properties_popover.add(properties)
+        properties.pack_start(self.apply_button,False,False,0)
+        self.apply_all_transitions_button=button('Apply transition to all clips',self.apply_all_transitions)
+        self.apply_all_transitions_button.set_tooltip_text('Copy this transition, duration, direction and color to every clip join. Other clip settings are kept. Undo restores the previous transitions.')
+        self.apply_all_transitions_button.set_no_show_all(True)
+        properties.pack_start(self.apply_all_transitions_button,False,False,0)
+        self.properties_popover.add(properties)
         tlbar=box(Gtk.Orientation.HORIZONTAL,6,10);tlbar.get_style_context().add_class('timeline-toolbar')
         tlbar.pack_start(label('Timeline','section'),False,False,4)
         self.undo_button=ui_theme.icon_button('edit-undo-symbolic',self.undo,'Undo · Ctrl+Z')
@@ -941,6 +946,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.inspector.pack_start(label('Color card','section'),False,False,0)
         pages=Gtk.Stack();pages.set_hhomogeneous(False);pages.set_vhomogeneous(False)
         self.properties_stack=pages
+        pages.connect('notify::visible-child-name',self.update_apply_label)
         switcher=Gtk.StackSwitcher();switcher.set_stack(pages)
         self.inspector.pack_start(switcher,False,False,0);self.inspector.pack_start(pages,False,False,0)
         timing=box(spacing=8);picture=box(spacing=8);transition=box(spacing=8)
@@ -955,8 +961,11 @@ class ClipCanvasWindow(Gtk.Window):
         self.card_transition_editor=TransitionEditor(item)
         self.card_transition=self.card_transition_editor.tiles;self.card_transition_duration=self.card_transition_editor.duration
         transition.pack_start(self.card_transition_editor,False,False,0)
-        self.card_transition_editor.set_sensitive(self.selected[1]+1<len(self.project['clips']))
+        self.card_transition_editor.set_sensitive(len(self.project['clips'])>1)
+        if self.selected[1]+1==len(self.project['clips']):
+            transition.pack_start(label('No join follows this last clip. Apply to all clips changes the existing joins.' if len(self.project['clips'])>1 else 'Add another clip to create a transition.'),False,False,0)
         self.inspector.show_all()
+        self.update_apply_label()
 
     def apply_card_fields(self):
         original=self.selected_item();at=self.playhead
@@ -1186,6 +1195,11 @@ class ClipCanvasWindow(Gtk.Window):
         item=self.selected_item()
         bulk=item and self.selected[0] in ('clips','audio') and not model.is_still(item) and count>1 and getattr(self,'properties_stack',None) and self.properties_stack.get_visible_child_name()=='Sound'
         self.apply_button.set_label(f'Apply volume to {count} items' if bulk else 'Apply changes')
+        transition_page=bool(item and self.selected[0]=='clips' and getattr(self,'properties_stack',None)
+                             and self.properties_stack.get_visible_child_name()=='Transition')
+        self.apply_all_transitions_button.set_no_show_all(not transition_page)
+        self.apply_all_transitions_button.set_visible(transition_page)
+        self.apply_all_transitions_button.set_sensitive(len(self.project['clips'])>1)
 
     def is_selected(self,kind,index):
         return self.selected==(kind,index) or (kind,self.project[kind][index]['id']) in self.selection
@@ -1311,6 +1325,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.apply_button.set_label('Apply changes')
         for child in self.inspector.get_children():self.inspector.remove(child)
         item=self.selected_item();self.fields={};self.property_pages={}
+        self.apply_all_transitions_button.set_no_show_all(True);self.apply_all_transitions_button.hide()
         self.color_button.set_sensitive(item is not None and self.selected[0]=='clips')
         if item and self.selected[0] in ('layers','captions'):
             self.layer_tools.show_properties();return
@@ -1420,8 +1435,8 @@ class ClipCanvasWindow(Gtk.Window):
             self.fields['transition_duration']=(self.transition_editor.duration,1)
             transition.pack_start(self.transition_editor,False,False,0)
             if i+1>=len(self.project['clips']):
-                self.transition_editor.set_sensitive(False)
-                hint(transition,'Add another clip to create a transition.')
+                self.transition_editor.set_sensitive(len(self.project['clips'])>1)
+                hint(transition,'No join follows this last clip. Apply to all clips changes the existing joins.' if len(self.project['clips'])>1 else 'Add another clip to create a transition.')
             else:
                 overlap_hint=hint(transition,'')
                 def update_overlap(*args):
@@ -1656,6 +1671,18 @@ class ClipCanvasWindow(Gtk.Window):
             except Exception as e:project=None;error=e
             GLib.idle_add(finish,project,error)
         self.pool.submit(work)
+
+    def apply_all_transitions(self):
+        item=self.selected_item()
+        if self.busy or not item or self.selected[0]!='clips' or len(self.project['clips'])<2:return
+        editor=self.card_transition_editor if model.is_card(item) else self.transition_editor
+        try:candidate=workflow.with_all_transitions(self.project,editor.read_into({}))
+        except ValueError as error:self.error(str(error));return
+        self.properties_popover.popdown()
+        if candidate==self.project:return
+        at=self.playhead;joins=len(candidate['clips'])-1
+        self.checkpoint();self.project=candidate;self.changed();self.seek(at)
+        self.set_status(f'Transition applied to all {joins} clip join(s). Short clips limit the overlap. Undo restores the previous transitions.')
 
     def apply_fields(self):
         original=self.selected_item()

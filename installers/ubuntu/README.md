@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.14.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.15.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.14.0_all.deb
+sudo apt install ./clipcanvas_0.15.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -121,3 +121,8 @@ Adventure, Romantic and Mystery presets, adjustable strength and full primary
 color/light sliders. Compare original color, bypass/reset, and apply to selected
 clips with Undo/Redo. Video, photo and card previews/exports share the grade.
 Save and restart after upgrading. See [color grading](../../docs/COLOR-GRADING.md).
+
+Version 0.15.0 adds a separate **Apply transition to all clips** button beneath
+Apply changes on the Transition page. It copies effect, duration, direction and
+color to every join in one Undo step. None removes all transitions. Save and
+reopen the running app after upgrading. See [transitions](../../docs/EFFECTS.md).
