@@ -517,8 +517,6 @@ class LayerTools:
         # Check before replacing a composed preview with an editing frame.
         for x,y,width,height in (w.canvas.viewport_rect,rect):
             if not x<=event.x<x+width or not y<=event.y<y+height:return False
-        if w.canvas.composited:
-            at=w.playhead;w.canvas.stop();w.preview_key=None;w.canvas.composited=False;w.show_selected_still();w.seek(at,source=True)
         for index in range(len(w.project.get('layers',[]))-1,-1,-1):
             item=w.project['layers'][index]
             if not item['start']<=w.playhead<item['end']:continue
@@ -527,6 +525,8 @@ class LayerTools:
             angle=-math.radians(item.get('rotation',0));dx=event.x-x-width/2;dy=event.y-y-height/2
             px=dx*math.cos(angle)-dy*math.sin(angle);py=dx*math.sin(angle)+dy*math.cos(angle)
             if abs(px)<=width/2 and abs(py)<=height/2:
+                if w.canvas.composited:
+                    at=w.playhead;w.canvas.stop();w.preview_key=None;w.canvas.composited=False;w.show_selected_still();w.seek(at,source=True)
                 w.canvas.pause();w.select('layers',index,seek=False);w.media_stack.set_visible_child_name('Layers')
                 self.drag={'index':index,'x':event.x,'y':event.y,'start_x':item['x'],'start_y':item['y'],'width':rect[2],'height':rect[3],'saved':False}
                 w.canvas.queue_draw();return True

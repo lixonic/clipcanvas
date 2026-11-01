@@ -704,7 +704,39 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         # during a slow move. Only one source frame is held at this size.
         frame_width, frame_height = (width*2, height*2) if moving else (width, height)
         zoom = clip.get('zoom', 1)
-        if zoom > 1:
+        positioned = bool(clip.get('offset_x', 0) or clip.get('offset_y', 0))
+        if positioned:
+            # Place the complete scaled source onto the output. Moving an
+            # already-cropped frame would discard picture regions that should
+            # become visible again when dragging it across the canvas.
+            fit = 'decrease' if clip.get('fit', 'fill') == 'fit' else 'increase'
+            zoom_width = max(2, round(frame_width*zoom/2)*2)
+            zoom_height = max(2, round(frame_height*zoom/2)*2)
+            if moving:
+                # Repeat the original still before a frame-dependent scale,
+                # keeping its source-space boundaries available during motion.
+                # Virtual source time preserves the phase after a split/seek.
+                progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+n/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
+                if clip['motion'] == 'zoom_out':progress = f'(1-({progress}))'
+                amount = f"(1+{_fmt(clip.get('zoom_amount', .15))}*({progress}))"
+                framing += (f'loop=loop=-1:size=1:start=0,settb=expr=1/({_fmt(fps)}),setpts=N,'
+                            f'trim=duration={_fmt(remaining)},'
+                            f"scale=w='max(2,round({zoom_width}*{amount}/2)*2)':"
+                            f"h='max(2,round({zoom_height}*{amount}/2)*2)':"
+                            f'force_original_aspect_ratio={fit}:force_divisible_by=2:eval=frame')
+            else:
+                framing += f'scale={zoom_width}:{zoom_height}:force_original_aspect_ratio={fit}:force_divisible_by=2'
+            x, y = _fmt(clip.get('position_x', .5)), _fmt(clip.get('position_y', .5))
+            dx, dy = _fmt(clip.get('offset_x', 0)), _fmt(clip.get('offset_y', 0))
+            framing += (f',split=2[offset_picture{index}][offset_background{index}];'
+                        f'[offset_background{index}]scale={frame_width}:{frame_height},'
+                        f'drawbox=color=black:t=fill:replace=1[offset_canvas{index}];'
+                        f'[offset_canvas{index}][offset_picture{index}]'
+                        f"overlay=x='if(gt(w,W),(W-w)*{x},(W-w)/2)+({dx})*W':"
+                        f"y='if(gt(h,H),(H-h)*{y},(H-h)/2)+({dy})*H':"
+                        'eval=frame:shortest=1:format=auto')
+            if moving:framing += f',scale={width}:{height}'
+        elif zoom > 1:
             # Magnify the source before cropping: cropping to the canvas first
             # would permanently discard regions needed by off-centre framing.
             zoom_width = max(2, round(frame_width*zoom/2)*2)
@@ -722,7 +754,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={frame_width}:{frame_height}:(iw-ow)*{x}:(ih-oh)*{y}"
-        if moving:
+        if moving and not positioned:
             progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+on/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
             if clip['motion'] == 'zoom_out':progress = f'(1-({progress}))'
             framing += (f",zoompan=z='1+{_fmt(clip.get('zoom_amount', .15))}*({progress})':"

@@ -1,4 +1,4 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.16.0
+# Live preview, scrubbing and zoom — ClipCanvas 0.17.0
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
@@ -280,3 +280,55 @@ Repeatable manual check:
 7. Repeat steps 1–6 for portrait (9:16) and square (1:1) projects, including
    horizontal toolbar panning in the portrait project. Also check a source with
    a different ratio using both Fill canvas and Fit whole picture.
+
+## Mouse crop controls — 0.17.0
+
+![Direct mouse positioning inside the crop outline](images/mouse-crop-0.17.0.png)
+
+Selected feature IDs: **C03** (crop and manually reframe) and **C14** (in-editor
+preview). The intended outcome is to select the preview picture directly and
+use a mouse to position and zoom it inside the selected screen ratio.
+
+Left-click the video or image in the preview to show its crop outline and
+corner handles. Drag the picture to position it. Drag a corner to change zoom
+within 100–400%. The fixed outline shows the output boundary; picture content
+outside it stays hidden. Click **Done** or press **Enter** to return to the
+composed preview. **Escape** cancels the current drag; already released changes
+remain saved and can be undone. Each changed, released drag adds one Undo step.
+
+Free placement works at 100% zoom as well as larger zoom values. Saved offsets
+are measured in canvas widths/heights, from one canvas left/up to one canvas
+right/down. Moving footage away from an edge exposes black. Numeric
+**Picture → Crop and zoom** controls remain available. Visible overlays receive
+clicks before the underlying main picture so they can still be selected and
+dragged. Color-card scenes keep their existing controls.
+
+Clip zoom and free placement are shared by editing frames, scrubbing,
+live/prepared playback and export. They survive save/reopen, Undo/Redo and clip
+copies. Older projects default to zero free offsets and retain their framing.
+Original files and clip timing are unchanged.
+
+Repeatable manual check:
+
+1. Start a landscape project and add a video with details near its edges. Pause
+   within the clip, then left-click the preview picture. Check that the crop
+   outline and four corner handles appear without opening the Picture popover.
+2. At 100% clip zoom, drag the picture horizontally and vertically. Release;
+   the placement stays saved and exposed canvas areas are black. Undo and Redo
+   should restore one drag at a time without moving the timeline playhead.
+3. Drag each corner inward and outward. The picture retains its proportions,
+   zoom stays within 100–400%, and the output boundary keeps the project ratio.
+   Start another drag, press Escape before releasing, and confirm that this
+   in-progress change is cancelled while previous released changes remain.
+4. Finish with Done, then repeat using Enter. Scrub, play live, prepare a smooth
+   preview and export. Compare recognizable edges and exposed black regions:
+   each output should show the same saved framing. Save/reopen and duplicate or
+   split the clip; its crop and placement should remain attached to the copy.
+5. Add an image scene and repeat. Add a visible text or image overlay; clicking
+   it should select and drag that layer. Click a clear area of the main picture
+   to crop the scene. Confirm that overlay size/position and mixed sound remain
+   unchanged by main-picture cropping. A color card should not enter mouse crop.
+6. Repeat for portrait and square canvases, a source with a different ratio,
+   90° rotation, flips, and both Fill/Fit. Try entering crop while normal preview
+   view zoom is 200%; the handles should remain reachable. Finish, resize the
+   editor, and confirm that the saved framing still matches the exported video.

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.0 — 2026-11-01
+
+- Left-click a video or image in the preview to show a crop outline and corner
+  handles. Drag the picture to position it inside the fixed canvas ratio; drag
+  a corner to zoom from 100% to 400%. Done or Enter returns to the composed
+  preview. Escape cancels the current drag. Each changed, released drag creates
+  one Undo step.
+- Save free picture offsets on both axes, including movement at 100% zoom.
+  Placement is measured relative to canvas width/height and can move up to one
+  canvas in either direction; exposed areas are black. Preview and export share
+  the saved crop, zoom and placement. Older projects default to zero offsets.
+- Keep numeric **Picture → Crop and zoom** controls, overlay selection and
+  dragging, project timing and original media. Visible overlays receive clicks
+  before the main picture. Direct cropping applies to video and image scenes;
+  color cards retain their existing controls.
+
 ## 0.16.0 — 2026-11-01
 
 - Add per-clip **Picture → Crop and zoom** with 100–400% zoom and horizontal/

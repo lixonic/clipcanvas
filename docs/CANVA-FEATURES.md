@@ -19,7 +19,7 @@ in this installer. See [the staged plan](DEVELOPMENT-PLAN.md).
 |---|---|---|---|---|
 | C01 | Social-video canvas presets | Basic | Start landscape, portrait, or square projects. | Existing presets |
 | C02 | Resize an existing project | Pro | Adapt the composition to another size; current timeline has conversion restrictions. | Basic: change preset |
-| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Implemented: saved per-clip 100–400% zoom and numeric horizontal/vertical crop position shared by preview/export; older projects default to 100% (0.16.0) |
+| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Implemented: left-click preview outline, mouse positioning and corner zoom, saved offsets with per-drag Undo (0.17.0); numeric crop position and 100–400% zoom; preview/export agreement |
 | C04 | Rotate and flip footage | Basic | Correct orientation or mirror the picture. | Existing: 90° steps and both flips |
 | C05 | Multiple visual layers | Basic | Stack video, photos, graphics, and text for overlays. | Existing: ordered text, image/logo, and silent video overlays; canvas drag and numeric transforms |
 | C06 | Background versus overlay placement | Basic | Make footage fill the canvas or position it above other media. | Basic: base fit/fill, file-free color-card scenes, and positioned image/video overlays |

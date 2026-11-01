@@ -44,6 +44,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.position_x = 0.5
         self.position_y = 0.5
         self.clip_zoom = 1.0
+        self.offset_x = self.offset_y = 0.0
         self.playing = False
         self.loading = False
         self.on_position = None
@@ -100,6 +101,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.connect('button-press-event', self._pan_press)
         self.connect('motion-notify-event', self._pan_motion)
         self.connect('button-release-event', self._pan_release)
+        self.set_can_focus(True)
         self._timer_id = GLib.timeout_add(100, self._tick)
 
     def set_preview_zoom(self, factor, reset_pan=False):
@@ -196,6 +198,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.stop()
         self.fit = 'fit'
         self.clip_zoom = 1.0
+        self.offset_x = self.offset_y = 0.0
         self.composited = True
         self._last_position, self._last_duration = picture['position'], duration
         self.frame = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(picture['pixels']),
@@ -209,7 +212,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._view_rect()
         self.queue_draw()
 
-    def set_still(self, pixbuf, fit="fill", position_x=0.5, position_y=0.5, zoom=1.0):
+    def set_still(self, pixbuf, fit="fill", position_x=0.5, position_y=0.5, zoom=1.0, offset_x=0.0, offset_y=0.0):
         self.stop()
         self.composited = False
         self._loaded = False
@@ -218,6 +221,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.position_x = max(0.0, min(1.0, float(position_x)))
         self.position_y = max(0.0, min(1.0, float(position_y)))
         self.clip_zoom = max(1.0, min(4.0, float(zoom)))
+        self.offset_x, self.offset_y = max(-1., min(1., float(offset_x))), max(-1., min(1., float(offset_y)))
         self.queue_draw()
 
     def load(self, path, autoplay=True):
@@ -229,6 +233,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._pipeline.set_property("uri", media.as_uri())
         self.fit = "fit"
         self.clip_zoom = 1.0
+        self.offset_x = self.offset_y = 0.0
         self.position_x = self.position_y = 0.5
         self._loaded = True
         self._last_position = self._last_duration = 0.0
@@ -249,6 +254,7 @@ class VideoCanvas(Gtk.DrawingArea):
         generation = self._generation
         self.fit = 'fit'
         self.clip_zoom = 1.0
+        self.offset_x = self.offset_y = 0.0
         self.composited = True
         self._loaded = True
         self._last_position = start
@@ -527,8 +533,8 @@ class VideoCanvas(Gtk.DrawingArea):
             factor = (min if self.fit == "fit" else max)(cw / fw, ch / fh)*self.clip_zoom
             align_x = self.position_x if fw*factor > cw else 0.5
             align_y = self.position_y if fh*factor > ch else 0.5
-            dx = cx + (cw - fw * factor) * align_x
-            dy = cy + (ch - fh * factor) * align_y
+            dx = cx + (cw - fw * factor) * align_x + self.offset_x*cw
+            dy = cy + (ch - fh * factor) * align_y + self.offset_y*ch
             cr.translate(dx, dy)
             cr.scale(factor, factor)
             Gdk.cairo_set_source_pixbuf(cr, self.frame, 0, 0)

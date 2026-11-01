@@ -1,11 +1,11 @@
-# ClipCanvas 0.16.0
+# ClipCanvas 0.17.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.16.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.17.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,10 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.17.0 adds direct mouse cropping: left-click the preview picture for
+an outline, drag the picture to position it, or drag a corner to zoom. Done or
+Enter finishes; Escape cancels the current drag. Each released change supports
+Undo and applies to preview and export. See [mouse crop controls](docs/LIVE-PREVIEW.md#mouse-crop-controls--0170).
 Version 0.16.0 adds **Picture → Crop and zoom** with saved 100–400% clip zoom
 and horizontal/vertical reframing shared by preview and export. The preview
 also hides content outside the selected canvas ratio. The toolbar zoom remains
@@ -114,18 +118,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.16.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.17.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.16.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.17.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.16.0_all.deb
+   sudo apt install ./clipcanvas_0.17.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -156,6 +160,13 @@ separate application and does not change VLC.
 3. **Edit a selected clip.** Click **Edit** for source trim and playback speed,
    or **Picture** for saturation, fit/fill, crop and zoom, rotation, flips, and
    picture fades.
+   For mouse cropping, left-click the video or image in the preview. A crop
+   outline appears: drag the picture to position it, or drag a corner to zoom
+   from 100% to 400%. Click **Done** or press **Enter** to finish. **Escape**
+   cancels the current drag; each released change is one Undo step. Movement
+   also works at 100% zoom; exposed areas are black. The saved result appears
+   in preview and export. Clicking a visible overlay still selects that layer.
+   Color cards use their existing controls.
    Open **Crop and zoom**, set **Zoom** to 100–400%, and adjust **Horizontal** and
    **Vertical** to choose the visible region. Apply changes to use that framing
    in preview and export. This setting is saved per clip; older projects start

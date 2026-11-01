@@ -24,6 +24,7 @@ from . import model, engine, storage, track_layout, audio_effects, workflow, tra
 from .preferences import Preferences
 from . import __version__
 from .player import VideoCanvas
+from .crop_ui import CropTools, is_crop_change
 
 from . import ui_theme
 from .layer_ui import LayerTools
@@ -801,6 +802,10 @@ class ClipCanvasWindow(Gtk.Window):
         for item in (self.edit_button,self.picture_button,self.color_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
         center.pack_start(self.context_toolbar,False,False,0)
         self.canvas=VideoCanvas();self.canvas.set_size_request(320,200)
+        self.crop_tools=CropTools(self)
+        self.crop_done_button=button('Done cropping',lambda:self.crop_tools.finish(),tooltip='Finish positioning the clip · Enter')
+        self.crop_done_button.set_no_show_all(True);self.crop_done_button.hide()
+        self.context_toolbar.pack_start(self.crop_done_button,False,False,0)
         self.canvas.on_position=self.on_position;self.canvas.on_error=self.playback_error
         self.canvas.on_end=lambda:self.update_play_button(False)
         self.canvas.on_loading=self.playback_loading
@@ -825,9 +830,10 @@ class ClipCanvasWindow(Gtk.Window):
         self.preview_quality.connect('changed',self.preview_quality_changed)
         self.canvas_toolbar.pack_end(self.preview_quality,False,False,8)
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK|Gdk.EventMask.BUTTON_RELEASE_MASK|Gdk.EventMask.POINTER_MOTION_MASK)
-        self.canvas.connect('button-press-event',lambda _,event:self.layer_tools.canvas_press(event))
-        self.canvas.connect('motion-notify-event',lambda _,event:self.layer_tools.canvas_motion(event))
-        self.canvas.connect('button-release-event',lambda _,event:self.layer_tools.canvas_release(event))
+        self.canvas.connect('button-press-event',lambda _,event:self.canvas_press(event))
+        self.canvas.connect('motion-notify-event',lambda _,event:self.crop_tools.motion(event) or self.layer_tools.canvas_motion(event))
+        self.canvas.connect('button-release-event',lambda _,event:self.crop_tools.release(event) or self.layer_tools.canvas_release(event))
+        self.canvas.set_tooltip_text('Left-click the picture to crop and position it. Drag a corner to zoom. Enter finishes; Escape cancels the current drag.')
         center.pack_start(self.canvas,True,True,0)
         playback=box(Gtk.Orientation.HORIZONTAL,12,12);playback.set_halign(Gtk.Align.CENTER)
         self.play_button=ui_theme.icon_button('media-playback-start-symbolic',self.toggle_play,'Play / pause · Space',label='Play',style='suggested-action')
@@ -902,6 +908,12 @@ class ClipCanvasWindow(Gtk.Window):
         if not self.canvas.composited:
             selected=self.selected_item() if self.selected and self.selected[0]=='layers' else None
             visuals.draw(cr,self.project,self.playhead,rect,selected=selected,assets=self.layer_tools.assets)
+        self.crop_tools.draw(cr)
+
+    def canvas_press(self,event):
+        if self.crop_tools.active:return self.crop_tools.press(event)
+        if self.layer_tools.canvas_press(event):return True
+        return self.crop_tools.press(event)
 
     def preview_quality_changed(self,combo):
         edge=int(combo.get_active_id())
@@ -1064,13 +1076,17 @@ class ClipCanvasWindow(Gtk.Window):
 
     def undo(self):
         if not self.history or self.busy:return
+        at=self.playhead;keep_time=is_crop_change(self.project,self.history[-1])
         self.future.append(copy.deepcopy(self.project));self.project=self.history.pop();self.selected=None;self.selection.clear()
         self.sync_project_widgets();self.changed()
+        if keep_time:self.seek(at)
 
     def redo(self):
         if not self.future or self.busy:return
+        at=self.playhead;keep_time=is_crop_change(self.project,self.future[-1])
         self.history.append(copy.deepcopy(self.project));self.project=self.future.pop();self.selected=None;self.selection.clear()
         self.sync_project_widgets();self.changed()
+        if keep_time:self.seek(at)
 
     def refresh_assets(self):
         for child in self.assets.get_children():self.assets.remove(child)
@@ -1249,6 +1265,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.changed();self.seek(at);self.set_status('Timeline selection pasted. Undo restores the previous timeline.')
 
     def select(self,kind,index,seek=True,reveal=True):
+        if self.crop_tools.active and (kind,index)!=self.selected:self.crop_tools.close()
         self.selected=(kind,index);self.selection={(kind,self.project[kind][index]['id'])};self.show_inspector();self.timeline.queue_draw();self.canvas.queue_draw()
         self.layer_tools.update_overlay_controls()
         self.update_row_buttons()
@@ -1301,6 +1318,7 @@ class ClipCanvasWindow(Gtk.Window):
         return self.project[kind][i]
 
     def show_selected_still(self):
+        if self.crop_tools.active:return
         if self.preview_key or self.canvas.live or self.scrub_timer or self.scrub_active:return
         item=self.selected_item()
         if self.selected and self.selected[0] in ('audio','layers','captions'):
@@ -1317,7 +1335,7 @@ class ClipCanvasWindow(Gtk.Window):
         if rotation is not None:pix=pix.rotate_simple(rotation)
         if item.get('flip_x'):pix=pix.flip(True)
         if item.get('flip_y'):pix=pix.flip(False)
-        self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5),item.get('zoom',1))
+        self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5),item.get('zoom',1),item.get('offset_x',0),item.get('offset_y',0))
 
     def show_inspector(self):
         self.layer_tools.stop_sound_preview()
@@ -1398,9 +1416,13 @@ class ClipCanvasWindow(Gtk.Window):
             spin(crop_box,'zoom','Zoom (%)',100,400,1,100,default=1)
             spin(crop_box,'position_x','Horizontal (%)',0,100,1,100,default=.5)
             spin(crop_box,'position_y','Vertical (%)',0,100,1,100,default=.5)
+            position=Gtk.Expander(label='Position within canvas');position_box=box(spacing=10,margin=8);position.add(position_box)
+            spin(position_box,'offset_x','Horizontal offset (%)',-100,100,1,100,default=0)
+            spin(position_box,'offset_y','Vertical offset (%)',-100,100,1,100,default=0)
+            crop_box.pack_start(position,False,False,0)
             hint(crop_box,'Zoom into the clip, then choose the visible area. 0% shows the left/top edge; 100% shows the right/bottom edge. The canvas crops the picture in preview and export.')
             def reset_crop():
-                for key,value in (('zoom',100),('position_x',50),('position_y',50)):
+                for key,value in (('zoom',100),('position_x',50),('position_y',50),('offset_x',0),('offset_y',0)):
                     self.fields[key][0].set_value(value)
             crop_box.pack_start(button('Reset crop',reset_crop),False,False,0)
             picture.pack_start(crop,False,False,0)
@@ -1476,6 +1498,7 @@ class ClipCanvasWindow(Gtk.Window):
         hint.set_line_wrap(True);hint.set_max_width_chars(30);parent.pack_start(hint,False,False,0)
 
     def open_properties(self,page='Timing',anchor=None,rectangle=None):
+        self.crop_tools.finish()
         if not self.selected_item() or self.busy:return
         height=min(480,max(240,self.get_allocated_height()-400))
         self.properties_scroll.set_size_request(-1,height)
@@ -1717,7 +1740,7 @@ class ClipCanvasWindow(Gtk.Window):
         if not model.is_image(item):self.remember_audio_settings(item)
         at=self.playhead
         picture_changed=any(item.get(key,default)!=original.get(key,default)
-            for key,default in (('saturation',1),('zoom',1),('position_x',.5),('position_y',.5),('fit','fill'),('rotation',0),('flip_x',False),('flip_y',False)))
+            for key,default in (('saturation',1),('zoom',1),('position_x',.5),('position_y',.5),('offset_x',0),('offset_y',0),('fit','fill'),('rotation',0),('flip_x',False),('flip_y',False)))
         self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed()
         if picture_changed:self.seek(at)
         self.set_status('Changes applied. Press Preview to see and hear the full video.')
@@ -1877,6 +1900,7 @@ class ClipCanvasWindow(Gtk.Window):
         return False
 
     def on_position(self,seconds,duration):
+        if self.crop_tools.active:return
         if self._drag_scrubbing or self._scrub_settling or self.scrub_timer:return
         if self._position_target is not None:
             if abs(seconds-self._position_target)>.15 and GLib.get_monotonic_time()<self._position_target_until:return
@@ -1898,6 +1922,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.update_play_button(False);self.preview_label.set_text('Preview unavailable');self.set_status(message)
 
     def toggle_play(self):
+        self.crop_tools.finish()
         if self.busy or not self.project['clips']:return
         if not self.preview_key and not self.canvas.live:self.preview();return
         if self.canvas.playing:self.canvas.pause();self.update_play_button(False)
@@ -1906,6 +1931,7 @@ class ClipCanvasWindow(Gtk.Window):
             self.canvas.play();self.update_play_button(True)
 
     def seek(self,seconds,source=False):
+        self.crop_tools.close()
         if self.busy:return
         # A new seek supersedes a paused-frame request, including one started
         # by selection or a quality change. Its callback must not stop playback.
@@ -1926,6 +1952,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.scrub_timer=GLib.timeout_add(20,self.source_scrub_frame if source else self.scrub_frame,self.scrub_serial,seconds)
 
     def cancel_scrub(self):
+        if hasattr(self,'crop_tools'):self.crop_tools.close()
         self.scrub_serial+=1;self.scrub_active=False
         self._drag_scrubbing=False;self._scrub_settling=False;self._position_target=None;self._drag_frame_pending=None
         if self._drag_frame_cancel:self._drag_frame_cancel.set()
@@ -2037,6 +2064,7 @@ class ClipCanvasWindow(Gtk.Window):
         return False
 
     def preview(self):
+        self.crop_tools.finish()
         if not self.project['clips'] or self.busy:return
         self.cancel_scrub();self.adapt_frame_rate();self.preview_key=None
         self.scrub_session.close()
@@ -2087,6 +2115,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.render_job(path,False,self.export_done,quality=q)
 
     def render_job(self,path,preview,done,quality='high'):
+        self.crop_tools.finish()
         try:model.validate_project(self.project)
         except Exception as e:self.error(str(e));return
         # Pausing retains the decoder/filter graph and its queued frames. Stop
@@ -2146,6 +2175,7 @@ class ClipCanvasWindow(Gtk.Window):
     def set_status(self,text):self.status.set_text(text)
 
     def save(self,save_as=False):
+        self.crop_tools.finish()
         if self.busy:return False
         path=None if save_as else self.project_path
         if not path:
@@ -2341,6 +2371,8 @@ class ClipCanvasWindow(Gtk.Window):
         ctrl=event.state&Gdk.ModifierType.CONTROL_MASK;shift=event.state&Gdk.ModifierType.SHIFT_MASK
         name=Gdk.keyval_name(event.keyval).lower();focus=self.get_focus()
         typing=isinstance(focus,(Gtk.Entry,Gtk.SpinButton,Gtk.TextView))
+        if self.crop_tools.active and not typing and name in ('return','kp_enter','escape'):
+            self.crop_tools.finish(cancel_drag=name=='escape');return True
         if ctrl:
             if name=='s':self.save_as() if shift else self.save();return True
             if name=='o':self.open_project();return True

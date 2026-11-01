@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.16.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.17.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.16.0_all.deb
+sudo apt install ./clipcanvas_0.17.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -133,3 +133,11 @@ default to 100%. The preview also clips video and layers to a fixed landscape,
 portrait or square frame and ignores clicks on hidden layer regions. Toolbar
 magnification and panning remain separate view settings. Save and reopen the
 running app after upgrading. See [crop and preview framing](../../docs/LIVE-PREVIEW.md#saved-crop-and-fixed-preview-frame--0160).
+
+Version 0.17.0 adds direct mouse cropping. Left-click the preview video or image
+to show an outline, drag the picture to position it, or drag a corner for
+100–400% zoom. Done or Enter finishes; Escape cancels the current drag. Each
+released change supports Undo and is saved for preview/export. Movement works
+at 100% zoom too, with black exposed areas. Existing numeric controls and overlay
+selection remain available. Save and restart after upgrading. See
+[mouse crop controls](../../docs/LIVE-PREVIEW.md#mouse-crop-controls--0170).
