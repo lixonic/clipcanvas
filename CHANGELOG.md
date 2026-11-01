@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.1 — 2026-11-01
+
+- Bound cropped photo-animation working images independently of saved zoom,
+  keeping their phase through seeks and splits. Verify cropped source geometry
+  with embedded rotation and non-square pixels.
+- Reduce crop playback memory by discarding invisible source regions before
+  enlarging the picture. Zoom and free positioning no longer require a complete
+  zoom-sized frame before clipping it to the canvas. Keep the saved framing,
+  selected preview resolution, export dimensions and original media.
+- Skip the extra composed still request when leaving crop controls directly for
+  playback or export. Bound the interactive photo source to the same 1920-pixel
+  preview limit used for video crop controls, before color grading and rotation.
+- Check memory with short generated cropped timelines under a process memory
+  ceiling, alongside preview/export framing, source safety, audio and cancellation
+  checks. Large projects still have decoder, transition and overlay costs.
+
 ## 0.17.0 — 2026-11-01
 
 - Left-click a video or image in the preview to show a crop outline and corner

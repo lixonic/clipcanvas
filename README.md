@@ -1,11 +1,11 @@
-# ClipCanvas 0.17.0
+# ClipCanvas 0.17.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.17.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.17.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,10 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.17.1 reduces the RAM spike after cropping by trimming invisible source
+regions before enlargement and skipping an extra still render when starting
+playback. Saved framing, selected preview resolution and export dimensions are
+preserved. See [crop memory and validation](docs/EXPORT-MEMORY.md#crop-playback-memory--0171).
 Version 0.17.0 adds direct mouse cropping: left-click the preview picture for
 an outline, drag the picture to position it, or drag a corner to zoom. Done or
 Enter finishes; Escape cancels the current drag. Each released change supports
@@ -118,18 +122,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.17.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.17.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.17.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.17.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.17.0_all.deb
+   sudo apt install ./clipcanvas_0.17.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.

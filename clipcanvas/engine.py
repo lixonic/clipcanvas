@@ -123,6 +123,7 @@ def _probe_cached(path, size, mtime):
                 "audio_sample_rate": int(audios[0].get("sample_rate", 48000)) if audios else 0,
                 "audio_channels": int(audios[0].get("channels", 1)) if audios else 0,
                 "format_name": data.get('format', {}).get('format_name', ''),
+                "decoded_sample_aspect_ratio": 1/sar if abs(float(rotation)) % 180 > 45 else sar,
                 "sample_aspect_ratio": sar}
     except (ValueError, TypeError, KeyError) as error:
         raise RenderError(f"Cannot read the duration of {Path(path).name}. Use a video or audio file with a known duration.") from error
@@ -625,6 +626,105 @@ def preview_dimensions(project, max_edge=640):
     return max(2, round(width*scale/2)*2), max(2, round(height*scale/2)*2)
 
 
+def _bounded_clip_frame(clip, source_width, source_height, width, height):
+    """Crop in source space before scaling a saved static picture transform.
+
+    The former scale-then-crop path enlarged a 4K picture to 16K at 400% and
+    retained those enormous frames for each timeline input. Only the source
+    intersection that can appear inside the output is needed here. Every
+    scaled/padded frame is therefore at most the output canvas dimensions.
+    """
+    zoom = clip.get('zoom', 1)
+    target_w = max(2, round(width*zoom/2)*2)
+    target_h = max(2, round(height*zoom/2)*2)
+    fit = clip.get('fit', 'fill') == 'fit'
+    factor = (min if fit else max)(target_w/source_width, target_h/source_height)
+    divisible = math.floor if fit else math.ceil
+    scaled_w = max(2, divisible(source_width*factor/2)*2)
+    scaled_h = max(2, divisible(source_height*factor/2)*2)
+    ax = clip.get('position_x', .5) if scaled_w > width else .5
+    ay = clip.get('position_y', .5) if scaled_h > height else .5
+    left = (width-scaled_w)*ax+clip.get('offset_x', 0)*width
+    top = (height-scaled_h)*ay+clip.get('offset_y', 0)*height
+    # Match the chroma-aligned placement of the YUV overlay/crop filters.
+    left, top = math.floor(int(left)/2)*2, math.floor(int(top)/2)*2
+    x0, y0 = max(0, left), max(0, top)
+    x1, y1 = min(width, left+scaled_w), min(height, top+scaled_h)
+    if x1 <= x0 or y1 <= y0:
+        return f'scale={width}:{height},drawbox=color=black:t=fill:replace=1'
+    sx0 = max(0, min(source_width-1, round((x0-left)*source_width/scaled_w)))
+    sy0 = max(0, min(source_height-1, round((y0-top)*source_height/scaled_h)))
+    sx1 = max(sx0+1, min(source_width, round((x1-left)*source_width/scaled_w)))
+    sy1 = max(sy0+1, min(source_height, round((y1-top)*source_height/scaled_h)))
+    return (f'crop={sx1-sx0}:{sy1-sy0}:{sx0}:{sy0}:exact=1,'
+            f'scale={x1-x0}:{y1-y0},setsar=1,'
+            f'pad={width}:{height}:{x0}:{y0}:black')
+
+
+def _bounded_image_motion(clip, sw, sh, width, height, fps, seek, remaining):
+    """Animate a source-space window using a fixed, two-canvas working image.
+
+    A union of all motion windows is cropped from the original once. Black
+    margins are placed directly in the bounded working image rather than
+    constructing either a zoom-sized source or a large source-space pad.
+    The union depends on the complete animation, so splits and seeks use the
+    same input geometry and retain exactly the same motion phase.
+    """
+    base = (min if clip.get('fit') == 'fit' else max)(width/sw, height/sh)*clip.get('zoom', 1)
+    maximum = base*(1+clip.get('zoom_amount', .15))
+    positioned = bool(clip.get('offset_x', 0) or clip.get('offset_y', 0))
+    ax, ay = clip.get('position_x', .5), clip.get('position_y', .5)
+    dx, dy = clip.get('offset_x', 0), clip.get('offset_y', 0)
+
+    def origin(scale, source, canvas, align, offset):
+        if positioned:
+            a = align if source*scale > canvas else .5
+            return source*a-canvas*(a+offset)/scale
+        a = align if source*base > canvas else .5
+        return source*a+canvas*(.5-a)/base-canvas/(2*scale)
+
+    samples = [base, maximum]+[scale for scale in (width/sw, height/sh) if base < scale < maximum]
+    left = math.floor(min(origin(s, sw, width, ax, dx) for s in samples))-1
+    top = math.floor(min(origin(s, sh, height, ay, dy) for s in samples))-1
+    right = math.ceil(max(origin(s, sw, width, ax, dx)+width/s for s in samples))+1
+    bottom = math.ceil(max(origin(s, sh, height, ay, dy)+height/s for s in samples))+1
+    unit_w, unit_h = width/math.gcd(width, height), height/math.gcd(width, height)
+    multiple = math.ceil(max((right-left)/unit_w, (bottom-top)/unit_h))
+    pw, ph = unit_w*multiple, unit_h*multiple
+    work_w, work_h = width*2, height*2
+    factor = work_w/pw
+    sx0, sy0 = max(0, left), max(0, top)
+    sx1, sy1 = min(sw, left+pw), min(sh, top+ph)
+    if sx1 <= sx0 or sy1 <= sy0:
+        preparation = f'scale={work_w}:{work_h},drawbox=color=black:t=fill:replace=1'
+    else:
+        sx1, sy1 = math.ceil(sx1), math.ceil(sy1)
+        px, py = max(0, round((sx0-left)*factor)), max(0, round((sy0-top)*factor))
+        scaled_w = max(1, min(work_w-px, round((sx1-sx0)*factor)))
+        scaled_h = max(1, min(work_h-py, round((sy1-sy0)*factor)))
+        preparation = (f'crop={sx1-sx0}:{sy1-sy0}:{sx0}:{sy0}:exact=1,'
+                       f'scale={scaled_w}:{scaled_h},setsar=1,'
+                       f'pad={work_w}:{work_h}:{px}:{py}:black')
+    progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+on/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
+    if clip['motion'] == 'zoom_out':
+        progress = f'(1-({progress}))'
+    scale = f"({_fmt(base)}*(1+{_fmt(clip.get('zoom_amount', .15))}*({progress})))"
+
+    def expression(source, canvas, align, offset, edge):
+        if positioned:
+            a = f'if(gt({_fmt(source)}*{scale},{canvas}),{_fmt(align)},0.5)'
+            start = f'({_fmt(source)}*({a})-{canvas}*(({a})+({_fmt(offset)}))/{scale})'
+        else:
+            a = align if source*base > canvas else .5
+            start = f'({_fmt(source*a+canvas*(.5-a)/base)}-{canvas}/(2*{scale}))'
+        return f'(({start})-({_fmt(edge)}))*{_fmt(factor)}'
+
+    x = expression(sw, width, ax, dx, left)
+    y = expression(sh, height, ay, dy, top)
+    return (preparation+f",zoompan=z='{_fmt(pw/width)}*{scale}':x='{x}':y='{y}':"
+            f'd={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}')
+
+
 def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None, proxies=None):
     if any(clip.get('transition')=='match_move' for clip in project['clips']):
         from . import animations
@@ -672,13 +772,17 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         remaining=duration-seek
         video_input=args.count('-i')
         if is_card(clip):
-            metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
+            metadata = {'has_video': True, 'has_audio': False, 'video_index': 0,
+                        'width': width, 'height': height, 'sample_aspect_ratio': 1}
             args += ['-f', 'lavfi', '-i', f"color=c=0x{clip['color'][1:]}:s={width}x{height}:r={_fmt(fps)}:d={_fmt(remaining)}"]
         elif is_image(clip):
             metadata = {'has_video': True, 'has_audio': False, 'video_index': 0}
             if not audio_only:
                 if scratch is None:raise RenderError('Images need a temporary working folder.')
                 source = _image_source(clip['path'], Path(scratch)/f'scene-{index}.png')
+                from gi.repository import GdkPixbuf
+                _, image_width, image_height = GdkPixbuf.Pixbuf.get_file_info(source)
+                metadata.update(width=image_width, height=image_height, sample_aspect_ratio=1)
                 args += ['-threads', '1', '-i', source]
         else:
             metadata = probe(clip["path"])
@@ -705,56 +809,23 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         frame_width, frame_height = (width*2, height*2) if moving else (width, height)
         zoom = clip.get('zoom', 1)
         positioned = bool(clip.get('offset_x', 0) or clip.get('offset_y', 0))
-        if positioned:
-            # Place the complete scaled source onto the output. Moving an
-            # already-cropped frame would discard picture regions that should
-            # become visible again when dragging it across the canvas.
-            fit = 'decrease' if clip.get('fit', 'fill') == 'fit' else 'increase'
-            zoom_width = max(2, round(frame_width*zoom/2)*2)
-            zoom_height = max(2, round(frame_height*zoom/2)*2)
-            if moving:
-                # Repeat the original still before a frame-dependent scale,
-                # keeping its source-space boundaries available during motion.
-                # Virtual source time preserves the phase after a split/seek.
-                progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+n/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
-                if clip['motion'] == 'zoom_out':progress = f'(1-({progress}))'
-                amount = f"(1+{_fmt(clip.get('zoom_amount', .15))}*({progress}))"
-                framing += (f'loop=loop=-1:size=1:start=0,settb=expr=1/({_fmt(fps)}),setpts=N,'
-                            f'trim=duration={_fmt(remaining)},'
-                            f"scale=w='max(2,round({zoom_width}*{amount}/2)*2)':"
-                            f"h='max(2,round({zoom_height}*{amount}/2)*2)':"
-                            f'force_original_aspect_ratio={fit}:force_divisible_by=2:eval=frame')
+        bounded_motion = moving and (zoom > 1 or positioned)
+        if zoom > 1 or positioned:
+            source_meta = probe(proxy) if not is_still(clip) and proxy else metadata
+            sar = source_meta.get('decoded_sample_aspect_ratio', source_meta.get('sample_aspect_ratio', 1))
+            source_w = max(2, math.trunc(source_meta.get('width', width)*sar/2)*2)
+            source_h = source_meta.get('height', height)
+            if rotation in (90, 270):source_w, source_h = source_h, source_w
+            if bounded_motion:
+                framing += _bounded_image_motion(clip, source_w, source_h, width, height, fps, seek, remaining)
             else:
-                framing += f'scale={zoom_width}:{zoom_height}:force_original_aspect_ratio={fit}:force_divisible_by=2'
-            x, y = _fmt(clip.get('position_x', .5)), _fmt(clip.get('position_y', .5))
-            dx, dy = _fmt(clip.get('offset_x', 0)), _fmt(clip.get('offset_y', 0))
-            framing += (f',split=2[offset_picture{index}][offset_background{index}];'
-                        f'[offset_background{index}]scale={frame_width}:{frame_height},'
-                        f'drawbox=color=black:t=fill:replace=1[offset_canvas{index}];'
-                        f'[offset_canvas{index}][offset_picture{index}]'
-                        f"overlay=x='if(gt(w,W),(W-w)*{x},(W-w)/2)+({dx})*W':"
-                        f"y='if(gt(h,H),(H-h)*{y},(H-h)/2)+({dy})*H':"
-                        'eval=frame:shortest=1:format=auto')
-            if moving:framing += f',scale={width}:{height}'
-        elif zoom > 1:
-            # Magnify the source before cropping: cropping to the canvas first
-            # would permanently discard regions needed by off-centre framing.
-            zoom_width = max(2, round(frame_width*zoom/2)*2)
-            zoom_height = max(2, round(frame_height*zoom/2)*2)
-            fit = 'decrease' if clip.get('fit', 'fill') == 'fit' else 'increase'
-            x, y = _fmt(clip.get('position_x', .5)), _fmt(clip.get('position_y', .5))
-            framing += f'scale={zoom_width}:{zoom_height}:force_original_aspect_ratio={fit}:force_divisible_by=2'
-            framing += (f",crop=w='min(iw,{frame_width})':h='min(ih,{frame_height})':"
-                        f"x='(iw-ow)*{x}':y='(ih-oh)*{y}'")
-            # Fit can still leave one dimension smaller than the canvas even
-            # after zooming. Keep those borders centred; only overflow moves.
-            framing += f',pad={frame_width}:{frame_height}:(ow-iw)/2:(oh-ih)/2:black'
+                framing += _bounded_clip_frame(clip, source_w, source_h, width, height)
         elif clip.get("fit", "fill") == "fit":
             framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={frame_width}:{frame_height}:(ow-iw)/2:(oh-ih)/2:black"
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
             framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=increase:force_divisible_by=2,crop={frame_width}:{frame_height}:(iw-ow)*{x}:(ih-oh)*{y}"
-        if moving and not positioned:
+        if moving and not bounded_motion:
             progress = f"min(1,max(0,({_fmt(clip.get('in', 0)+seek)}+on/{_fmt(fps)})/{_fmt(max(1/fps, clip['duration']-1/fps))}))"
             if clip['motion'] == 'zoom_out':progress = f'(1-({progress}))'
             framing += (f",zoompan=z='1+{_fmt(clip.get('zoom_amount', .15))}*({progress})':"

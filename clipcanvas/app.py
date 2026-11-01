@@ -1922,7 +1922,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.update_play_button(False);self.preview_label.set_text('Preview unavailable');self.set_status(message)
 
     def toggle_play(self):
-        self.crop_tools.finish()
+        self.crop_tools.finish(render_frame=False)
         if self.busy or not self.project['clips']:return
         if not self.preview_key and not self.canvas.live:self.preview();return
         if self.canvas.playing:self.canvas.pause();self.update_play_button(False)
@@ -2064,7 +2064,7 @@ class ClipCanvasWindow(Gtk.Window):
         return False
 
     def preview(self):
-        self.crop_tools.finish()
+        self.crop_tools.finish(render_frame=False)
         if not self.project['clips'] or self.busy:return
         self.cancel_scrub();self.adapt_frame_rate();self.preview_key=None
         self.scrub_session.close()
@@ -2074,6 +2074,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.set_status('Live playback. If your project stutters, use Project → Render smooth preview.')
 
     def render_preview(self):
+        self.crop_tools.finish(render_frame=False)
         if not self.project['clips'] or self.busy:return
         self.adapt_frame_rate();self.cancel_scrub()
         render_project={k:v for k,v in self.project.items() if k!='timeline_order'}
@@ -2115,7 +2116,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.render_job(path,False,self.export_done,quality=q)
 
     def render_job(self,path,preview,done,quality='high'):
-        self.crop_tools.finish()
+        self.crop_tools.finish(render_frame=False)
         try:model.validate_project(self.project)
         except Exception as e:self.error(str(e));return
         # Pausing retains the decoder/filter graph and its queued frames. Stop

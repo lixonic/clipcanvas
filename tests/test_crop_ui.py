@@ -169,3 +169,33 @@ class MouseCropTests(unittest.TestCase):
         self.assertEqual(saved['clips'][0],first)
         self.assertAlmostEqual(saved['clips'][1]['offset_x'],.1)
         self.assertAlmostEqual(w.playhead,at)
+
+    def test_play_from_crop_skips_redundant_composed_seek_and_keeps_saved_position(self):
+        w=self.window('mouse-crop-preview-memory')
+        x,y,width,height=self.activate(w)
+        crop=w.crop_tools
+        crop.press(self.event(x+width/2,y+height/2))
+        crop.motion(self.event(x+width*.65,y+height/2));crop.release()
+        at=w.playhead
+        with mock.patch.object(w,'seek',side_effect=AssertionError('Play must not also request a paused composed frame')):
+            w.toggle_play()
+        self.assertFalse(crop.active)
+        self.assertAlmostEqual(w.project['clips'][0]['offset_x'],.15)
+        self.pump(lambda:w.canvas.live and w.canvas.playing and w.canvas.position()>at)
+
+    def test_large_photo_crop_source_is_bounded_before_grading(self):
+        import cairo
+        w=self.window('mouse-crop-photo-memory')
+        photo=self.fixtures.root/'large-crop-photo.png'
+        surface=cairo.ImageSurface(cairo.FORMAT_RGB24,2560,1440)
+        cr=cairo.Context(surface);cr.set_source_rgb(.2,.4,.6);cr.paint();surface.write_to_png(str(photo))
+        surface.finish()
+        w.project['clips']=[model.new_image(photo,.8)]
+        w.changed();w.seek(.2)
+        self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+        original=copy.deepcopy(w.project)
+        self.activate(w)
+        picture=w.crop_tools.picture
+        self.assertLessEqual(max(picture.get_width(),picture.get_height()),1920)
+        self.assertAlmostEqual(picture.get_width()/picture.get_height(),2560/1440,places=2)
+        self.assertEqual(w.project,original)

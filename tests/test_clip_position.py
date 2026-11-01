@@ -158,3 +158,25 @@ class ClipPositionTests(unittest.TestCase):
                 target = self.root/f'position-{motion}-split.mkv'
                 engine.render(split, target, quality='lossless')
                 self.assertEqual(self.decode(target), raw)
+
+    def test_cropped_embedded_rotation_and_non_square_pixels_match_normalized_source(self):
+        stretched=self.root/'sar-source.mp4'
+        rotated=self.root/'sar-rotated.mp4'
+        normalized=self.root/'sar-normalized.mkv'
+        subprocess.run([self.ffmpeg,'-v','error','-i',str(self.video),'-an',
+            '-vf','setsar=2','-c:v','libx264','-crf','0','-threads','1',str(stretched)],env=self.env,check=True)
+        subprocess.run([self.ffmpeg,'-v','error','-i',str(stretched),'-c','copy',
+            '-metadata:s:v:0','rotate=90',str(rotated)],env=self.env,check=True)
+        subprocess.run([self.ffmpeg,'-v','error','-i',str(rotated),'-an',
+            '-vf','scale=trunc(iw*sar/2)*2:ih,setsar=1',
+            '-c:v','ffv1','-threads','1',str(normalized)],env=self.env,check=True)
+        for fit in ('fit','fill'):
+            with self.subTest(fit=fit):
+                project=model.new_project(90,160)
+                project['clips']=[model.new_clip(rotated)]
+                project['clips'][0].update(zoom=2,offset_x=.2,offset_y=-.1,fit=fit)
+                expected=copy.deepcopy(project)
+                expected['clips'][0]['path']=str(normalized)
+                actual=engine.preview_frame(project,.2,preview_edge=0)['pixels']
+                reference=engine.preview_frame(expected,.2,preview_edge=0)['pixels']
+                self.assertLess(sum(abs(a-b) for a,b in zip(actual,reference))/len(actual),2)

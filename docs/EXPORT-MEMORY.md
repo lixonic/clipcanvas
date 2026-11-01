@@ -56,3 +56,69 @@ and project are preserved. It then checks that a pending scrub cannot restart
 the preview during export, cancellation preserves the project, and Play works
 again after either live or prepared-preview export. The full suite has 98 checks,
 including 21 native GTK workflows and real local speech recognition.
+
+## Crop playback memory — 0.17.1
+
+Selected scope: **C03** and **X02**. The intended outcome is to preview and export
+saved mouse crops without allocating the complete enlarged picture outside the
+canvas. The 0.17.0 crop path scaled the whole source before clipping. At 400%
+zoom, that intermediate has sixteen times the pixels of the unzoomed picture;
+multiple clip filters and color-format conversions can retain several buffers.
+This caused a large RAM spike on cropped timelines, including before playback's
+first frame.
+
+The renderer now discards invisible source margins before enlargement and places
+the visible picture inside the output canvas. The output still uses the selected
+Full/HD/Fast preview dimensions and the chosen export dimensions. It retains
+saved zoom, position, crop alignment, rotation, fit/fill and exposed black areas.
+This fix does not silently select a smaller preview or change the originals.
+
+Starting playback directly from the crop controls also skips the extra composed
+still request that would immediately be superseded. Interactive photo sources
+are limited to 1920 pixels before grading and rotation, matching the video crop
+controls; export continues to read the original image.
+
+Memory checks use short synthetic media and stop their own FFmpeg process at a
+defined memory ceiling, so an unfixed crop path fails the check without exhausting
+the machine. Compare uncropped and 400%-zoomed timelines, including free offsets
+and transitions. Framing checks compare recognizable source regions and black
+borders across scrubbing, live playback and export. Decoder, transition, audio,
+overlay and ordinary canvas buffers still contribute to memory; this is a crop
+allocation fix, not a fixed total-RAM guarantee for arbitrary projects.
+
+On 2026-11-01, a generated timeline of ten half-second clips at 960×540,
+400% zoom and a horizontal offset of 30% produced these FFmpeg peak-RSS results:
+
+| Join | 0.17.0 | 0.17.1 |
+|---|---:|---:|
+| Cuts | Over 300 MiB; stopped before the first frame | 135.5 MiB |
+| Fades | Over 300 MiB; stopped before the first frame | 197.0 MiB |
+
+The old runs were deliberately stopped at a 300 MiB safety ceiling, so their
+full peak was not measured. The fixed runs completed every frame; 100% and
+400% zoom used similar memory. A separate four-clip 1920×1080 fixture at 400%
+used 124.6 MiB for cuts and 180.6 MiB for fades. These measurements cover FFmpeg,
+not GTK/GStreamer or the whole desktop, and do not predict arbitrary projects.
+Six animated photo scenes at 400% also complete below the 300 MiB test ceiling.
+Their working images stay at twice the canvas dimensions, independent of saved
+zoom; source windows retain the same motion phase after splitting and seeking.
+
+Run the guarded benchmark with
+`/usr/bin/python3 tools/benchmark_crop_memory.py --clips 1 10 --zooms 1 4`.
+It uses its own short generated source, reports JSON, and kills its child
+renderer if the memory ceiling or timeout is exceeded.
+
+Repeatable manual check:
+
+1. Save the project before upgrading, restart ClipCanvas, and use a short copy of
+   the timeline first. Keep the preview quality at its current selection.
+2. Left-click a clip, drag it horizontally and vertically, and zoom to 400% using
+   a corner. Start Play directly from the crop controls. Check that the first
+   frame appears and RAM settles while playing, pausing and seeking repeatedly.
+3. Repeat with several cropped clips joined by cuts and transitions. Observe
+   FFmpeg and ClipCanvas separately in the system monitor. Closing preview should
+   retire its renderer; no old producer should keep consuming memory.
+4. Export a short section at the same canvas size. Compare the visible source
+   region, black borders, overlay placement and audio with the preview. Check
+   portrait, square and landscape canvases, both Fit/Fill, rotated clips, and an
+   image scene with slow zoom. Save/reopen and verify that framing is retained.

@@ -112,7 +112,9 @@ class CropTools:
         def work():
             try:
                 if model.is_image(snapshot):
-                    picture = engine.image_picture(snapshot['path'])
+                    # Editing needs only a screen-sized source. Apply grading
+                    # and orientation after decoding at the requested bounds.
+                    picture = GdkPixbuf.Pixbuf.new_from_file_at_scale(snapshot['path'], 1920, 1920, True).apply_embedded_orientation()
                 else:
                     engine.thumbnail(snapshot['path'], target, at=max(0, at), width=1920, height=1920)
                     picture = GdkPixbuf.Pixbuf.new_from_file(str(target))
@@ -221,14 +223,15 @@ class CropTools:
             self.saved_view = None
         self.owner.canvas.queue_draw()
 
-    def finish(self, cancel_drag=False):
+    def finish(self, cancel_drag=False, render_frame=True):
         if not self.active:
             return False
         if not cancel_drag:
             self.release()
         at = self.owner.playhead
         self.close()
-        self.owner.seek(at)
+        if render_frame:
+            self.owner.seek(at)
         return True
 
     def draw(self, cr):

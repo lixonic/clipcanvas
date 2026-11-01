@@ -19,7 +19,7 @@ in this installer. See [the staged plan](DEVELOPMENT-PLAN.md).
 |---|---|---|---|---|
 | C01 | Social-video canvas presets | Basic | Start landscape, portrait, or square projects. | Existing presets |
 | C02 | Resize an existing project | Pro | Adapt the composition to another size; current timeline has conversion restrictions. | Basic: change preset |
-| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Implemented: left-click preview outline, mouse positioning and corner zoom, saved offsets with per-drag Undo (0.17.0); numeric crop position and 100–400% zoom; preview/export agreement |
+| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Implemented: left-click preview outline, mouse positioning and corner zoom, saved offsets with per-drag Undo (0.17.0); numeric crop position and 100–400% zoom; crop-before-enlargement memory fix with preserved preview/export framing (0.17.1) |
 | C04 | Rotate and flip footage | Basic | Correct orientation or mirror the picture. | Existing: 90° steps and both flips |
 | C05 | Multiple visual layers | Basic | Stack video, photos, graphics, and text for overlays. | Existing: ordered text, image/logo, and silent video overlays; canvas drag and numeric transforms |
 | C06 | Background versus overlay placement | Basic | Make footage fill the canvas or position it above other media. | Basic: base fit/fill, file-free color-card scenes, and positioned image/video overlays |
@@ -178,7 +178,7 @@ Canva features. They are selected; detailed designs and platform validation rema
 | ID | Candidate | Why it matters | Current status |
 |---|---|---|---|
 | X01 | Direct timeline handles, snapping, ripple edits | Faster precise clip assembly | Basic: edge trim, audio fade handles, snapping, ripple trims and lifted drag/drop feedback; linked edits pending |
-| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback with coordinated buffering; persistent HD/Fast video proxies prepared in a worker; cached seeks; latest-position frame worker; optional rendered fallback |
+| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback with coordinated buffering; persistent HD/Fast source proxies; cached seeks; latest-position frame worker; cropped playback avoids zoom-sized intermediate pictures and redundant exit-frame rendering (0.17.1); optional rendered fallback |
 | X03 | Keyframes and easing | Animate position, scale, opacity and audio levels | New work |
 | X04 | Reverse, freeze frames and speed ramps | Control pacing within a clip | New work |
 | X05 | Dialogue ducking, audio envelopes, meters and EQ | Mix music, voice and effects predictably | Partial: echo, gain, bass/treble, tone filters, compressor and A/B audition; ducking, meters and arbitrary envelopes pending |
