@@ -130,7 +130,7 @@ def new_clip(path, metadata=None):
     duration = float(metadata["duration"])
     return {"id": uuid.uuid4().hex, "path": str(Path(path).expanduser().resolve()),
             "duration": duration, "source_fps": float(metadata.get('fps', 0)),
-            "in": 0.0, "out": duration, "fit": "fill",
+            "in": 0.0, "out": duration, "fit": "fill", "zoom": 1.0,
             "volume": 1.0, "transition": "none", "transition_duration": 0.5,
             "transition_direction":"left","transition_colour":"#8b3dff",
             "position_x": 0.5, "position_y": 0.5, "speed": 1.0,
@@ -171,7 +171,7 @@ def new_card(color='#ffffff', duration=3.0):
     """A file-free solid-color scene in the main, ripple timeline."""
     return {'id': uuid.uuid4().hex, 'kind': 'card', 'color': color,
             'duration': float(duration), 'in': 0.0, 'out': float(duration),
-            'speed': 1.0, 'volume': 0.0, 'fit': 'fill',
+            'speed': 1.0, 'volume': 0.0, 'fit': 'fill', 'zoom': 1.0,
             'fade_in': 0.0, 'fade_out': 0.0, 'position_x': .5, 'position_y': .5,
             'rotation': 0, 'flip_x': False, 'flip_y': False, 'saturation': 1.0,
             'transition': 'none', 'transition_duration': .5,
@@ -391,6 +391,7 @@ def validate_project(project, check_files=True, require_clips=False):
                         raise ValueError(f"{label} flip must be on or off.")
                 if item.get("fit", "fill") not in ("fit", "fill"):
                     raise ValueError(f"{label} has an unsupported framing option.")
+                _number(item.get('zoom', 1), f'{label} crop zoom', 1, 4)
                 if item.get("transition", "none") not in TRANSITIONS:
                     raise ValueError(f"{label} has an unsupported transition.")
                 _number(item.get("transition_duration", 0.5), f"{label} transition duration", 0, 10)
@@ -531,7 +532,7 @@ def load_project(path):
                             "out": item.get("duration"), "volume": 1.0,
                             "speed": 1.0, "fade_in": 0.0, "fade_out": 0.0}
                 if group == "clips":
-                    defaults.update({"fit": "fill", "transition": "none",
+                    defaults.update({"fit": "fill", "zoom": 1.0, "transition": "none",
                                      "transition_duration": 0.5,
                                      "transition_direction":"left","transition_colour":"#8b3dff",
                                      "position_x": 0.5, "position_y": 0.5,

@@ -795,7 +795,7 @@ class ClipCanvasWindow(Gtk.Window):
         self.context_title=label('Select a clip to edit','dim-label');self.context_title.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.context_title.set_max_width_chars(28);self.context_toolbar.pack_start(self.context_title,True,True,0)
         self.edit_button=ui_theme.icon_button('document-properties-symbolic',lambda:self.open_properties('Timing'),'Timing, image duration and motion, or playback speed',label='Edit')
-        self.picture_button=ui_theme.icon_button('image-x-generic-symbolic',lambda:self.open_properties('Picture'),'Saturation, crop, rotate, flip and picture fades',label='Picture')
+        self.picture_button=ui_theme.icon_button('image-x-generic-symbolic',lambda:self.open_properties('Picture'),'Crop, zoom, saturation, rotate, flip and picture fades',label='Picture')
         self.color_button=ui_theme.icon_button('applications-graphics-symbolic',self.edit_color_grading,'Grade clip color with before/after preview',label='Color')
         self.sound_button=ui_theme.icon_button('audio-volume-high-symbolic',lambda:self.open_properties('Sound'),'Volume and audio fade in/out',label='Audio')
         for item in (self.edit_button,self.picture_button,self.color_button,self.sound_button):self.context_toolbar.pack_start(item,False,False,0)
@@ -810,7 +810,7 @@ class ClipCanvasWindow(Gtk.Window):
         for factor,title in [('1','Fit'),('.25','25%'),('.5','50%'),('.75','75%'),('1.25','125%'),('1.5','150%'),('2','200%'),('3','300%'),('4','400%')]:
             self.preview_zoom_combo.append(factor,title)
         self.preview_zoom_combo.set_active_id('1')
-        self.preview_zoom_combo.set_tooltip_text('Preview magnification relative to Fit. Scroll to move vertically when zoomed; Shift+scroll moves horizontally. Ctrl+scroll zooms; Shift+drag also pans. Export is unchanged.')
+        self.preview_zoom_combo.set_tooltip_text('View magnification relative to Fit. Scroll to move vertically when zoomed; Shift+scroll moves horizontally. Ctrl+scroll zooms; Shift+drag also pans. Use Picture → Crop and zoom to change the exported framing.')
         self.preview_zoom_combo.connect('changed',self.preview_zoom_changed)
         self.canvas.on_view_changed=self.preview_view_changed
         view_controls=box(Gtk.Orientation.HORIZONTAL,0);view_controls.get_style_context().add_class('linked')
@@ -1317,7 +1317,7 @@ class ClipCanvasWindow(Gtk.Window):
         if rotation is not None:pix=pix.rotate_simple(rotation)
         if item.get('flip_x'):pix=pix.flip(True)
         if item.get('flip_y'):pix=pix.flip(False)
-        self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5))
+        self.canvas.set_still(pix,item['fit'],item.get('position_x',.5),item.get('position_y',.5),item.get('zoom',1))
 
     def show_inspector(self):
         self.layer_tools.stop_sound_preview()
@@ -1393,16 +1393,23 @@ class ClipCanvasWindow(Gtk.Window):
             self.add_saturation_control(picture,item)
             self.fit=Gtk.ComboBoxText();self.fit.append('fill','Fill canvas · crop edges');self.fit.append('fit','Fit whole picture · borders')
             self.fit.set_active_id(item['fit']);picture.pack_start(self.fit,False,False,0)
+            crop=Gtk.Expander(label='Crop and zoom');crop.set_expanded(True)
+            crop_box=box(spacing=10,margin=8);crop.add(crop_box)
+            spin(crop_box,'zoom','Zoom (%)',100,400,1,100,default=1)
+            spin(crop_box,'position_x','Horizontal (%)',0,100,1,100,default=.5)
+            spin(crop_box,'position_y','Vertical (%)',0,100,1,100,default=.5)
+            hint(crop_box,'Zoom into the clip, then choose the visible area. 0% shows the left/top edge; 100% shows the right/bottom edge. The canvas crops the picture in preview and export.')
+            def reset_crop():
+                for key,value in (('zoom',100),('position_x',50),('position_y',50)):
+                    self.fields[key][0].set_value(value)
+            crop_box.pack_start(button('Reset crop',reset_crop),False,False,0)
+            picture.pack_start(crop,False,False,0)
             self.rotation=Gtk.ComboBoxText()
             for value in (0,90,180,270):self.rotation.append(str(value),f'Rotate {value}° clockwise')
             self.rotation.set_active_id(str(item.get('rotation',0)));picture.pack_start(self.rotation,False,False,0)
             self.flip_x=Gtk.CheckButton(label='Flip horizontally');self.flip_x.set_active(item.get('flip_x',False))
             self.flip_y=Gtk.CheckButton(label='Flip vertically');self.flip_y.set_active(item.get('flip_y',False))
             picture.pack_start(self.flip_x,False,False,0);picture.pack_start(self.flip_y,False,False,0)
-            crop=Gtk.Expander(label='Crop position');crop_box=box(spacing=10,margin=8);crop.add(crop_box)
-            spin(crop_box,'position_x','Horizontal (%)',0,100,1,100,default=.5)
-            spin(crop_box,'position_y','Vertical (%)',0,100,1,100,default=.5)
-            picture.pack_start(crop,False,False,0)
             spin(picture,'video_fade_in','Fade picture in (s)',0,model.clip_duration(item))
             spin(picture,'video_fade_out','Fade picture out (s)',0,model.clip_duration(item))
         if not image:
@@ -1708,9 +1715,11 @@ class ClipCanvasWindow(Gtk.Window):
         try:model.validate_project(candidate,check_files=False)
         except ValueError as e:self.error(str(e));return
         if not model.is_image(item):self.remember_audio_settings(item)
-        at=self.playhead;saturation_changed=item.get('saturation',1)!=original.get('saturation',1)
+        at=self.playhead
+        picture_changed=any(item.get(key,default)!=original.get(key,default)
+            for key,default in (('saturation',1),('zoom',1),('position_x',.5),('position_y',.5),('fit','fill'),('rotation',0),('flip_x',False),('flip_y',False)))
         self.checkpoint();self.project=candidate;self.properties_popover.popdown();self.changed()
-        if saturation_changed:self.seek(at)
+        if picture_changed:self.seek(at)
         self.set_status('Changes applied. Press Preview to see and hear the full video.')
 
     def remember_audio_settings(self,item):
@@ -2061,7 +2070,7 @@ class ClipCanvasWindow(Gtk.Window):
         quality.set_active_id('master');self.export_quality_combo=quality;content.pack_start(quality,False,False,0)
         hint=label('','muted');hint.set_line_wrap(True);hint.set_max_width_chars(58);content.pack_start(hint,False,False,0)
         def update_quality_hint(*args):
-            hint.set_text('Lossless FFV1 video and float PCM audio preserve the composed output. Canvas scaling, effects and 8-bit YUV color conversion still apply. Very large files; use MP4 for social uploads.' if quality.get_active_id()=='lossless' else 'Export reads your originals at the selected canvas size. Maximum quality minimizes compression changes; MP4 is not lossless. Preview zoom and resolution do not affect export.')
+            hint.set_text('Lossless FFV1 video and float PCM audio preserve the composed output. Canvas scaling, effects and 8-bit YUV color conversion still apply. Very large files; use MP4 for social uploads.' if quality.get_active_id()=='lossless' else 'Export reads your originals with saved clip crops at the selected canvas size. Maximum quality minimizes compression changes; MP4 is not lossless. View magnification and preview resolution do not affect export.')
         quality.connect('changed',update_quality_hint);update_quality_hint()
         dialog.show_all();response=dialog.run();q=quality.get_active_id();dialog.destroy()
         if response!=Gtk.ResponseType.OK:return

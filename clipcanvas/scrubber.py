@@ -168,7 +168,10 @@ class ScrubSession:
             if clip.get('flip_x'): pixbuf = pixbuf.flip(True)
             if clip.get('flip_y'): pixbuf = pixbuf.flip(False)
             factor = (min if clip.get('fit') == 'fit' else max)(width/pixbuf.get_width(), height/pixbuf.get_height())
-            x, y = (width-pixbuf.get_width()*factor)*clip.get('position_x', .5), (height-pixbuf.get_height()*factor)*clip.get('position_y', .5)
+            factor *= clip.get('zoom', 1)
+            scaled_w, scaled_h = pixbuf.get_width()*factor, pixbuf.get_height()*factor
+            x = (width-scaled_w)*(clip.get('position_x', .5) if scaled_w > width else .5)
+            y = (height-scaled_h)*(clip.get('position_y', .5) if scaled_h > height else .5)
             cr.save(); cr.translate(x, y); cr.scale(factor, factor)
             Gdk.cairo_set_source_pixbuf(cr, pixbuf, 0, 0); cr.get_source().set_filter(cairo.FILTER_BILINEAR); cr.paint(); cr.restore()
         age, length = seconds-row['start'], row['duration']

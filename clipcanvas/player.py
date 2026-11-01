@@ -28,8 +28,8 @@ _LOG = logging.getLogger(__name__)
 class VideoCanvas(Gtk.DrawingArea):
     """A lightweight player with callbacks expressed in seconds.
 
-    ``set_still`` supports a crop position from 0 to 1 on each axis. Rendered
-    project previews should use ``fit``: they already contain their canvas.
+    ``set_still`` supports a crop position from 0 to 1 on each axis and saved
+    clip zoom. Composed previews already contain their crop and use ``fit``.
     """
 
     def __init__(self):
@@ -43,6 +43,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.fit = "fit"
         self.position_x = 0.5
         self.position_y = 0.5
+        self.clip_zoom = 1.0
         self.playing = False
         self.loading = False
         self.on_position = None
@@ -51,6 +52,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.on_loading = None
         self.on_overlay_draw = None
         self.canvas_rect = None
+        self.viewport_rect = None
         self.preview_zoom = 1.0
         self.preview_edge = 0
         self.pan_x = self.pan_y = 0.0
@@ -88,6 +90,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._bus.add_signal_watch()
         self._bus_handler = self._bus.connect("message", self._message)
         self.connect("draw", self._draw)
+        self.connect("size-allocate", lambda *_: self._view_rect())
         self.connect("style-updated", lambda _: self.queue_draw())
         self.connect("destroy", self._cleanup)
         self.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK |
@@ -178,9 +181,13 @@ class VideoCanvas(Gtk.DrawingArea):
         width, height = self.get_allocated_width(), self.get_allocated_height()
         padding = min(28, width/12, height/12)
         available_w, available_h = max(1, width-2*padding), max(1, height-2*padding)
-        scale = min(available_w/self.aspect_width, available_h/self.aspect_height)*self.preview_zoom
-        cw, ch = self.aspect_width*scale, self.aspect_height*scale
-        mx, my = max(0, (cw-available_w)/2), max(0, (ch-available_h)/2)
+        scale = min(available_w/self.aspect_width, available_h/self.aspect_height)
+        vw, vh = self.aspect_width*scale, self.aspect_height*scale
+        # Magnification moves the picture behind a fixed project-ratio window.
+        # Keep the transformed canvas for overlay placement and drag distances.
+        self.viewport_rect = ((width-vw)/2, (height-vh)/2, vw, vh)
+        cw, ch = vw*self.preview_zoom, vh*self.preview_zoom
+        mx, my = max(0, (cw-vw)/2), max(0, (ch-vh)/2)
         self.pan_x, self.pan_y = max(-mx, min(mx, self.pan_x)), max(-my, min(my, self.pan_y))
         self.canvas_rect = ((width-cw)/2+self.pan_x, (height-ch)/2+self.pan_y, cw, ch)
         return self.canvas_rect
@@ -188,6 +195,7 @@ class VideoCanvas(Gtk.DrawingArea):
     def set_composed_frame(self, picture, duration):
         self.stop()
         self.fit = 'fit'
+        self.clip_zoom = 1.0
         self.composited = True
         self._last_position, self._last_duration = picture['position'], duration
         self.frame = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(picture['pixels']),
@@ -198,9 +206,10 @@ class VideoCanvas(Gtk.DrawingArea):
         if width <= 0 or height <= 0:
             raise ValueError("The canvas dimensions must be positive.")
         self.aspect_width, self.aspect_height = width, height
+        self._view_rect()
         self.queue_draw()
 
-    def set_still(self, pixbuf, fit="fill", position_x=0.5, position_y=0.5):
+    def set_still(self, pixbuf, fit="fill", position_x=0.5, position_y=0.5, zoom=1.0):
         self.stop()
         self.composited = False
         self._loaded = False
@@ -208,6 +217,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.fit = "fit" if fit == "fit" else "fill"
         self.position_x = max(0.0, min(1.0, float(position_x)))
         self.position_y = max(0.0, min(1.0, float(position_y)))
+        self.clip_zoom = max(1.0, min(4.0, float(zoom)))
         self.queue_draw()
 
     def load(self, path, autoplay=True):
@@ -218,6 +228,7 @@ class VideoCanvas(Gtk.DrawingArea):
             return
         self._pipeline.set_property("uri", media.as_uri())
         self.fit = "fit"
+        self.clip_zoom = 1.0
         self.position_x = self.position_y = 0.5
         self._loaded = True
         self._last_position = self._last_duration = 0.0
@@ -237,6 +248,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self.stop()
         generation = self._generation
         self.fit = 'fit'
+        self.clip_zoom = 1.0
         self.composited = True
         self._loaded = True
         self._last_position = start
@@ -494,11 +506,17 @@ class VideoCanvas(Gtk.DrawingArea):
         cr.set_source_rgb(color.red,color.green,color.blue)
         cr.paint()
         cx, cy, cw, ch = self._view_rect()
+        vx, vy, vw, vh = self.viewport_rect
+        sx, sy = max(cx, vx), max(cy, vy)
+        sw, sh = min(cx+cw, vx+vw)-sx, min(cy+ch, vy+vh)-sy
         for spread in range(9, 0, -1):
             cr.set_source_rgba(0.12, 0.10, 0.23, 0.008)
-            cr.rectangle(cx - spread, cy - spread / 2 + 3, cw + spread * 2, ch + spread)
+            cr.rectangle(sx - spread, sy - spread / 2 + 3, sw + spread * 2, sh + spread)
             cr.fill()
         cr.save()
+        cr.rectangle(vx, vy, vw, vh)
+        cr.clip()
+        # Below Fit, retain the smaller canvas instead of painting its margins.
         cr.rectangle(cx, cy, cw, ch)
         cr.clip()
         cr.set_source_rgb(0.015, 0.015, 0.02) if self.frame else cr.set_source_rgb(1, 1, 1)
@@ -506,8 +524,9 @@ class VideoCanvas(Gtk.DrawingArea):
         if self.frame is not None:
             cr.save()
             fw, fh = self.frame.get_width(), self.frame.get_height()
-            factor = (min if self.fit == "fit" else max)(cw / fw, ch / fh)
-            align_x, align_y = (0.5, 0.5) if self.fit == "fit" else (self.position_x, self.position_y)
+            factor = (min if self.fit == "fit" else max)(cw / fw, ch / fh)*self.clip_zoom
+            align_x = self.position_x if fw*factor > cw else 0.5
+            align_y = self.position_y if fh*factor > ch else 0.5
             dx = cx + (cw - fw * factor) * align_x
             dy = cy + (ch - fh * factor) * align_y
             cr.translate(dx, dy)

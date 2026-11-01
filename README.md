@@ -1,11 +1,11 @@
-# ClipCanvas 0.15.0
+# ClipCanvas 0.16.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.15.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.16.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,10 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.16.0 adds **Picture → Crop and zoom** with saved 100–400% clip zoom
+and horizontal/vertical reframing shared by preview and export. The preview
+also hides content outside the selected canvas ratio. The toolbar zoom remains
+a view setting. See [crop and preview framing](docs/LIVE-PREVIEW.md#saved-crop-and-fixed-preview-frame--0160).
 Version 0.15.0 adds **Apply transition to all clips** beneath Apply changes in the
 Transition panel. Copy the chosen effect and settings to every join with one Undo.
 Version 0.14.0 adds the Color grading editor with Pixar-inspired animation,
@@ -110,18 +114,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.15.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.16.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.15.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.16.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.15.0_all.deb
+   sudo apt install ./clipcanvas_0.16.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -150,8 +154,12 @@ separate application and does not change VLC.
    timeline copies remain; **Ctrl+Z** restores the import. Collapse the sidebar for
    more canvas space; drag the divider above the timeline to adjust its height.
 3. **Edit a selected clip.** Click **Edit** for source trim and playback speed,
-   or **Picture** for saturation, fit/fill, crop position, rotation, flips, and
+   or **Picture** for saturation, fit/fill, crop and zoom, rotation, flips, and
    picture fades.
+   Open **Crop and zoom**, set **Zoom** to 100–400%, and adjust **Horizontal** and
+   **Vertical** to choose the visible region. Apply changes to use that framing
+   in preview and export. This setting is saved per clip; older projects start
+   at 100% zoom.
    Set saturation to 0% for black and white or 100% for original color. Right-click
    → **Desaturate** also works on multiple selected clips.
    Click **Color** for cinematic presets and full color/light controls, or
@@ -217,8 +225,11 @@ separate application and does not change VLC.
    Above the preview, use **− / Fit / +** for 25–400% magnification relative to
    Fit. **Ctrl+wheel** zooms. When enlarged, scroll to move vertically, use
    **Shift+scroll** to move horizontally, or pan with **Shift+drag** or the middle
-   mouse button. Trackpads support both axes. Choose **Fit** to center the complete canvas again. These controls
-   only change your view; they do not crop or resize the export.
+   mouse button. Trackpads support both axes. The preview frame keeps the selected
+   canvas ratio: zoomed video and layers outside it stay hidden. Choose **Fit**
+   to center the complete canvas again. These controls
+   only change your view. Use **Picture → Crop and zoom** to save a clip crop
+   that also applies to export.
    The first main clip supplies the frame rate automatically, including 29.97
    and 59.94. Mixed-rate projects follow that first clip; reordering updates it.
    The selector above the preview defaults to **Full resolution**, matching the
@@ -244,7 +255,7 @@ You can also drag its timeline edges to shorten or extend it.
 
 In **Edit → Motion**, choose **Still image**, **Slow zoom in**, or **Slow zoom
 out**. **Zoom amount** controls the change in scale (15% by default); a longer
-duration makes the move slower. **Picture** provides fit/fill, crop position,
+duration makes the move slower. **Picture** provides fit/fill, crop and zoom,
 rotation, flips and picture fades. Photo clips can be mixed with videos and color
 cards, reordered, split and joined with transitions. Image-only videos support
 soundtracks, text, logos and captions too. Settings survive undo/redo and saving.
@@ -421,7 +432,7 @@ The exported MP4 is a standalone video that you can share or upload.
 ## Video quality
 
 Exports are made from the original media at the project canvas size.
-Preview resolution and zoom never change export resolution or source files.
+Preview resolution and toolbar zoom never change export resolution or source files.
 Frame rate follows the first main clip; choose a canvas appropriate for your source. Increasing resolution
 does not restore detail that is absent in the original, and cropping landscape
 video into portrait necessarily removes part of the image.

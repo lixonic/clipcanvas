@@ -1,12 +1,12 @@
-# Live preview, scrubbing and zoom — ClipCanvas 0.11.1
+# Live preview, scrubbing and zoom — ClipCanvas 0.16.0
 
 Press **Play**, **Space** or **Preview** to play the composition. It begins once
 its first frames are available; it no longer waits for a complete preview MP4.
 Pause/resume, playhead/ruler seeking and replay at the end use the native GTK canvas.
 After an edit, press play again. No cloud service or upload is involved.
 
-The preview includes clip cuts/transitions, picture/audio fades, trim and speed,
-text/caption styles, image/video overlays and opacity, independent soundtrack
+The preview includes clip cuts/transitions, saved clip crop/zoom, picture/audio
+fades, trim and speed, text/caption styles, image/video overlays and opacity, independent soundtrack
 placement, voice effects and the final audio limiter. Video overlays remain
 silent, as in export. **Full resolution** uses the project canvas by default.
 The selector also provides **HD preview** (1280 pixels on the longest edge) and
@@ -32,11 +32,16 @@ magnification relative to the fitted canvas. **Ctrl+wheel** also zooms. When
 enlarged, scroll normally to move vertically, or use **Shift+scroll** to move
 horizontally. Trackpads support smooth movement in both directions. Scrolling
 stops at the picture edges and leaves the playback position unchanged.
+The visible preview window keeps the selected landscape, portrait or square
+canvas ratio. Zoom and pan move the picture behind that fixed window; video and
+layers outside it are hidden. Below Fit, the smaller canvas remains centered.
 **Shift+drag** or middle-button drag also pans within the canvas; **Fit**
-centers and shows the complete image again. Zoom remains through playback and
+centers and shows the complete composed canvas again. Toolbar zoom remains through playback and
 seeking, and resets on new/open/recovered projects. It changes only the preview
-view, never the export, saved geometry or undo history. Direct layer placement
-continues to use the visible, zoomed canvas coordinates.
+view, never the export, saved geometry or undo history. **Picture → Crop and zoom**
+sets a separate per-clip 100–400% zoom and crop position that applies to preview
+and export. Direct layer placement continues to use the visible, zoomed canvas
+coordinates.
 
 The frame worker finishes one composed RGB picture, then takes the newest
 pointer time; it does not build a backlog or keep resetting a debounce timer.
@@ -223,3 +228,55 @@ retains the clip's trimmed history for echo and other voice effects. Loading
 preview appears until the current generation's first picture is committed;
 Pause remains available during startup. Full-resolution preview and export
 settings are unchanged. See [startup measurements and limits](PLAYBACK-STARTUP.md).
+
+## Saved crop and fixed preview frame — 0.16.0
+
+Selected feature IDs: **C03** (crop and manually reframe) and **C14** (in-editor
+preview). The intended outcome is to zoom and reframe a video inside the chosen
+screen ratio, hiding the unwanted region in both preview and export.
+
+Select a video or image clip, open **Picture → Crop and zoom**, and set **Zoom**
+between 100% and 400%. Adjust **Horizontal** and **Vertical** crop position to
+choose the region, then Apply changes. These per-clip values are saved and used
+by editing frames, composed scrubbing, live/prepared playback and export. Undo
+and Redo restore the crop settings. Clips in older projects default to 100% zoom,
+preserving their previous framing.
+
+The preview uses a fixed window in the project ratio, including visual layers.
+Resizing the editor or changing the canvas preset recalculates that window.
+The existing toolbar **− / Fit / +** controls remain preview-only: they magnify
+the composed picture for inspection, independently of the saved clip zoom.
+Scroll/drag panning also changes only that view. Overlay dragging keeps the
+zoomed composition coordinates, but a hidden portion of a layer cannot be
+clicked through the workspace.
+
+Repeatable manual check:
+
+1. Start a landscape (16:9) project, add a video with recognizable details near
+   its edges, and add a text or image layer near one edge. Export a 100% clip-zoom
+   reference while the toolbar is at Fit.
+2. In **Picture → Crop and zoom**, apply 200%, then move Horizontal/Vertical
+   between 0%, 50% and 100%. Repeat at 400%. The selected region changes inside
+   the same project ratio, including when the source matches the canvas ratio.
+   Scrub, play live, render a smooth preview and export; each shows the saved
+   crop. Compare an exported frame with the paused preview and with the 100%
+   reference. Overlay position, timing and sound stay unchanged by clip zoom.
+3. Undo/Redo the crop edit, save and reopen. The applied clip zoom and positions
+   are restored; the toolbar starts at Fit. Repeat with an image clip. Open an
+   older project and confirm its zoom starts at 100% with its prior framing.
+4. With a saved clip crop applied, select 200% and 400% in the toolbar. Scroll
+   vertically, Shift+scroll horizontally, then try Shift+drag and middle-button
+   drag. The visible frame keeps its fitted size and ratio. Pan to both limits
+   on each axis; picture and layer content outside it stays hidden, and no empty
+   gap enters the frame. Resize the window and move the timeline divider; the
+   preview still fits the selected ratio in editing and playback modes.
+5. Pan until the layer lies partly outside the frame. Clicking its hidden portion
+   in the workspace must leave selection, playback and the picture unchanged.
+   Drag its visible portion; it follows the pointer correctly at the chosen zoom.
+6. Choose toolbar 50%, then Fit. The smaller view is centered at 50%; Fit restores
+   the full composed canvas and clears view pan while keeping the saved clip
+   crop. Export at Fit and again after toolbar zoom/pan; framing, layers and
+   sound must match between these exports.
+7. Repeat steps 1–6 for portrait (9:16) and square (1:1) projects, including
+   horizontal toolbar panning in the portrait project. Also check a source with
+   a different ratio using both Fill canvas and Fit whole picture.

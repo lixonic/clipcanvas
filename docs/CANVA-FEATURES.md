@@ -19,7 +19,7 @@ in this installer. See [the staged plan](DEVELOPMENT-PLAN.md).
 |---|---|---|---|---|
 | C01 | Social-video canvas presets | Basic | Start landscape, portrait, or square projects. | Existing presets |
 | C02 | Resize an existing project | Pro | Adapt the composition to another size; current timeline has conversion restrictions. | Basic: change preset |
-| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Basic: numeric crop position |
+| C03 | Crop and manually reframe | Basic | Choose which area of a clip fills the composition. | Implemented: saved per-clip 100–400% zoom and numeric horizontal/vertical crop position shared by preview/export; older projects default to 100% (0.16.0) |
 | C04 | Rotate and flip footage | Basic | Correct orientation or mirror the picture. | Existing: 90° steps and both flips |
 | C05 | Multiple visual layers | Basic | Stack video, photos, graphics, and text for overlays. | Existing: ordered text, image/logo, and silent video overlays; canvas drag and numeric transforms |
 | C06 | Background versus overlay placement | Basic | Make footage fill the canvas or position it above other media. | Basic: base fit/fill, file-free color-card scenes, and positioned image/video overlays |
@@ -37,7 +37,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 | C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo |
 | C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Pointer-time seeking from video/audio clip body clicks (0.11.5), forward decoder reuse and bounded paused scene preparation (0.11.7), aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
 | C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | Existing: 0.25×–4×, pitch-preserving audio |
-| C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% zoom/pan; optional prepared fallback; full-screen pending |
+| C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% view zoom/pan clipped to the fixed canvas ratio, separate from saved clip crop/zoom (0.16.0); optional prepared fallback; full-screen pending |
 
 Sources: [Import requirements](https://www.canva.com/help/upload-formats-requirements-variantb/), [free trimming and joining](https://www.canva.com/features/video-trimmer/), [free splitting](https://www.canva.com/features/video-splitter/), [timeline operations](https://www.canva.com/help/creating-and-editing-videos/), [playback controls](https://www.canva.com/help/adjust-video-playback/).
 

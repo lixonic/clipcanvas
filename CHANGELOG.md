@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.16.0 — 2026-11-01
+
+- Add per-clip **Picture → Crop and zoom** with 100–400% zoom and horizontal/
+  vertical crop position. Apply the saved framing to video and image scenes in
+  editing frames, scrubbing, live/prepared preview and export. Older projects
+  default to 100% zoom; clip zoom supports Undo/Redo and save/reopen.
+- Keep the preview window at the selected landscape, portrait or square canvas
+  ratio while zooming and panning. Clip pictures, editing overlays and composed
+  playback to that fixed frame instead of revealing content in the workspace.
+- Stop panning at the picture edges on both axes, refresh the frame after resizing
+  or changing canvas format, and ignore clicks on hidden portions of layers.
+  Preserve overlay placement coordinates and the smaller view below Fit.
+- Keep the toolbar magnification and panning controls as separate preview-only
+  settings. They inspect the composed crop without changing the saved framing
+  or exported composition. Original media and project timing are preserved.
+
 ## 0.15.0 — 2026-10-31
 
 - Add a second Transition-panel button, **Apply transition to all clips**, below

@@ -409,11 +409,10 @@ class DesktopWorkflowTests(unittest.TestCase):
                     # the picture and exposing empty space inside the canvas.
                     scroll(Gdk.ScrollDirection.SMOOTH,dy=10000)
                     _,y,_,h=canvas.canvas_rect
-                    self.assertLessEqual(y+h,canvas.get_allocated_height())
-                    self.assertGreaterEqual(y+h,canvas.get_allocated_height()-28.1)
+                    vx,vy,vw,vh=canvas.viewport_rect
+                    self.assertAlmostEqual(y+h,vy+vh)
                     scroll(Gdk.ScrollDirection.SMOOTH,dy=-10000)
-                    self.assertGreaterEqual(canvas.canvas_rect[1],0)
-                    self.assertLessEqual(canvas.canvas_rect[1],28.1)
+                    self.assertAlmostEqual(canvas.canvas_rect[1],vy)
                     if width>height:
                         canvas.set_preview_zoom(4,reset_pan=True)
                         self.assertTrue(scroll(Gdk.ScrollDirection.DOWN,Gdk.ModifierType.SHIFT_MASK))
@@ -427,6 +426,101 @@ class DesktopWorkflowTests(unittest.TestCase):
                     self.assertEqual(w.project,before);self.assertEqual(len(w.history),history)
                     self.assertEqual(canvas.position(),position);self.assertEqual(w.playhead,playhead)
                     self.assertIs(canvas.frame,frame)
+        finally:
+            w.cleanup();w.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_preview_clips_zoomed_video_and_layers_to_fixed_project_ratio(self):
+        from clipcanvas.player import VideoCanvas
+        from gi.repository import GdkPixbuf
+        window=Gtk.OffscreenWindow();canvas=VideoCanvas()
+        canvas.set_size_request(900,600);window.add(canvas);window.show_all()
+        self.pump(lambda:canvas.get_allocated_width()==900)
+        pixbuf=GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB,False,8,320,180)
+        pixbuf.fill(0xe61428ff)
+        try:
+            for width,height in ((1920,1080),(1080,1920),(1080,1080)):
+                canvas.set_aspect(width,height);canvas.reset_view()
+                canvas.set_still(pixbuf)
+                viewport=canvas.viewport_rect
+                for composed in (False,True):
+                    canvas.composited=composed
+                    def overlay(cr,rect):
+                        self.assertEqual(rect,canvas.canvas_rect)
+                        if not canvas.composited:
+                            cr.set_source_rgb(0,1,0);cr.paint()
+                    canvas.on_overlay_draw=overlay
+                    for zoom in (.5,1,2,4):
+                        with self.subTest(ratio=(width,height),zoom=zoom,composed=composed):
+                            canvas.set_preview_zoom(zoom)
+                            for pan in (-10000,0,10000):
+                                canvas.pan_x=canvas.pan_y=pan
+                                surface=cairo.ImageSurface(cairo.FORMAT_RGB24,900,600)
+                                canvas._draw(canvas,cairo.Context(surface))
+                                self.assertEqual(canvas.viewport_rect,viewport)
+                                picture=Gdk.pixbuf_get_from_surface(surface,0,0,900,600)
+                                pixels=picture.get_pixels();stride=picture.get_rowstride()
+                                def pixel(x,y):
+                                    offset=int(y)*stride+int(x)*3
+                                    return tuple(pixels[offset:offset+3])
+                                vx,vy,vw,vh=viewport
+                                background=pixel(0,0)
+                                for x,y in ((vx-15,300),(vx+vw+15,300),(450,vy-15),(450,vy+vh+15)):
+                                    self.assertEqual(pixel(x,y),background,'Cropped picture/layers must not bleed into the workspace')
+                                color=pixel(450,300)
+                                self.assertGreater(color[0] if composed else color[1],200)
+                canvas.set_preview_zoom(4);canvas.pan_x=canvas.pan_y=10000
+                canvas._view_rect()
+                self.assertAlmostEqual(canvas.canvas_rect[0],viewport[0])
+                self.assertAlmostEqual(canvas.canvas_rect[1],viewport[1])
+                canvas.pan_x=canvas.pan_y=-10000;canvas._view_rect()
+                self.assertAlmostEqual(canvas.canvas_rect[0]+canvas.canvas_rect[2],viewport[0]+viewport[2])
+                self.assertAlmostEqual(canvas.canvas_rect[1]+canvas.canvas_rect[3],viewport[1]+viewport[3])
+        finally:
+            window.destroy()
+            while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_clip_crop_zoom_apply_undo_reopen_and_hidden_layer_hit_test(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'crop-zoom-recovery')
+        errors=[];w.error=errors.append
+        try:
+            w.start_project(320,180)
+            w.import_paths([str(self.fixtures.root/'landscape.mp4')],add_to_timeline=True)
+            self.pump(lambda:not w.busy and bool(w.thumbs) and not w._scrub_settling)
+            w.select('clips',0);w.seek(.5)
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            original=bytes(w.canvas.frame.get_pixels());before=copy.deepcopy(w.project)
+            w.open_properties('Picture')
+            self.assertTrue(w.fields['zoom'][0].get_visible())
+            w.fields['zoom'][0].set_value(200);w.fields['position_x'][0].set_value(100)
+            w.apply_fields()
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            self.assertEqual(w.project['clips'][0]['zoom'],2)
+            self.assertEqual(w.project['clips'][0]['position_x'],1)
+            self.assertAlmostEqual(w.playhead,.5)
+            self.assertNotEqual(bytes(w.canvas.frame.get_pixels()),original)
+            w.undo();self.assertEqual(w.project,before)
+            w.redo();self.assertEqual(w.project['clips'][0]['zoom'],2)
+            saved=self.fixtures.root/'crop-zoom.clipcanvas';model.save_project(w.project,saved)
+            w.saved=json.dumps(w.project,sort_keys=True);w.open_project(str(saved))
+            self.assertEqual(w.project['clips'][0]['zoom'],2)
+            self.assertEqual(w.project['clips'][0]['position_x'],1)
+            self.pump(lambda:not w.scrub_timer and not w._scrub_settling)
+            layer=model.new_text('Hidden layer',0,1);layer.update(x=.1,y=.5,width=.2,height=.3)
+            w.project['layers']=[layer];w.canvas.set_preview_zoom(2)
+            rect=w.canvas._view_rect();vx,vy,vw,vh=w.canvas.viewport_rect
+            x=rect[0]+rect[2]*.1;y=rect[1]+rect[3]*.5
+            self.assertLess(x,vx)
+            w.canvas.composited=True;selected=w.selected
+            with mock.patch.object(w.canvas,'stop',side_effect=AssertionError('Hidden click must not stop playback')):
+                self.assertFalse(w.layer_tools.canvas_press(SimpleNamespace(button=1,x=x,y=y)))
+            self.assertTrue(w.canvas.composited);self.assertEqual(w.selected,selected)
+            w.canvas.composited=False;layer['x']=.5
+            self.assertTrue(w.layer_tools.canvas_press(SimpleNamespace(button=1,x=vx+vw/2,y=vy+vh/2)))
+            w.layer_tools.canvas_motion(SimpleNamespace(x=vx+vw/2+rect[2]*.1,y=vy+vh/2))
+            w.layer_tools.canvas_release(SimpleNamespace(button=1))
+            self.assertAlmostEqual(w.project['layers'][0]['x'],.6)
+            self.assertFalse(errors)
         finally:
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)

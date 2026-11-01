@@ -512,10 +512,13 @@ class LayerTools:
         from . import visuals
         w=self.owner
         if w.busy or event.button!=1:return False
+        rect=w.canvas._view_rect()
+        # Cropped layers cannot be selected through the surrounding workspace.
+        # Check before replacing a composed preview with an editing frame.
+        for x,y,width,height in (w.canvas.viewport_rect,rect):
+            if not x<=event.x<x+width or not y<=event.y<y+height:return False
         if w.canvas.composited:
             at=w.playhead;w.canvas.stop();w.preview_key=None;w.canvas.composited=False;w.show_selected_still();w.seek(at,source=True)
-        rect=w.canvas.canvas_rect
-        if not rect:return False
         for index in range(len(w.project.get('layers',[]))-1,-1,-1):
             item=w.project['layers'][index]
             if not item['start']<=w.playhead<item['end']:continue

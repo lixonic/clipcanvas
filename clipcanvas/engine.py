@@ -703,7 +703,21 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         # Supersample the still before zoompan to avoid whole-pixel stepping
         # during a slow move. Only one source frame is held at this size.
         frame_width, frame_height = (width*2, height*2) if moving else (width, height)
-        if clip.get("fit", "fill") == "fit":
+        zoom = clip.get('zoom', 1)
+        if zoom > 1:
+            # Magnify the source before cropping: cropping to the canvas first
+            # would permanently discard regions needed by off-centre framing.
+            zoom_width = max(2, round(frame_width*zoom/2)*2)
+            zoom_height = max(2, round(frame_height*zoom/2)*2)
+            fit = 'decrease' if clip.get('fit', 'fill') == 'fit' else 'increase'
+            x, y = _fmt(clip.get('position_x', .5)), _fmt(clip.get('position_y', .5))
+            framing += f'scale={zoom_width}:{zoom_height}:force_original_aspect_ratio={fit}:force_divisible_by=2'
+            framing += (f",crop=w='min(iw,{frame_width})':h='min(ih,{frame_height})':"
+                        f"x='(iw-ow)*{x}':y='(ih-oh)*{y}'")
+            # Fit can still leave one dimension smaller than the canvas even
+            # after zooming. Keep those borders centred; only overflow moves.
+            framing += f',pad={frame_width}:{frame_height}:(ow-iw)/2:(oh-ih)/2:black'
+        elif clip.get("fit", "fill") == "fit":
             framing += f"scale={frame_width}:{frame_height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={frame_width}:{frame_height}:(ow-iw)/2:(oh-ih)/2:black"
         else:
             x, y = _fmt(clip.get("position_x", 0.5)), _fmt(clip.get("position_y", 0.5))
