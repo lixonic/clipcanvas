@@ -1,11 +1,11 @@
-# ClipCanvas 0.18.1
+# ClipCanvas 0.18.2
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.18.1. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.18.2. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,9 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.18.2 starts Fast/HD playback before missing proxies are prepared,
+building them in the background for later playback and seeks. Discarded preview
+decoders stop promptly. See [long-timeline preview](docs/PREVIEW-BUFFERING.md#long-timeline-startup--0182).
 Version 0.18.1 groups timeline right-click commands into Edit, Picture, Audio,
 Motion, Arrange and Insert submenus, with Select all and Delete in the main menu.
 Version 0.18.0 displays **Your media** as a responsive thumbnail grid. Larger
@@ -129,18 +132,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.1_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.2_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.18.1_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.18.2_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.18.1_all.deb
+   sudo apt install ./clipcanvas_0.18.2_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -260,9 +263,10 @@ separate application and does not change VLC.
    project canvas. **HD preview** caps the longest edge at 1280 pixels and
    **Fast preview** at 640. Playback, scrubbing and prepared previews follow
    that choice; export always uses original media at the project canvas size.
-   Fast/HD first prepare smaller cached versions of large main-sequence videos;
-   the preview label shows preparation progress. Later playback and seeks reuse
-   those files. Full resolution and soundtrack processing use the originals.
+   Fast/HD start with available cached videos, reading originals for missing
+   entries at the selected preview size. Smaller copies build in the background
+   for later playback and seeks. Full resolution and soundtrack processing use
+   the originals.
    Heavy projects or seeks deep into long clips can take time or stutter. Use
    **Project → Render smooth preview…** when you need a prepared playback file.
 10. **Export.** **Maximum quality · MP4** is selected by default for social

@@ -13,11 +13,11 @@ sample. A user-initiated pause stays paused after buffering finishes. Seek,
 edit, export and close cancel the previous generation and any cache preparation.
 
 **Full resolution** reads the originals. **HD preview** (1280-pixel longest edge)
-and **Fast preview** (640) prepare smaller main-sequence video files on first
-playback. The label beside Play shows the filename and percentage. First use
-can take longer while those files are made; later playback and seeks reuse
-them, including after restarting the app. Paused native/composed seeks use an
-available cached source without starting a new build.
+and **Fast preview** (640) use available smaller main-sequence video files.
+Since 0.18.2, missing files build in the background while playback reads the
+originals at the selected preview canvas size. Later playback and seeks reuse
+completed entries, including after restarting the app. Paused native/composed
+seeks use an available cached source without starting a new build.
 
 Fast/HD video caches add preview-only H.264 compression. Sound always comes from
 the original files and retains trims, volume, fades and voice effects. Full
@@ -103,3 +103,79 @@ the video, then add a dissolve at that join. Play across it in Full and Fast,
 pause while preparing/buffering, resume and seek repeatedly. Check that words
 resume intact, a warm Fast seek starts sooner, and exported sound and original
 files retain their content.
+
+## Long-timeline startup — 0.18.2
+
+Selected scope: X02 responsive preview, C12 seeking and C14 playback. The user's
+goal is quick preview startup on timelines of four minutes and longer.
+
+Previously Fast/HD playback encoded every remaining main video in sequence,
+including unused portions of each original, before yielding any picture or
+audio. Output backpressure could not help because that work happened before
+the playback stream existed.
+
+Playback now takes an immutable snapshot of available proxy leases and starts
+decoding immediately. Missing entries fall back to originals. One background
+worker visits the remaining distinct sources in timeline order; its encoder
+and decoder each use one thread, with lower CPU priority where `nice` is
+available. Completed proxies become available for the next Play or seek. The
+current graph keeps its original input choices so picture and audio timing
+cannot change midway through playback.
+
+The worker owns separate temporary files and observes both playback cancellation
+and generator closure. Stop, seek, edit, export and close reap it and discard
+unfinished cache files. It releases its unused leases after each build so the
+existing cache budget remains effective. Cache/encode failures leave playback
+on originals. A discarded live FFmpeg pipe is killed and reaped directly:
+graceful termination could otherwise spend three seconds trying to flush into
+a consumer that had stopped reading. File renders keep their existing shutdown
+and atomic-publication behavior.
+
+The design follows the applicable playback principles in VideoLAN's current
+[decoder documentation](https://videolan.videolan.me/vlc/master/decoder_8c.html):
+threaded decoding, limited queues with backpressure, and prompt discarding of
+obsolete buffers. ClipCanvas retains its shared GStreamer picture/audio clock
+and bounded multiqueue. It still composes edits, color, transitions and layers,
+so a complex timeline has more work than playing one finished movie in VLC.
+
+Repeatable generated-media check:
+
+```sh
+/usr/bin/python3 tools/benchmark_long_preview.py --output /tmp/long-preview.json
+/usr/bin/python3 -m unittest discover -s tests -p test_preview_playback.py -v
+```
+
+The benchmark uses 21 distinct 15-second 1920×1080 H.264/AAC source paths: a
+315-second timeline, Fast preview at 640 pixels, an isolated cold cache and an
+explicitly prepared warm cache. It measures actual native first-picture and
+first-audio arrival using silent audio, then cancels and verifies worker cleanup.
+Generated media, filesystem warm-up and CPU load affect these measurements;
+they do not guarantee the same timings for every project.
+
+Local comparison on 2026-11-04, with no competing test workload:
+
+| Run | First picture | First audio | Stop and worker cleanup |
+|---|---:|---:|---:|
+| 0.18.1, cold cache | 29.158 s | 29.208 s | 3.032 s |
+| 0.18.2, cold cache | 0.765 s | 0.978 s | 0.066 s |
+| 0.18.1, warm cache | 0.413 s | 0.463 s | 3.032 s |
+| 0.18.2, warm cache | 0.394 s | 0.446 s | 0.016 s |
+
+The cold first-picture wait fell by about 38× in this generated case. The
+reference used the committed 0.18.1 engine and cache code with the same benchmark
+and media settings. Each version uses an independent temporary cache; warm
+measurements explicitly populate that cache before timing playback.
+
+Regression checks cover a five-minute timeline starting while distant proxy
+preparation is blocked, prompt stop and workspace cleanup, completed-cache
+reuse, failed and cancelled builds, and byte-identical cold/warm/Full/export
+soundtracks. Existing checks cover deep/fractional seeks, transitions, overlays,
+buffer starvation and manual pause.
+
+Manual check: open a long timeline with multiple uncached high-resolution
+videos, select Fast or HD, and press Play near the beginning and later in the
+timeline. Playback should begin while cache work continues. Pause, seek several
+times, edit and export; verify responsive controls, continuous narration,
+correct effects and an unchanged original-resolution export. Cold decoding of
+demanding sources can still need coordinated buffering. Very many inputs and
+complex future transitions/layers also retain graph-setup costs.

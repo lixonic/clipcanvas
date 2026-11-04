@@ -53,9 +53,13 @@ class PreviewPlaybackTests(unittest.TestCase):
         original = copy.deepcopy(self.project);digest = hashlib.sha256(self.source.read_bytes()).digest()
         statuses = []
         with mock.patch.object(preview_cache,'directory',return_value=root/'cache'):
+            cold = root/'cold.mkv';self.stream(original,640,cold,status=statuses.append)
+            # Establish an encoded reference explicitly: cold playback is now
+            # allowed to start from originals while this cache builds later.
+            preview_cache.prepare(self.source,640,root,status=statuses.append)
             fast = root/'fast.mkv';self.stream(original,640,fast,status=statuses.append)
             cached = list((root/'cache').glob('*.mp4'));self.assertEqual(len(cached),1)
-            self.assertIn('Preparing Fast preview',statuses[0])
+            self.assertEqual(statuses[-1],'Loading preview…')
             meta = engine.probe(cached[0]);self.assertEqual((meta['width'],meta['height']),(640,360))
             self.assertFalse(meta['has_audio']);self.assertEqual(meta['fps'],24)
             with mock.patch.object(engine,'_execute',side_effect=AssertionError('Warm preview must reuse the cached video')):
@@ -64,6 +68,7 @@ class PreviewPlaybackTests(unittest.TestCase):
                 full = root/'full.mkv';self.stream(original,0,full)
                 master = root/'master.mkv';engine.render(original,master,quality='lossless')
             self.assertEqual(self.pcm(fast),self.pcm(full))
+            self.assertEqual(self.pcm(cold),self.pcm(full))
             self.assertEqual(self.pcm(again),self.pcm(full))
             self.assertEqual(self.pcm(master),self.pcm(full))
             self.assertEqual(engine.probe(full)['width'],960)
@@ -78,6 +83,55 @@ class PreviewPlaybackTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(self.source.read_bytes()).digest(),digest)
             frame = engine.preview_frame(original,1.5,preview_edge=640)
             self.assertEqual((frame['width'],frame['height']),(640,360))
+
+    def test_background_preparation_publishes_a_reusable_proxy(self):
+        root = self.root/'background-reuse';root.mkdir()
+        with mock.patch.object(preview_cache,'directory',return_value=root/'cache'):
+            warmup = preview_cache.PreviewWarmup([str(self.source)],640).start()
+            try:
+                warmup.thread.join(12)
+                self.assertFalse(warmup.thread.is_alive(),'A short background encode must finish')
+                self.assertIsNotNone(preview_cache.available(self.source,640))
+            finally:warmup.stop()
+            with mock.patch.object(engine,'_execute',side_effect=AssertionError('Finished warmup must be reused')):
+                target = root/'warm.mkv';self.stream(self.project,640,target)
+            self.assertEqual(engine.probe(target)['width'],640)
+            full = root/'full.mkv';self.stream(self.project,0,full)
+            self.assertEqual(self.pcm(target),self.pcm(full))
+
+    def test_background_failures_leave_original_playback_available(self):
+        root = self.root/'background-errors';root.mkdir()
+        full = root/'full.mkv';self.stream(self.project,0,full)
+        expected = self.pcm(full)
+        for index, error in enumerate((OSError('Cache is read only'),engine.RenderError('Proxy encode failed'))):
+            with self.subTest(error=type(error).__name__), \
+                 mock.patch.object(preview_cache,'directory',return_value=root/f'cache-{index}'), \
+                 mock.patch.object(preview_cache,'prepare',side_effect=error) as prepare:
+                target = root/f'fallback-{index}.mkv';self.stream(self.project,640,target)
+                self.assertTrue(prepare.called)
+                self.assertEqual(engine.probe(target)['width'],640)
+                self.assertEqual(self.pcm(target),expected)
+
+    def test_parent_cancellation_reaps_background_encode_and_unpublished_files(self):
+        root = self.root/'background-cancel';root.mkdir()
+        parent = threading.Event();encoding = threading.Event();folders = []
+        def blocked(arguments, seconds, progress, cancel, log_path, *, background=False):
+            self.assertTrue(background)
+            folders.append(Path(log_path).parent);encoding.set()
+            while not cancel.is_set():time.sleep(.01)
+            raise engine.RenderCancelled('Cancelled during proxy encode')
+        with mock.patch.object(preview_cache,'directory',return_value=root/'cache'), \
+             mock.patch.object(engine,'_execute',side_effect=blocked):
+            warmup = preview_cache.PreviewWarmup([str(self.source)],640,parent).start()
+            try:
+                self.assertTrue(encoding.wait(5),'Background encode must start')
+                parent.set();warmup.thread.join(5)
+                self.assertFalse(warmup.thread.is_alive(),'Parent cancellation must stop the encoder')
+                self.assertIsNone(preview_cache.available(self.source,640))
+                self.assertFalse(any(folder.exists() for folder in folders))
+                self.assertFalse(list((root/'cache').glob('.building-*')))
+            finally:
+                parent.set();warmup.stop()
 
     def test_cache_invalidation_eviction_active_leases_and_cancelled_build(self):
         root = self.root/'cache-lifecycle';root.mkdir()
@@ -96,7 +150,7 @@ class PreviewPlaybackTests(unittest.TestCase):
             self.assertEqual(len(list((root/'cache').glob('*.mp4'))),1)
             self.assertEqual(first.read_bytes(),expected,'Eviction must not remove an active stream lease')
             cancel = threading.Event()
-            def cancelled(*args):
+            def cancelled(*args, **kwargs):
                 cancel.set()
                 raise engine.RenderCancelled('Cancelled while encoding')
             with mock.patch.object(engine,'_execute',side_effect=cancelled),self.assertRaises(engine.RenderCancelled):
@@ -150,6 +204,42 @@ class PreviewPlaybackTests(unittest.TestCase):
             if condition():return
             time.sleep(.005)
         self.fail('Native preview did not reach the expected buffering state')
+
+    def test_long_timeline_starts_while_future_proxy_is_pending_and_stop_cleans_it(self):
+        root = self.root/'long-start';root.mkdir()
+        p = model.new_project(160,90)
+        p['clips'] = [model.new_card('#123456',300),model.new_clip(self.source)]
+        gate = threading.Event();preparing = threading.Event();finished = threading.Event()
+        frames, errors, workspaces = [], [], []
+        def blocked(path, edge, scratch, cancel=None, status=None, background=False):
+            workspaces.append(Path(scratch));preparing.set()
+            try:
+                while not gate.wait(.01):
+                    if cancel is not None and cancel.is_set():
+                        raise engine.RenderCancelled('Preview stopped during background preparation')
+            finally:finished.set()
+        description = live_player.pipeline_description
+        with mock.patch.object(preview_cache,'directory',return_value=root/'cache'), \
+             mock.patch.object(preview_cache,'prepare',side_effect=blocked), \
+             mock.patch.object(live_player,'pipeline_description',side_effect=lambda:description('fakesink sync=true')):
+            def picture(sample):
+                frames.append(sample.get_buffer().pts)
+                return Gst.FlowReturn.OK
+            player = live_player.StreamPlayer(p,0,True,picture,errors.append,lambda:None,preview_edge=640)
+            try:
+                self.pump(lambda:preparing.is_set() and bool(frames))
+                self.assertFalse(gate.is_set())
+                self.assertFalse(finished.is_set(),'Playback must begin before a distant proxy finishes')
+                self.assertFalse(errors)
+            finally:
+                player.stop();player.thread.join(2)
+                stopped = not player.thread.is_alive()
+                # Always release the test gate, including on a regressed
+                # synchronous implementation, so a failing test leaves no job.
+                gate.set();player.thread.join(5)
+            self.assertTrue(stopped,'Stopping preview must cancel and reap the background job')
+            self.assertTrue(finished.is_set())
+            self.assertFalse(any(folder.exists() for folder in workspaces))
 
     def test_starvation_pauses_both_streams_retains_samples_and_respects_user_pause(self):
         p = model.new_project(160,90);p['clips'] = [model.new_clip(self.source)]

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.2 — 2026-11-04
+
+- Start Fast/HD playback using available source proxies immediately. Prepare
+  missing proxies in one background worker instead of converting every remaining
+  source before the first picture. Later playback and seeks reuse completed files.
+- Limit background encoding to one decoder/encoder thread at lower CPU priority.
+  Cache failures leave original-source playback available; stop, seek, edit and
+  export cancel and reap both preview and cache workers. Discarded live pipes
+  stop directly instead of waiting for an unread output pipe to flush.
+- Keep coordinated, bounded picture/audio buffering, source trims, effects,
+  soundtrack samples, saved projects and export quality. Add a generated
+  five-minute startup benchmark and regressions for playback during pending
+  cache preparation, cache reuse, failure fallback and cancellation cleanup.
+
 ## 0.18.1 — 2026-11-04
 
 - Group timeline right-click commands into Edit, Picture, Audio, Motion,

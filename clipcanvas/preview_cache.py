@@ -43,6 +43,10 @@ def lease_available(path, edge, scratch):
         if not lease.exists():
             try:os.link(target, lease)
             except OSError:shutil.copyfile(target, lease)
+        # Playback now leases hits without calling prepare(). Retain LRU
+        # recency, but keep a valid lease even if concurrent eviction won.
+        try:os.utime(target, None)
+        except OSError:pass
         return str(lease)
     except OSError:
         return None
@@ -62,7 +66,7 @@ def _evict(root, keep):
         if path != keep and (index >= MAX_FILES or size > MAX_BYTES):path.unlink(missing_ok=True)
 
 
-def prepare(path, edge, scratch, cancel=None, status=None):
+def prepare(path, edge, scratch, cancel=None, status=None, *, background=False):
     """Build once, then lease an immutable file into the active stream workspace.
 
     A lease survives eviction or source changes during another preview. A cancelled
@@ -71,6 +75,7 @@ def prepare(path, edge, scratch, cancel=None, status=None):
     """
     from . import engine
     if not edge:return None
+    _check(cancel)
     metadata = engine.probe(path)
     if max(metadata['width']*metadata.get('sample_aspect_ratio',1), metadata['height']) <= edge:return None
     while not _lock.acquire(timeout=.05):_check(cancel)
@@ -95,13 +100,15 @@ def prepare(path, edge, scratch, cancel=None, status=None):
                        f'scale={int(edge)}:{int(edge)}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1')
             with tempfile.TemporaryDirectory(prefix='.building-', dir=target.parent) as folder:
                 output = Path(folder)/'video.mp4'
+                threads = '1' if background else '2'
                 arguments = ['-nostdin','-hide_banner','-loglevel','error','-y','-filter_threads','1',
-                    '-threads','2','-i',str(Path(path).resolve()),'-map',f"0:{metadata['video_index']}",
+                    '-threads',threads,'-i',str(Path(path).resolve()),'-map',f"0:{metadata['video_index']}",
                     '-an','-sn','-dn','-vf',filters,'-fps_mode','passthrough',
                     '-c:v','libx264','-preset','ultrafast','-crf','18','-pix_fmt','yuv420p',
                     '-g',str(gop),'-keyint_min',str(gop),'-sc_threshold','0','-bf','0',
-                    '-threads','2','-movflags','+faststart','-progress','pipe:1',str(output)]
-                engine._execute(arguments, metadata['duration'], progress, cancel, Path(folder)/'ffmpeg.log')
+                    '-threads',threads,'-movflags','+faststart','-progress','pipe:1',str(output)]
+                engine._execute(arguments, metadata['duration'], progress, cancel, Path(folder)/'ffmpeg.log',
+                                background=background)
                 _check(cancel)
                 if not output.is_file() or not output.stat().st_size:
                     raise engine.RenderError('Could not prepare the lower-resolution video preview.')
@@ -119,3 +126,57 @@ def prepare(path, edge, scratch, cancel=None, status=None):
         return str(lease)
     finally:
         _lock.release()
+
+
+class PreviewWarmup:
+    """Prepare future-playback proxies without holding up the active stream.
+
+    The worker owns its scratch files and one low-priority encoder. The running
+    graph uses only the immutable leases selected before this worker starts;
+    published proxies become available on the next play or seek.
+    """
+    def __init__(self, paths, edge, cancel=None):
+        self.paths = list(dict.fromkeys(paths))
+        self.edge = edge
+        self.parent_cancel = cancel
+        self.cancel = threading.Event()
+        self.thread = None
+
+    def is_set(self):
+        return self.cancel.is_set() or (self.parent_cancel is not None and self.parent_cancel.is_set())
+
+    def _run(self):
+        from . import engine
+        with tempfile.TemporaryDirectory(prefix='clipcanvas-preview-warmup-') as scratch:
+            for path in self.paths:
+                if self.is_set():break
+                # Warm hits need no new lease. The active graph already owns
+                # any leases it needs, independently of eviction here.
+                if available(path, self.edge):continue
+                try:
+                    lease = prepare(path, self.edge, scratch, self, background=True)
+                    # This worker never reads the leased picture. Drop it so
+                    # cache eviction can reclaim space during long playback.
+                    if lease:Path(lease).unlink(missing_ok=True)
+                except engine.RenderCancelled:
+                    break
+                except (OSError, engine.RenderError):
+                    # Cache optimization must not turn a playable original
+                    # into a preview failure (disk full, unsupported encoder…).
+                    continue
+
+    def start(self):
+        if self.edge and self.paths and self.thread is None:
+            self.thread = threading.Thread(target=self._run, name='preview-warmup', daemon=True)
+            self.thread.start()
+        return self
+
+    def stop(self):
+        self.cancel.set()
+        if self.thread is not None:self.thread.join()
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *args):
+        self.stop()

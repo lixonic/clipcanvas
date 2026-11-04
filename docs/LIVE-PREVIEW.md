@@ -12,8 +12,8 @@ silent, as in export. **Full resolution** uses the project canvas by default.
 The selector also provides **HD preview** (1280 pixels on the longest edge) and
 **Fast preview** (640). No option enlarges beyond the project canvas.
 Export still reads the originals at the chosen canvas resolution and quality.
-Fast/HD prepare smaller cached main-sequence video sources on first playback,
-with visible progress. Later playback and paused seeking reuse them. Full
+Fast/HD use available cached main-sequence video sources immediately and build
+missing copies in the background (0.18.2). Later playback and paused seeking reuse them. Full
 resolution and all audio processing read the originals. Picture and sound pause
 together if decoding runs behind, then resume after buffering. See
 [buffering and cache validation](PREVIEW-BUFFERING.md).

@@ -254,8 +254,15 @@ def _continuous_audio(tracks):
     return result
 
 
-def _stop(process):
+def _stop(process, *, immediate=False):
     if process.poll() is not None:
+        return
+    # A discarded live pipe has no file trailer to preserve. FFmpeg may block
+    # flushing that pipe after SIGTERM while its paused consumer has stopped
+    # reading. Kill/reap it directly so rapid seeks do not leave stale decoders.
+    if immediate:
+        process.kill()
+        process.wait()
         return
     process.terminate()
     try:
@@ -265,12 +272,15 @@ def _stop(process):
         process.wait()
 
 
-def _execute(arguments, seconds, progress, cancel, log_path):
+def _execute(arguments, seconds, progress, cancel, log_path, *, background=False):
     binary, env = _tool("ffmpeg")
     if cancel is not None and cancel.is_set():
         raise RenderCancelled("Export cancelled.")
+    command = [binary] + arguments
+    nice = shutil.which('nice') if background else None
+    if nice:command = [nice, '-n', '10'] + command
     with open(log_path, "wb") as log:
-        process = subprocess.Popen([binary] + arguments, stdout=subprocess.PIPE,
+        process = subprocess.Popen(command, stdout=subprocess.PIPE,
                                    stderr=log, stdin=subprocess.DEVNULL, env=env)
         # Windows selectors cannot watch subprocess pipes. A reader thread also
         # leaves the main worker free to cancel when FFmpeg emits no progress.
@@ -984,7 +994,8 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
     """Yield a bounded, unencoded Matroska stream for immediate native playback.
 
     Raw I420 video and stereo PCM retain the export graph's effects/mix. HD/Fast
-    use cached smaller source videos; audio always reads the originals. The
+    use available cached videos immediately and prepare missing ones in the
+    background for later plays/seeks; audio always reads the originals. The
     consumer supplies backpressure, so we never generate a whole preview file.
     Closing the generator or setting cancel stops FFmpeg and removes sprites.
     """
@@ -1000,13 +1011,14 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
     origin = active[0]['start'] if active else 0
     binary, env = _tool('ffmpeg')
     with tempfile.TemporaryDirectory(prefix='clipcanvas-live-') as scratch:
+        from . import preview_cache
         proxies = {}
+        paths = []
         if preview_edge:
-            from . import preview_cache
             for clip, row in zip(project['clips'], timeline(project)):
-                if is_still(clip) or row['start']+row['duration']<=origin or clip['path'] in proxies:continue
-                try:proxy = preview_cache.prepare(clip['path'], preview_edge, scratch, cancel, status)
-                except OSError:proxy = None  # An unwritable cache must not block local playback.
+                if is_still(clip) or row['start']+row['duration']<=origin or clip['path'] in paths:continue
+                paths.append(clip['path'])
+                proxy = preview_cache.lease_available(clip['path'], preview_edge, scratch)
                 if proxy:proxies[clip['path']] = proxy
             if status:status('Loading preview…')
         args, graph, total = _graph(project, True, scratch, cancel=cancel, origin=origin,
@@ -1025,7 +1037,7 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
                      '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-threads', '1',
                      '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                      '-t', _fmt(seconds-start), '-flush_packets', '1', '-f', 'matroska', 'pipe:1']
-        with open(Path(scratch)/'ffmpeg.log', 'wb') as log:
+        with preview_cache.PreviewWarmup(paths, preview_edge, cancel), open(Path(scratch)/'ffmpeg.log', 'wb') as log:
             process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=log,
                                        stdin=subprocess.DEVNULL, env=env)
             # Reading stdout can block before the first frame or on damaged
@@ -1034,7 +1046,7 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
             def watch():
                 while not finished.wait(.05):
                     if cancel is not None and cancel.is_set():
-                        _stop(process)
+                        _stop(process, immediate=True)
                         return
             watcher = threading.Thread(target=watch, daemon=True)
             watcher.start()
@@ -1052,7 +1064,7 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
                     raise RenderError('Live preview could not play this project.\n' + detail)
             finally:
                 finished.set()
-                _stop(process)
+                _stop(process, immediate=True)
                 process.stdout.close()
                 watcher.join(timeout=4)
 
