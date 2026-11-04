@@ -1,11 +1,11 @@
-# ClipCanvas 0.18.0
+# ClipCanvas 0.18.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.18.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.18.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -31,6 +31,8 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.18.1 groups timeline right-click commands into Edit, Picture, Audio,
+Motion, Arrange and Insert submenus, with Select all and Delete in the main menu.
 Version 0.18.0 displays **Your media** as a responsive thumbnail grid. Larger
 video/image previews preserve their aspect ratio; audio uses a media icon.
 Add videos, Add images and Add audio share a line when the sidebar has enough
@@ -127,18 +129,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.18.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.18.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.18.0_all.deb
+   sudo apt install ./clipcanvas_0.18.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -182,9 +184,9 @@ separate application and does not change VLC.
    in preview and export. This setting is saved per clip; older projects start
    at 100% zoom.
    Set saturation to 0% for black and white or 100% for original color. Right-click
-   → **Desaturate** also works on multiple selected clips.
+   → **Picture → Desaturate** also works on multiple selected clips.
    Click **Color** for cinematic presets and full color/light controls, or
-   right-click → **Color grading…**. Choose a look, adjust its strength and
+   right-click → **Picture → Color grading…**. Choose a look, adjust its strength and
    compare with original color, then **Apply grade**. Saturation supports 0–200%.
    These controls open in a compact popover, leaving the canvas clear when
    closed. Click **Apply changes** to keep the entered settings. Video and audio
@@ -208,19 +210,19 @@ separate application and does not change VLC.
    change when it starts. Drag vertically into another Audio lane to place
    multiple clips beside one another. Snap aligns a clip to another clip's end.
    A lifted waveform and Drop here marker show the destination; an overlap is
-   rejected without changing your edit. Right-click → **Move to audio lane**
+   rejected without changing your edit. Right-click → **Arrange → Move to audio lane**
    can keep the current time or append after that lane's last clip. The menu
    labels the resulting time. Drag into **new lane** for simultaneous music or
    voices. Soundtracks stop at the video end and do not extend
    the composition.
-6. **Mix and fade sound.** Right-click a clip or soundtrack and choose **Volume
+6. **Mix and fade sound.** Right-click a clip or soundtrack and choose **Audio → Volume
    and fades…**, or use the selected item's **Audio** button. Enter volume and
    audio fade durations, then **Apply changes**. Selected soundtrack fade
    handles can also be dragged on the waveform; the taper shows the fade. Fade
    out ends at the audible video boundary when a soundtrack extends beyond it.
-   Right-click a video for **Mute / Unmute**. **Picture** fades are separate:
+   Right-click a video and open **Audio** for **Mute / Unmute**. **Picture** fades are separate:
    they fade the image from/to black; audio fades change sound level.
-7. **Extract a clip's audio.** Right-click the video and choose **Extract audio**.
+7. **Extract a clip's audio.** Right-click the video and choose **Audio → Extract audio**.
    The new track starts at the clip's timeline position and retains source trim,
    speed, volume, audio fades, and existing transition audio envelopes. The
    original clip is muted to avoid doubled sound. The track then edits and moves
@@ -233,7 +235,8 @@ separate application and does not change VLC.
    selected video or audio item. Video trims close gaps. Audio beyond the video
    end appears faded and is excluded from export. Splits within audio fades or
    too near transitions require shortening that effect first. Right-click also
-   exposes split, duplicate, delete, and clip move actions.
+   groups split and duplicate under **Edit**, clip moves under **Arrange**, and
+   keeps Delete in the main menu.
 9. **Press Play or Preview.** The composition streams directly into the native
    player, with transitions, fades, overlays, captions and mixed sound. It buffers
    picture and audio together when a slow clip or transition needs more time.
@@ -288,7 +291,7 @@ See the [image clip guide](docs/IMAGE-CLIPS.md) for supported files and validati
 
 Select the preceding clip and press **+ Card** above the timeline. Choose a
 color with Ubuntu's native chooser, enter its duration, then **Insert card**.
-Alternatively, right-click a clip and choose **Insert color card before…** or
+Alternatively, right-click a clip, open **Insert** and choose **Insert color card before…** or
 **after…**. With no selection, the toolbar action inserts at the next clip
 boundary at/after the playhead (or at the end).
 
@@ -303,7 +306,7 @@ and included in recovery/portable collection without generating a media file.
 ## Add echo and adjust a voice track
 
 Right-click a WAV, MP3 or other soundtrack in the timeline and choose
-**Voice effects…**. The same editor is available through the **Audio** controls,
+**Audio → Voice effects…**. The same editor is available through the **Audio** controls,
 including attached video sound. Pick a starting preset (**Neutral**, **Narration**,
 **Telephone**, **Echo**) or adjust the tabs:
 
@@ -440,7 +443,7 @@ include the media references, editable text, captions, styles and row layout.
 Shift+right-click a video or audio item selects all items of that kind.
 Shift+click selects a range; Ctrl+click toggles individual items. Ctrl+A selects
 all timeline items, including layers/captions. For group volume, Shift+right-click
-a video and choose **Mute selected videos**, or **Volume for selected items**,
+a video, open **Audio** and choose **Mute selected videos**, or **Volume for selected items**,
 set the percentage and **Apply volume to N items**. Video-only selection leaves
 independent soundtracks alone; Ctrl-selection can include video and audio together.
 Ctrl+C/X/V copies/cuts/pastes;

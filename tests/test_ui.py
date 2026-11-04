@@ -19,6 +19,15 @@ from clipcanvas import engine, model
 import test_engine
 
 
+def menu_items(menu):
+    """Walk commands and category items without depending on menu nesting."""
+    for item in menu.get_children():
+        if not isinstance(item,Gtk.MenuItem) or isinstance(item,Gtk.SeparatorMenuItem):continue
+        yield item
+        submenu=item.get_submenu()
+        if submenu is not None:yield from menu_items(submenu)
+
+
 @unittest.skipUnless(Gtk.init_check()[0], 'A desktop display is required')
 class DesktopWorkflowTests(unittest.TestCase):
     def test_container_timestamp_offset_and_pending_eos_frame_keep_media_time(self):
@@ -556,7 +565,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.fields['transition_duration'][0].set_value(.2);w.apply_fields()
             self.assertAlmostEqual(model.project_duration(w.project),3.5)
             menu=w.context_menu('clips',0);menu.popdown()
-            titles=[action.get_label() for action in menu.get_children()]
+            titles=[action.get_label() for action in menu_items(menu)]
             self.assertIn('Image motion…',titles);self.assertNotIn('Extract audio',titles)
             self.assertFalse(w.selected_sound_items())
             w.select('clips',1,seek=False);w.zoom(100);w.snap_check.set_active(False)
@@ -799,7 +808,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertTrue(model.is_card(w.project['clips'][1]));self.assertEqual(w.project['clips'][1]['color'],'#cc4422')
             self.assertAlmostEqual(model.clip_duration(w.project['clips'][1]),2.5)
             self.assertFalse(w.sound_button.get_sensitive())
-            names=[i.get_label() for i in w.context_menu('clips',1).get_children() if isinstance(i,Gtk.MenuItem)]
+            names=[i.get_label() for i in menu_items(w.context_menu('clips',1))]
             self.assertIn('Insert color card before…',names);self.assertNotIn('Extract audio',names);w.active_context_menu.popdown()
             w.open_properties();color=Gdk.RGBA();color.parse('#2244cc');w.card_color.set_rgba(color);w.card_duration.set_value(4);w.apply_fields()
             self.assertEqual(w.project['clips'][1]['color'],'#2244cc');self.assertEqual(model.clip_duration(w.project['clips'][1]),4)
@@ -1014,7 +1023,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             # The paused 25-fps stream may present the next frame while GTK
             # opens the menu; that must not be mistaken for a selection seek.
             self.assertAlmostEqual(w.playhead, .7, delta=1/w.project['fps']+.001)
-            extract = next(item for item in w.active_context_menu.get_children()
+            extract = next(item for item in menu_items(w.active_context_menu)
                            if isinstance(item, Gtk.MenuItem)
                            and item.get_label() == 'Extract audio')
             self.assertTrue(extract.get_sensitive())
@@ -1440,7 +1449,7 @@ class DesktopWorkflowTests(unittest.TestCase):
                 fit.clicked();self.assertEqual(w.project['layers'][0]['end'],295.7)
                 w.project['layers'][0]['end']=3
                 menu=w.context_menu('layers',0)
-                fit=next(child for child in menu.get_children() if child.get_label()=='Fit to full video')
+                fit=next(child for child in menu_items(menu) if child.get_label()=='Fit to full video')
                 menu.popdown();fit.activate();self.assertEqual(w.project['layers'][0]['end'],295.7)
             # Export a short actual video after fitting through the UI. Check
             # its last frame, well beyond the watermark's original endpoint.
@@ -1560,7 +1569,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history)
             # The menu appends on a occupied lane, with the new start visible.
             menu=w.context_menu('audio',2)
-            submenu=next(c for c in menu.get_children() if c.get_label()=='Move to audio lane').get_submenu()
+            submenu=next(c for c in menu_items(menu) if c.get_label()=='Move to audio lane').get_submenu()
             append=next(c for c in submenu.get_children() if c.get_label().startswith('Audio 1 · after last clip'))
             menu.popdown();append.activate()
             self.assertEqual(w.project['audio'][2]['start'],1)
@@ -1692,7 +1701,7 @@ class DesktopWorkflowTests(unittest.TestCase):
                 return False
             GLib.timeout_add(100,cancel_dialog)
             menu=w.context_menu('audio',0)
-            entry=next(item for item in menu.get_children() if isinstance(item,Gtk.MenuItem) and item.get_label()=='Voice effects…')
+            entry=next(item for item in menu_items(menu) if item.get_label()=='Voice effects…')
             menu.popdown();entry.activate()
             self.assertEqual(w.project,before)
             def apply_dialog():
@@ -1761,7 +1770,12 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(len(w.selection_items()),2)
             original=copy.deepcopy(w.project)
             with mock.patch.object(Gtk.Clipboard,'get',return_value=clipboard):
-                self.assertTrue(key('c',ctrl=True))
+                # Shortcuts must still operate while a category submenu owns focus.
+                menu=w.context_menu('clips',0)
+                edit=next(item for item in menu.get_children() if item.get_label()=='Edit').get_submenu()
+                event=Gdk.Event.new(Gdk.EventType.KEY_PRESS);event.keyval=Gdk.KEY_c;event.state=Gdk.ModifierType.CONTROL_MASK
+                self.assertTrue(edit.emit('key-press-event',event))
+                self.assertFalse(menu.get_visible())
                 self.assertTrue(clipboard.text.startswith(workflow.CLIPBOARD_PREFIX))
                 w.playhead=model.project_duration(w.project)
                 self.assertTrue(key('v',ctrl=True))
@@ -1979,7 +1993,19 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.project['clips'].append(model.new_card('#123456',.5));w.changed();before=copy.deepcopy(w.project)
             # Start from a non-first clip; the panel must describe the clicked clip.
             menu=w.context_menu('clips',1,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
-            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            categories={item.get_label():item.get_submenu() for item in menu.get_children()
+                        if isinstance(item,Gtk.MenuItem) and item.get_submenu() is not None}
+            self.assertEqual(list(categories),['Edit','Picture','Audio','Motion','Arrange','Insert'])
+            self.assertIn('Split at playhead',[item.get_label() for item in categories['Edit'].get_children()])
+            self.assertIn('Color grading…',[item.get_label() for item in categories['Picture'].get_children()])
+            self.assertIn('Mute selected videos (2)',[item.get_label() for item in categories['Audio'].get_children()])
+            self.assertIn('Transition to next clip…',[item.get_label() for item in categories['Motion'].get_children()])
+            self.assertIn('Move right',[item.get_label() for item in categories['Arrange'].get_children()])
+            self.assertIn('Insert color card before…',[item.get_label() for item in categories['Insert'].get_children()])
+            root_commands=[item.get_label() for item in menu.get_children() if isinstance(item,Gtk.MenuItem)]
+            self.assertIn('Select all videos',root_commands);self.assertIn('Delete (3) · Delete',root_commands)
+            self.assertNotIn('Color grading…',root_commands)
+            actions={item.get_label():item for item in menu_items(menu)}
             self.assertIn('Mute selected videos (2)',actions)
             self.assertIn('Volume for 2 selected items…',actions)
             menu.popdown();actions['Volume for 2 selected items…'].activate()
@@ -1995,11 +2021,11 @@ class DesktopWorkflowTests(unittest.TestCase):
             self.assertEqual(len(w.selection_items()),3)
             w.undo();self.assertEqual(w.project,before);w.redo();self.assertEqual(w.project,expected)
             menu=w.context_menu('clips',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
-            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            actions={item.get_label():item for item in menu_items(menu)}
             menu.popdown();actions['Unmute selected videos (2)'].activate();self.assertEqual(w.project,before)
             # Direct menu mute gives the same group operation.
             menu=w.context_menu('clips',0,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
-            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            actions={item.get_label():item for item in menu_items(menu)}
             menu.popdown();actions['Mute selected videos (2)'].activate();self.assertEqual(w.project,expected)
             history=len(w.history);w.apply_selected_volume(0);self.assertEqual(len(w.history),history)
             w.project_path=str(self.fixtures.root/'group-muted.clipcanvas');self.assertTrue(w.save())
@@ -2032,7 +2058,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.changed();before=copy.deepcopy(w.project)
             w.seek(.4)
             menu=w.context_menu('clips',1,SimpleNamespace(state=Gdk.ModifierType.SHIFT_MASK))
-            actions={item.get_label():item for item in menu.get_children() if isinstance(item,Gtk.MenuItem)}
+            actions={item.get_label():item for item in menu_items(menu)}
             self.assertIn('Desaturate selected clips (3)',actions)
             self.assertFalse(actions['Restore selected clips’ color (3)'].get_sensitive())
             menu.popdown();history=len(w.history);actions['Desaturate selected clips (3)'].activate()

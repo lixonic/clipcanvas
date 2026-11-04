@@ -1552,72 +1552,95 @@ class ClipCanvasWindow(Gtk.Window):
         else:self.selected=(kind,index)
         self.show_inspector()
         menu=Gtk.Menu()
-        def action(title,callback,enabled=True):
+        def action(parent,title,callback,enabled=True):
             item=Gtk.MenuItem(label=title);item.set_sensitive(enabled)
-            item.connect('activate',lambda _:callback());menu.append(item)
-        action('Edit card…' if model.is_card(self.selected_item()) else 'Edit…',lambda:self.open_properties('Timing'))
+            item.connect('activate',lambda _:callback());parent.append(item)
+        def group(title,parent=menu):
+            child=Gtk.Menu();entry=Gtk.MenuItem(label=title)
+            entry.set_submenu(child);parent.append(entry);return child
+
+        edit=group('Edit')
+        action(edit,'Edit card…' if model.is_card(self.selected_item()) else 'Edit…',lambda:self.open_properties('Timing'))
+        if kind=='layers':action(edit,'Fit to full video',self.layer_tools.overlay_full_video,model.project_duration(self.project)>0)
+        action(edit,'Split at playhead',self.split_selected,kind!='captions')
+        action(edit,'Duplicate',self.duplicate)
+        edit.append(Gtk.SeparatorMenuItem())
+        action(edit,'Copy · Ctrl+C',self.copy_selection)
+        action(edit,'Paste at playhead · Ctrl+V',self.paste_selection)
+
         still=model.is_still(self.selected_item())
         sound_items=self.selected_sound_items();count=len(sound_items)
-        if kind in ('clips','audio') and not still:
-            action(f'Volume for {count} selected items…' if count>1 else 'Volume and fades…',lambda:self.open_properties('Sound'))
+        if kind=='clips':
+            picture=group('Picture')
+            picture_items=self.selected_picture_items();picture_count=len(picture_items)
+            action(picture,'Picture…',lambda:self.open_properties('Picture'))
+            action(picture,'Color grading…',self.edit_color_grading)
+            picture.append(Gtk.SeparatorMenuItem())
+            action(picture,f'Desaturate selected clips ({picture_count})' if picture_count>1 else 'Desaturate',lambda:self.apply_selected_saturation(0),any(item.get('saturation',1)>0 for _,_,item in picture_items))
+            action(picture,f'Restore selected clips’ color ({picture_count})' if picture_count>1 else 'Restore original color',lambda:self.apply_selected_saturation(1),any(item.get('saturation',1)!=1 for _,_,item in picture_items))
+
+        if kind in ('layers','captions'):
+            audio=group('Audio')
+            action(audio,'Layer sound…' if kind=='layers' else 'Caption sound…',lambda:self.open_properties('Sound'))
+        elif kind in ('clips','audio') and not still:
+            audio=group('Audio')
+            action(audio,f'Volume for {count} selected items…' if count>1 else 'Volume and fades…',lambda:self.open_properties('Sound'))
+            if count<=1:action(audio,'Voice effects…',self.edit_voice_effects)
+            audio.append(Gtk.SeparatorMenuItem())
             if count>1:
                 target='videos' if all(k=='clips' for k,_,_ in sound_items) else 'audio tracks' if all(k=='audio' for k,_,_ in sound_items) else 'items'
-                action(f'Mute selected {target} ({count})',lambda:self.apply_selected_volume(0),any(item.get('volume',1)>0 for _,_,item in sound_items))
-                action(f'Unmute selected {target} ({count})',self.unmute_selection,any(item.get('volume',1)==0 for _,_,item in sound_items))
+                action(audio,f'Mute selected {target} ({count})',lambda:self.apply_selected_volume(0),any(item.get('volume',1)>0 for _,_,item in sound_items))
+                action(audio,f'Unmute selected {target} ({count})',self.unmute_selection,any(item.get('volume',1)==0 for _,_,item in sound_items))
+            else:action(audio,'Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
+            if kind=='clips':action(audio,'Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
+
+        if kind in ('clips','layers','captions'):
+            motion=group('Motion')
+            if kind=='clips':
+                if model.is_image(self.selected_item()):action(motion,'Image motion…',lambda:self.open_properties('Motion'))
+                action(motion,'Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
+            else:action(motion,'Animation…',lambda:self.open_properties('Animate'))
+
+        if kind in ('clips','layers','audio'):
+            arrange=group('Arrange')
+            if kind=='clips':
+                action(arrange,'Move left',lambda:self.move(-1),index>0)
+                action(arrange,'Move right',lambda:self.move(1),index+1<len(self.project['clips']))
+            elif kind=='layers':
+                action(arrange,'Bring forward',lambda:self.layer_tools.reorder(1),index+1<len(self.project['layers']))
+                action(arrange,'Send backward',lambda:self.layer_tools.reorder(-1),index>0)
             else:
-                action('Voice effects…',self.edit_voice_effects)
-                if kind=='audio':action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
-        if kind=='layers':
-            action('Fit to full video',self.layer_tools.overlay_full_video,model.project_duration(self.project)>0)
-            action('Animation…',lambda:self.open_properties('Animate'))
-            action('Layer sound…',lambda:self.open_properties('Sound'))
-            action('Bring forward',lambda:self.layer_tools.reorder(1),index+1<len(self.project['layers']))
-            action('Send backward',lambda:self.layer_tools.reorder(-1),index>0)
-        if kind=='captions':
-            action('Animation…',lambda:self.open_properties('Animate'))
-            action('Caption sound…',lambda:self.open_properties('Sound'))
+                lane_menu=group('Move to audio lane',arrange)
+                audio=self.selected_item();current=track_layout.key_for('audio',audio)
+                for number,(key,_,_,_,_) in enumerate((row for row in track_layout.rows(self.project) if row[1]=='audio'),1):
+                    if key==current:continue
+                    lane=key[6:];start=audio['start']
+                    fits=track_layout.audio_fits(self.project,audio,lane_id=lane)
+                    if not fits:
+                        start=max(item['start']+model.clip_duration(item) for item in self.project['audio'] if track_layout.key_for('audio',item)==key)
+                    title=f'Audio {number} · keep time' if fits else f'Audio {number} · after last clip ({time_text(start)})'
+                    action(lane_menu,title,lambda l=lane,s=start:self.move_audio_to_lane(l,s))
+                action(lane_menu,'New audio lane · keep time',lambda:self.move_audio_to_lane(uuid.uuid4().hex,audio['start']))
+
         if kind=='clips':
-            picture_items=self.selected_picture_items();picture_count=len(picture_items)
-            action('Picture…',lambda:self.open_properties('Picture'))
-            action('Color grading…',self.edit_color_grading)
-            action(f'Desaturate selected clips ({picture_count})' if picture_count>1 else 'Desaturate',lambda:self.apply_selected_saturation(0),any(item.get('saturation',1)>0 for _,_,item in picture_items))
-            action(f'Restore selected clips’ color ({picture_count})' if picture_count>1 else 'Restore original color',lambda:self.apply_selected_saturation(1),any(item.get('saturation',1)!=1 for _,_,item in picture_items))
-            if model.is_image(self.selected_item()):action('Image motion…',lambda:self.open_properties('Motion'))
-            action('Insert color card before…',lambda:self.add_card(index))
-            action('Insert color card after…',lambda:self.add_card(index+1))
-            if not still and count<=1:action('Unmute' if self.selected_item()['volume']==0 else 'Mute',self.toggle_mute)
-            if not still:action('Extract audio',self.extract_audio,self.extraction_available(self.selected_item()))
-            action('Transition to next clip…',lambda:self.open_properties('Transition'),index+1<len(self.project['clips']))
-            action('Move left',lambda:self.move(-1),index>0)
-            action('Move right',lambda:self.move(1),index+1<len(self.project['clips']))
-        if kind=='audio':
-            lane_menu=Gtk.Menu();entry=Gtk.MenuItem(label='Move to audio lane');entry.set_submenu(lane_menu);menu.append(entry)
-            audio=self.selected_item();current=track_layout.key_for('audio',audio)
-            for number,(key,_,_,_,_) in enumerate((row for row in track_layout.rows(self.project) if row[1]=='audio'),1):
-                if key==current:continue
-                lane=key[6:];start=audio['start']
-                fits=track_layout.audio_fits(self.project,audio,lane_id=lane)
-                if not fits:
-                    start=max(item['start']+model.clip_duration(item) for item in self.project['audio'] if track_layout.key_for('audio',item)==key)
-                title=f'Audio {number} · keep time' if fits else f'Audio {number} · after last clip ({time_text(start)})'
-                target=Gtk.MenuItem(label=title)
-                target.connect('activate',lambda _,l=lane,s=start:self.move_audio_to_lane(l,s));lane_menu.append(target)
-            target=Gtk.MenuItem(label='New audio lane · keep time')
-            target.connect('activate',lambda _:self.move_audio_to_lane(uuid.uuid4().hex,audio['start']));lane_menu.append(target)
+            insert=group('Insert')
+            action(insert,'Insert color card before…',lambda:self.add_card(index))
+            action(insert,'Insert color card after…',lambda:self.add_card(index+1))
         menu.append(Gtk.SeparatorMenuItem())
-        action('Split at playhead',self.split_selected,kind!='captions')
-        action('Copy · Ctrl+C',self.copy_selection)
-        action('Paste at playhead · Ctrl+V',self.paste_selection)
-        action('Select all '+('videos' if kind=='clips' else 'audio' if kind=='audio' else kind),lambda:self.select_all(kind))
-        action('Duplicate',self.duplicate)
-        action(f'Delete ({len(self.selection_items())}) · Delete',self.remove)
+        action(menu,'Select all '+('videos' if kind=='clips' else 'audio' if kind=='audio' else kind),lambda:self.select_all(kind))
+        action(menu,f'Delete ({len(self.selection_items())}) · Delete',self.remove)
         def menu_key(widget,event):
             name=Gdk.keyval_name(event.keyval).lower()
             editing=name in ('delete','kp_delete') or (event.state&Gdk.ModifierType.CONTROL_MASK and name in ('c','v','x','a'))
             if editing:
-                widget.popdown();self.timeline.grab_focus();return self.keypress(self,event)
+                menu.popdown();self.timeline.grab_focus();return self.keypress(self,event)
             return False
-        menu.connect('key-press-event',menu_key)
+        def connect_shortcuts(parent):
+            parent.connect('key-press-event',menu_key)
+            for entry in parent.get_children():
+                child=entry.get_submenu()
+                if child is not None:connect_shortcuts(child)
+        connect_shortcuts(menu)
         menu.show_all();self.active_context_menu=menu
         if isinstance(event,(Gdk.Event,Gdk.EventButton)):menu.popup_at_pointer(event)
         else:menu.popup_at_widget(self.timeline,Gdk.Gravity.NORTH_WEST,Gdk.Gravity.SOUTH_WEST,None)
@@ -2389,7 +2412,7 @@ class ClipCanvasWindow(Gtk.Window):
 
     def help(self):
         dialog=Gtk.MessageDialog(transient_for=self,modal=True,message_type=Gtk.MessageType.INFO,buttons=Gtk.ButtonsType.CLOSE,text='A simple way to make your video')
-        dialog.format_secondary_text('1. Choose your canvas and import media. Click assets to add timeline copies; drag clips to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip to Extract audio, Mute, Split or move it.\n5. Add WAV or other soundtracks; select and drag fade handles. Right-click Voice effects for echo, gain, tone and compression; compare with/without effects before applying.\n6. In Layers, add text, images/logos, or overlay video. Text has four editable style presets. Select a logo for opacity and Full video; drag on the canvas to position.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Select a timeline item and use Up / Down to arrange its row.\n9. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+Shift+S Save as · Ctrl+O Open\nCtrl+C/V Copy/paste · Ctrl+X Cut · Delete Remove · Ctrl+A Select all\nShift+right-click Select all videos/audio · Ctrl+click Toggle · Shift+click Range\nCtrl+wheel Zoom timeline or preview under pointer · Ctrl+Z Undo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows composed frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
+        dialog.format_secondary_text('1. Choose your canvas and import media. Click assets to add timeline copies; drag clips to reorder.\n2. Select a clip, then Edit, Picture or Audio for its settings.\n3. Click a round clip join to add or change a transition.\n4. Right-click a clip for grouped Edit, Picture, Audio, Motion, Arrange and Insert commands.\n5. Add WAV or other soundtracks; select and drag fade handles. Right-click → Audio → Voice effects for echo, gain, tone and compression; compare with/without effects before applying.\n6. In Layers, add text, images/logos, or overlay video. Text has four editable style presets. Select a logo for opacity and Full video; drag on the canvas to position.\n7. In Captions, Generate from speech, then select a cue to correct words/timing. Import/export SRT is also available.\n8. Select a timeline item and use Up / Down to arrange its row.\n9. Preview your complete mix, then Export.\n\nDrag edges to trim, the ruler to scrub, or the divider to resize the timeline.\nThe folder button shows or hides your media browser.\n\nCtrl+S Save · Ctrl+Shift+S Save as · Ctrl+O Open\nCtrl+C/V Copy/paste · Ctrl+X Cut · Delete Remove · Ctrl+A Select all\nShift+right-click Select all videos/audio · Ctrl+click Toggle · Shift+click Range\nCtrl+wheel Zoom timeline or preview under pointer · Ctrl+Z Undo · S Split\n\nProject menu: portable copy, relink media, recover unsaved edits.\nRecovery copies save every 30 seconds. Original media is not backed up.\nScrubbing shows composed frames; Preview includes effects and mixed sound.\nExports read originals. Soundtracks stop at the video end.\n\nClipCanvas '+__version__+' · Native, local, and free.')
         dialog.run();dialog.destroy()
 
     def keypress(self,w,event):

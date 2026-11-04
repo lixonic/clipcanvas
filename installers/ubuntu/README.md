@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.18.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.18.1_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.18.0_all.deb
+sudo apt install ./clipcanvas_0.18.1_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -156,3 +156,9 @@ a line when space permits and wrap at narrower widths. Search, filters,
 click-to-add, removal and keyboard controls remain available. Save and restart
 after upgrading.
 See [media workflow](../../docs/EDITOR-WORKFLOW.md#import-then-place).
+
+Version 0.18.1 groups timeline right-click commands into Edit, Picture, Audio,
+Motion, Arrange and Insert submenus. Only relevant groups appear; Select all and
+Delete remain in the main menu. Keyboard shortcuts work in nested menus.
+Save and restart after upgrading. See
+[grouped timeline menus](../../docs/EDITOR-WORKFLOW.md#grouped-timeline-menus).

@@ -74,7 +74,8 @@ class ColorGradingUITests(unittest.TestCase):
             try:
                 self.assertTrue(window.color_button.get_sensitive())
                 menu=window.context_menu('clips',0);menu.popdown()
-                self.assertIn('Color grading…',[action.get_label() for action in menu.get_children()])
+                picture=next(action for action in menu.get_children() if action.get_label()=='Picture').get_submenu()
+                self.assertIn('Color grading…',[action.get_label() for action in picture.get_children()])
                 # Restore the multi-selection after opening the single-item context menu.
                 window.selection={('clips',clip['id']) for clip in window.project['clips']}
                 def apply(dialog):

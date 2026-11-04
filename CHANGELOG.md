@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.1 — 2026-11-04
+
+- Group timeline right-click commands into Edit, Picture, Audio, Motion,
+  Arrange and Insert submenus, showing only the groups relevant to the item.
+  Keep Select all and Delete directly in the main menu.
+- Preserve selection, disabled actions and Undo behavior. Delete and clipboard
+  shortcuts work while a submenu is open.
+
 ## 0.18.0 — 2026-11-04
 
 - Replace stacked media-library rows with a thumbnail grid that wraps to the

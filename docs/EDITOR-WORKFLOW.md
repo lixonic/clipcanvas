@@ -1,4 +1,4 @@
-# Desktop workflow — ClipCanvas 0.18.0
+# Desktop workflow — ClipCanvas 0.18.1
 
 ## Import, then place
 
@@ -40,6 +40,29 @@ a tile to the timeline, remove it from the library, then Undo. The timeline copy
 should remain playable; save, reopen and export to confirm the composition is
 unchanged.
 
+## Grouped timeline menus
+
+Selected scope: C11, organizing scattered right-click commands. From 0.18.1,
+timeline menus show these groups when relevant to the selected item:
+
+| Group | Commands |
+|---|---|
+| Edit | Timing/edit, Fit to full video for layers, split, duplicate, copy and paste |
+| Picture | Picture settings, color grading, desaturate and restore color |
+| Audio | Volume/fades, voice effects, mute/unmute, extract audio, or layer/caption sound |
+| Motion | Image motion, transitions or layer/caption animation |
+| Arrange | Clip order, layer order and audio-lane placement |
+| Insert | Color cards before or after a clip |
+
+Select all and Delete remain in the main menu. Menu grouping preserves modifier
+selection, disabled commands, clipboard shortcuts and Undo/Redo.
+
+To check manually, right-click a video, image, soundtrack, layer and caption.
+Open each submenu and confirm only relevant actions appear. With a submenu
+open, use Ctrl+C, Ctrl+V and Delete, then Undo; confirm the command applies to
+the timeline selection and closes the whole menu. Check the first/last clip's
+disabled move/transition actions and preview/export after a menu edit.
+
 ## Shared audio lanes
 
 Selected scope: C29/C31, showing real sound pulses and keeping the complete sound
@@ -74,7 +97,7 @@ follows the pointer and **Drop here** marks the destination. A red overlap marke
 means the drop would cover another clip and will be rejected. Simultaneous music,
 speech and effects use separate lanes; the bottom **new lane** area creates one.
 
-Right-click → **Move to audio lane** lists destinations. **Keep time** preserves
+Right-click → **Arrange → Move to audio lane** lists destinations. **Keep time** preserves
 the current start; **after last clip (time)** appends when that time is occupied.
 Splitting keeps both parts in the same lane. Up/Down moves the whole lane;
 deleting its first clip leaves the remaining clips in place. Clicking an audio
@@ -137,7 +160,7 @@ video's end. Edge scrolling remains available when the end is outside the view.
 
 For a watermark covering the complete video, select it and click **Fit to full
 video** in Layers. The same command is in **Edit → Timing** and the layer's
-right-click menu. It sets the interval from zero to the current video's end;
+right-click **Edit** submenu. It sets the interval from zero to the current video's end;
 repeat it after changing the video's length. The opacity slider now also works
 for text. Words, styling, placement and effects remain editable. These edits
 support Undo/Redo and save/reopen without changing the project format.
@@ -177,8 +200,8 @@ new IDs and independent settings. Audio/layers/captions retain their relative
 start offsets from the earliest copied item. Main-sequence clips insert at the
 next scene boundary at/after the playhead; the main sequence closes gaps.
 Groups delete/cut/paste in one undo step. Group volume is available too:
-**Shift+right-click → Mute selected videos** sets all selected video volumes to 0.
-Choose **Volume for N selected items**, enter a percentage, and use **Apply volume
+**Shift+right-click → Audio → Mute selected videos** sets all selected video volumes to 0.
+Choose **Audio → Volume for N selected items**, enter a percentage, and use **Apply volume
 to N items** to set any shared level. In a group Sound panel, only volume changes;
 source trims, timing, speed, fades, picture properties and voice effects stay as
 saved for each item. Cards, text and image/video overlays have no sound control.

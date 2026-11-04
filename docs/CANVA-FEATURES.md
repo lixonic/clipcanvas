@@ -34,7 +34,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 | C08 | Arrange clips in sequence | Basic | Drag clips into story order; the main track closes gaps. | Existing: lifted drag thumbnail, insertion gap/marker and edge scrolling |
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
-| C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo |
+| C11 | Duplicate and delete timeline items | Basic | Reuse a segment or remove unwanted material. | Existing: group selection, Ctrl+C/X/V clipboard and Delete, one-step undo; grouped timeline context menus (0.18.1) |
 | C12 | Scrubbing and timeline zoom | Basic | Navigate and adjust timing at a finer scale. | Pointer-time seeking from video/audio clip body clicks (0.11.5), forward decoder reuse and bounded paused scene preparation (0.11.7), aligned source seeking, reusable Fast/HD source proxies, per-frame playback line, Ctrl+wheel timeline zoom and independent preview zoom/pan; optional prepared seek |
 | C13 | Constant playback speed | Basic | Slow or speed a clip; documented native range is 0.25×–2×. | Existing: 0.25×–4×, pitch-preserving audio |
 | C14 | In-editor and full-screen preview | Basic | Review the assembled video during editing. | Live composition with coordinated audio/video buffering, Full/HD/Fast resolution and Fit/25–400% view zoom/pan clipped to the fixed canvas ratio, separate from saved clip crop/zoom (0.16.0); optional prepared fallback; full-screen pending |
@@ -204,6 +204,11 @@ as a thumbnail grid instead of stacked rows. Tiles wrap to the sidebar width,
 show larger aspect-preserving video/image previews and retain search, category
 filters, click-to-add and removal controls. Import buttons share a line when
 space permits and wrap as the sidebar narrows. See [media workflow](EDITOR-WORKFLOW.md#import-then-place).
+
+Selected scope for 0.18.1: C11. The user's goal is to group scattered right-click
+options. Timeline menus organize relevant commands under Edit, Picture, Audio,
+Motion, Arrange and Insert, with Select all and Delete directly available.
+See [grouped timeline menus](EDITOR-WORKFLOW.md#grouped-timeline-menus).
 
 Version 0.9.1 adds selection volume/mute for video/audio, with target counts and
 one-step undo while preserving other item settings. See [workflow](EDITOR-WORKFLOW.md).
