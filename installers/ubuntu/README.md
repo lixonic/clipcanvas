@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.17.1_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.18.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.17.1_all.deb
+sudo apt install ./clipcanvas_0.18.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -148,3 +148,11 @@ playback. Interactive photo crop sources are bounded before grading/rotation.
 Saved crops, selected preview resolution and export dimensions are preserved.
 Save your project and restart after upgrading. See
 [crop memory and validation](../../docs/EXPORT-MEMORY.md#crop-playback-memory--0171).
+
+Version 0.18.0 replaces stacked media-library rows with thumbnail tiles that
+wrap to the sidebar width. Video/image previews preserve their aspect ratio;
+audio and loading previews use media-type icons. The three import buttons share
+a line when space permits and wrap at narrower widths. Search, filters,
+click-to-add, removal and keyboard controls remain available. Save and restart
+after upgrading.
+See [media workflow](../../docs/EDITOR-WORKFLOW.md#import-then-place).

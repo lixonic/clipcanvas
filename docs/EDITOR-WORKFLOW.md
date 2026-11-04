@@ -1,6 +1,14 @@
-# Desktop workflow — ClipCanvas 0.11.6
+# Desktop workflow — ClipCanvas 0.18.0
 
 ## Import, then place
+
+Selected scope: C07, browsing imported media as thumbnails instead of stacked
+rows. From 0.18.0, **Your media** uses tiles that wrap as the sidebar is resized.
+Videos and images show larger previews without stretching their aspect ratio;
+audio and previews still loading use media-type icons. Filenames and duration
+or image labels remain visible, with the full path available on hover.
+**Add videos**, **Add images** and **Add audio** share one line when the sidebar
+has enough room and wrap onto more lines as it narrows.
 
 **Add videos**, **Add images**, **Add audio**, the end-of-timeline plus, and dropping local files
 import into **Your media**. They leave the timeline and current preview alone.
@@ -17,12 +25,20 @@ Unused imported assets are saved, recovered and collected in portable copies too
 A missing unused library file does not prevent exporting available timeline media.
 Relink missing media updates its library and timeline references.
 
-Use a media row's remove icon or right-click → **Remove from media library** to
-remove an import. **Delete** does the same when its library row has keyboard
+Use a media tile's remove icon or right-click → **Remove from media library** to
+remove an import. **Delete** does the same when its library tile has keyboard
 focus. This keeps the original file and all existing timeline copies, leaves
 playback running, and supports **Ctrl+Z** / **Ctrl+Shift+Z**. Removed imports stay
 removed when saving and reopening the project. Import the file again to add it
 back to the library.
+
+To check the thumbnail view manually, import landscape and portrait videos,
+an image and an audio file. Resize the sidebar and confirm the tiles wrap and
+previews retain their shape. Confirm all three import buttons fit on one line
+when expanded and wrap without clipping when narrowed. Search and filter, add
+a tile to the timeline, remove it from the library, then Undo. The timeline copy
+should remain playable; save, reopen and export to confirm the composition is
+unchanged.
 
 ## Shared audio lanes
 
@@ -174,7 +190,7 @@ app session, or normal volume when there is no remembered level.
 Dragging, Duplicate and other property commands still operate on the primary item.
 Entries, text editors and numeric fields keep their own copy/paste/select/delete
 shortcuts. Context menus also handle Delete and clipboard shortcuts.
-Media-row context menus offer Add to timeline and Remove from media library;
+Media-tile context menus offer Add to timeline and Remove from media library;
 Shift+F10 opens that menu from the focused media button.
 
 ## Remembered settings

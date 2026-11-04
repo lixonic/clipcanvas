@@ -31,7 +31,33 @@ CSS = b'''
     border-radius: 12px;
     padding: 18px;
 }
-.clipcanvas .asset { padding: 8px; }
+.clipcanvas .media-tile {
+    padding: 0;
+    border: 1px solid alpha(@theme_fg_color, 0.16);
+    border-radius: 6px;
+}
+.clipcanvas button.media-add {
+    padding: 6px;
+    border-color: transparent;
+    border-radius: 6px;
+    background-image: none;
+    background-color: transparent;
+    box-shadow: none;
+}
+.clipcanvas button.media-add:hover { background-color: alpha(@theme_fg_color, 0.08); }
+.clipcanvas .media-preview {
+    background-color: alpha(@theme_fg_color, 0.06);
+    border-radius: 3px;
+}
+.clipcanvas .media-duration {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.75);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+.clipcanvas .media-tile button.quiet { padding: 2px; min-height: 20px; min-width: 20px; }
+.clipcanvas .media-imports flowboxchild { padding: 0; }
 .clipcanvas .inspector { padding: 14px; }
 .clipcanvas .status {
     padding: 5px 12px;

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.0 — 2026-11-04
+
+- Replace stacked media-library rows with a thumbnail grid that wraps to the
+  sidebar width. Videos and images show larger previews with their original
+  aspect ratio; audio and previews still loading show media-type icons.
+- Arrange Add videos, Add images and Add audio on one line when the sidebar
+  has enough room, wrapping the import buttons as it narrows.
+- Keep filenames, duration/type labels, click-to-add, removal, keyboard menus,
+  search and category filters available on the tiles. Library browsing changes
+  no source files, timeline copies, saved project format or export settings.
+
 ## 0.17.1 — 2026-11-01
 
 - Bound cropped photo-animation working images independently of saved zoom,

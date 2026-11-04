@@ -30,7 +30,7 @@ Sources: [Canvas sizes and premium resizing](https://www.canva.com/features/vide
 
 | ID | Feature | Canva access | What it does | ClipCanvas 0.10.0 |
 |---|---|---|---|---|
-| C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Videos, still-image scenes with independent duration/slow zoom, and image overlays; animated GIF support pending |
+| C07 | Import clips, photos, and GIFs | Basic | Bring personal media into a video. | Videos, still-image scenes with independent duration/slow zoom, image overlays, and a responsive thumbnail library (0.18.0); animated GIF support pending |
 | C08 | Arrange clips in sequence | Basic | Drag clips into story order; the main track closes gaps. | Existing: lifted drag thumbnail, insertion gap/marker and edge scrolling |
 | C09 | Trim the beginning and end | Basic | Keep the required portion of a clip. | Existing: drag edges and numeric trim |
 | C10 | Split and remove sections | Basic | Cut a clip at a chosen moment and edit the pieces. | Existing: split selected clip at playhead |
@@ -198,6 +198,12 @@ and coordinated audio/video buffering are included in 0.11.1. See the
 The 0.9 media library is separate from the timeline: import first, click to place.
 Unused local assets are saved/collected too. Native folders and applied voice
 settings persist across launches; see [workflow validation](EDITOR-WORKFLOW.md).
+
+Selected scope for 0.18.0: C07. The user's goal is to browse the media library
+as a thumbnail grid instead of stacked rows. Tiles wrap to the sidebar width,
+show larger aspect-preserving video/image previews and retain search, category
+filters, click-to-add and removal controls. Import buttons share a line when
+space permits and wrap as the sidebar narrows. See [media workflow](EDITOR-WORKFLOW.md#import-then-place).
 
 Version 0.9.1 adds selection volume/mute for video/audio, with target counts and
 one-step undo while preserving other item settings. See [workflow](EDITOR-WORKFLOW.md).

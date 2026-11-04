@@ -759,10 +759,18 @@ class ClipCanvasWindow(Gtk.Window):
         media_page=box(spacing=0)
         library_top=box(margin=16,spacing=10)
         library_top.pack_start(label('Your media','section'),False,False,0)
-        library_top.pack_start(ui_theme.icon_button('document-open-symbolic',lambda:self.import_dialog('clips'),'Add local videos',label='Add videos',style='suggested-action'),False,False,0)
-        library_top.pack_start(ui_theme.icon_button('image-x-generic-symbolic',lambda:self.import_dialog('image'),'Add photos as scenes with optional slow zoom',label='Add images'),False,False,0)
-        library_top.pack_start(ui_theme.icon_button('audio-x-generic-symbolic',lambda:self.import_dialog('audio'),'Add WAV, MP3, FLAC and other soundtracks',label='Add audio'),False,False,0)
-        hint=label('Click an asset to add it to the timeline','dim-label');library_top.pack_start(hint,False,False,0)
+        self.media_imports=Gtk.FlowBox();self.media_imports.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.media_imports.set_homogeneous(True);self.media_imports.set_min_children_per_line(1);self.media_imports.set_max_children_per_line(3)
+        self.media_imports.set_row_spacing(10);self.media_imports.set_column_spacing(10)
+        self.media_imports.get_style_context().add_class('media-imports')
+        for control in (
+            ui_theme.icon_button('document-open-symbolic',lambda:self.import_dialog('clips'),'Add local videos',label='Add videos',style='suggested-action'),
+            ui_theme.icon_button('image-x-generic-symbolic',lambda:self.import_dialog('image'),'Add photos as scenes with optional slow zoom',label='Add images'),
+            ui_theme.icon_button('audio-x-generic-symbolic',lambda:self.import_dialog('audio'),'Add WAV, MP3, FLAC and other soundtracks',label='Add audio')):
+            self.media_imports.add(control);control.get_parent().set_can_focus(False)
+        library_top.pack_start(self.media_imports,False,False,0)
+        hint=label('Click a thumbnail to add it to the timeline','dim-label');hint.set_line_wrap(True)
+        library_top.pack_start(hint,False,False,0)
         media_page.pack_start(library_top,False,False,0)
         self.media_search=Gtk.SearchEntry();self.media_search.set_placeholder_text('Search your media')
         self.media_search.set_margin_start(16);self.media_search.set_margin_end(16)
@@ -773,7 +781,11 @@ class ClipCanvasWindow(Gtk.Window):
         self.media_tabs.set_active_id('all');self.media_tabs.set_margin_start(16);self.media_tabs.set_margin_end(16)
         self.media_tabs.connect('changed',lambda _:self.refresh_assets())
         media_page.pack_start(self.media_tabs,False,False,4)
-        self.assets=Gtk.ListBox();self.assets.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.assets=Gtk.FlowBox();self.assets.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.assets.set_homogeneous(True);self.assets.set_min_children_per_line(1);self.assets.set_max_children_per_line(20)
+        self.assets.set_row_spacing(8);self.assets.set_column_spacing(8);self.assets.set_valign(Gtk.Align.START)
+        for side in ('top','bottom','start','end'):getattr(self.assets,'set_margin_'+side)(12)
+        self.assets.get_accessible().set_name('Media thumbnails')
         media_page.pack_start(scrolled(self.assets),True,True,0)
         self.media_stack.add_titled(media_page,'Media','Media')
         self.media_stack.add_titled(self.layer_tools.layers_panel,'Layers','Layers')
@@ -1095,27 +1107,40 @@ class ClipCanvasWindow(Gtk.Window):
             kind={'video':'clips','audio':'audio','image':'image'}[item['kind']]
             if category not in ('all',kind):continue
             if query and query not in Path(item['path']).name.casefold():continue
-            row=Gtk.ListBoxRow();row.get_style_context().add_class('asset')
-            b=Gtk.Button();b.get_style_context().add_class('quiet');content=box(Gtk.Orientation.HORIZONTAL,8)
+            row=Gtk.FlowBoxChild();row.get_style_context().add_class('media-tile')
+            b=Gtk.Button();b.get_style_context().add_class('media-add');content=box(spacing=6)
             if kind in ('clips','image') and item['path'] in self.thumbs:
-                pix=self.thumbs[item['path']].scale_simple(54,34,GdkPixbuf.InterpType.BILINEAR)
-                content.pack_start(Gtk.Image.new_from_pixbuf(pix),False,False,0)
-            else:content.pack_start(ui_theme.icon({'clips':'video-x-generic-symbolic','audio':'audio-x-generic-symbolic','image':'image-x-generic-symbolic'}[kind],Gtk.IconSize.DIALOG),False,False,0)
-            text=box(spacing=3);name=label(Path(item['path']).name);name.set_ellipsize(Pango.EllipsizeMode.MIDDLE);name.set_max_width_chars(17)
-            text.pack_start(name,False,False,0)
-            text.pack_start(label('Image · click to add' if kind=='image' else time_text(item['duration'])+' · click to add','small'),False,False,0)
-            content.pack_start(text,True,True,0);b.add(content);b.set_tooltip_text('Add to timeline: '+item['path'])
+                source=self.thumbs[item['path']];scale=min(112/source.get_width(),70/source.get_height())
+                pix=source.scale_simple(max(1,round(source.get_width()*scale)),max(1,round(source.get_height()*scale)),GdkPixbuf.InterpType.BILINEAR)
+                image=Gtk.Image.new_from_pixbuf(pix)
+            else:image=ui_theme.icon({'clips':'video-x-generic-symbolic','audio':'audio-x-generic-symbolic','image':'image-x-generic-symbolic'}[kind],Gtk.IconSize.DIALOG)
+            image.set_size_request(112,70)
+            preview=Gtk.Overlay();preview.get_style_context().add_class('media-preview');preview.add(image)
+            if kind!='image':
+                duration=label(time_text(item['duration']),'media-duration');duration.set_halign(Gtk.Align.END);duration.set_valign(Gtk.Align.END)
+                duration.set_margin_end(4);duration.set_margin_bottom(4);preview.add_overlay(duration)
+                preview.set_overlay_pass_through(duration,True)
+            content.pack_start(preview,False,False,0)
+            name=label(Path(item['path']).name);name.set_ellipsize(Pango.EllipsizeMode.MIDDLE);name.set_max_width_chars(12)
+            content.pack_start(name,False,False,0)
+            b.add(content);b.set_tooltip_text('Add to timeline: '+item['path'])
+            b.get_accessible().set_name('Add '+Path(item['path']).name+' to timeline')
             asset_id=item['id'];b.media_asset_id=asset_id
             b.connect('clicked',lambda _,key=asset_id:self.add_library_asset(key))
             b.connect('button-press-event',lambda widget,event,key=asset_id:self.media_button_press(widget,event,key))
             b.connect('popup-menu',lambda widget,key=asset_id:bool(self.media_menu(key,widget)))
             remove=ui_theme.icon_button('edit-delete-symbolic',lambda key=asset_id:self.remove_asset(key),
                                         'Remove from Your media. Original file and timeline copies are kept.',style='quiet')
-            remove.set_valign(Gtk.Align.CENTER);remove.media_asset_id=asset_id
+            remove.media_asset_id=asset_id
             remove.get_accessible().set_name('Remove '+Path(item['path']).name+' from media library')
-            line=box(Gtk.Orientation.HORIZONTAL,4);line.pack_start(b,True,True,0);line.pack_end(remove,False,False,0)
+            footer=box(Gtk.Orientation.HORIZONTAL,4);footer.set_margin_start(6);footer.set_margin_end(6)
+            footer.set_margin_bottom(4)
+            media_type=label({'clips':'Video','audio':'Audio','image':'Image'}[kind],'small');media_type.get_style_context().add_class('muted')
+            footer.pack_start(media_type,True,True,0)
+            footer.pack_end(remove,False,False,0)
+            tile=box(spacing=0);tile.pack_start(b,False,False,0);tile.pack_start(footer,False,False,0)
             row.add_button=b;row.remove_button=remove;row.media_asset_id=asset_id
-            row.add(line);self.assets.add(row)
+            row.add(tile);self.assets.add(row)
         self.assets.show_all()
 
     def asset_index(self,asset_id):
