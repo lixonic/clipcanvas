@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.18.3_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.18.4_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.18.3_all.deb
+sudo apt install ./clipcanvas_0.18.4_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -27,6 +27,9 @@ See [workflow validation](../../docs/EDITOR-WORKFLOW.md). Build with
 `/usr/bin/python3 build_deb.py --output-dir dist`; GitHub Actions provides temporary
 artifacts. Windows and external provider/API/MCP work remain pending.
 
+Version 0.18.4 loads cut-only timelines in two-clip picture windows while keeping
+a continuous soundtrack and bounded playback queues. Transitions and visual
+layers retain the established composition path. See [windowed preview](../../docs/PREVIEW-BUFFERING.md#windowed-picture-decoding--0184).
 Version 0.18.3 reduces Full/HD/Fast startup waits on long graded timelines with
 precomputed color lookup tables and independent embedded-audio reads. See
 [graded preview validation](../../docs/PREVIEW-BUFFERING.md#graded-timeline-startup--0183).

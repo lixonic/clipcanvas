@@ -1,5 +1,6 @@
 """Clocked native playback of the composition's unencoded video/audio stream."""
 import copy
+import math
 import threading
 
 import gi
@@ -7,6 +8,7 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
 from . import engine, model
+from . import lazy_preview
 
 
 def pipeline_description(audio_sink='autoaudiosink'):
@@ -33,6 +35,8 @@ class StreamPlayer:
     def __init__(self, project, start, autoplay, sample, error, end, volume=1, preview_edge=640, buffering=None):
         self.preview_edge = preview_edge
         self.project = copy.deepcopy(project)
+        model.adapt_frame_rate(self.project)
+        project = self.project
         self.total = model.project_duration(project)
         self.start = max(0, min(start, max(0, self.total-1/project['fps'])))
         self.cancel = threading.Event()
@@ -42,7 +46,21 @@ class StreamPlayer:
         self._buffering_reported = False
         self._wanted_playing = autoplay
         self._buffering_callback = buffering
-        self.pipeline = Gst.parse_launch(pipeline_description())
+        self.lazy = lazy_preview.supported(project)
+        description = pipeline_description()
+        if self.lazy:
+            from fractions import Fraction
+            width, height = engine.preview_dimensions(project, preview_edge)
+            rate = Fraction(project['fps']).limit_denominator(100000)
+            description = description.replace(
+                'appsrc name=source block=true max-bytes=1048576 caps=video/x-matroska ! matroskademux name=demux ', '')
+            description = description.replace('demux.video_0 ! buffer.sink_0',
+                f'appsrc name=video_source block=true max-bytes={width*height*3//2} format=time '
+                f'caps="video/x-raw,format=I420,width={width},height={height},framerate={rate.numerator}/{rate.denominator},pixel-aspect-ratio=1/1" ! buffer.sink_0')
+            description = description.replace('demux.audio_0 ! buffer.sink_1',
+                'appsrc name=audio_source block=true max-bytes=16384 format=time '
+                'caps="audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved" ! buffer.sink_1')
+        self.pipeline = Gst.parse_launch(description)
         self.pipeline.get_by_name('volume').set_property('volume', volume)
         sink = self.pipeline.get_by_name('picture')
         sink.connect('new-sample', lambda s: sample(s.emit('pull-sample')))
@@ -56,6 +74,9 @@ class StreamPlayer:
         self.thread.start()
 
     def _feed(self, error):
+        if self.lazy:
+            self._feed_lazy(error)
+            return
         stream = engine.live_stream(self.project, self.start, self.cancel, preview_edge=self.preview_edge,
                                     status=self._preparing)
         source = self.pipeline.get_by_name('source')
@@ -71,6 +92,50 @@ class StreamPlayer:
             GLib.idle_add(self._report, error, str(problem))
         finally:
             stream.close()
+
+    def _feed_lazy(self, error):
+        try:
+            model.validate_project(self.project,check_files=True,require_clips=True)
+        except Exception as problem:
+            GLib.idle_add(self._report,error,str(problem))
+            return
+        def feed(kind, stream):
+            source = self.pipeline.get_by_name(kind+'_source')
+            count = 0
+            rate = self.project['fps'] if kind == 'video' else 48000
+            offset = max(0, math.ceil(self.start*rate-1e-7)/rate-self.start) if kind == 'video' else 0
+            try:
+                for data in stream:
+                    if self.cancel.is_set():break
+                    units = 1 if kind == 'video' else len(data)//4
+                    if kind == 'video':
+                        width, height = engine.preview_dimensions(self.project,self.preview_edge)
+                        if width % 8:
+                            # Gst raw I420 rows align to four bytes; FFmpeg's
+                            # pipe is tightly packed, including chroma planes.
+                            planes=[];at=0
+                            for w,h in ((width,height),(width//2,height//2),(width//2,height//2)):
+                                padding=bytes((-w)%4)
+                                planes.extend(data[at+row*w:at+(row+1)*w]+padding for row in range(h))
+                                at+=w*h
+                            data=b''.join(planes)
+                    buffer = Gst.Buffer.new_wrapped(data)
+                    buffer.pts = round((offset+count/rate)*Gst.SECOND)
+                    buffer.duration = round((offset+(count+units)/rate)*Gst.SECOND)-buffer.pts
+                    count += units
+                    if source.emit('push-buffer',buffer)!=Gst.FlowReturn.OK:break
+                if not self.cancel.is_set():source.emit('end-of-stream')
+            except Exception as problem:
+                GLib.idle_add(self._report,error,str(problem))
+            finally:stream.close()
+        audio = threading.Thread(target=feed,args=('audio',lazy_preview.audio(self.project,self.start,self.cancel)),daemon=True)
+        from . import preview_cache
+        paths = list(dict.fromkeys(clip['path'] for clip in self.project['clips'] if not model.is_still(clip)))
+        with preview_cache.PreviewWarmup(paths if self.preview_edge else [],self.preview_edge,self.cancel):
+            audio.start()
+            try:
+                feed('video',lazy_preview.video(self.project,self.start,self.preview_edge,self.cancel))
+            finally:audio.join()
 
     def _report(self, callback, *args):
         if not self.cancel.is_set():

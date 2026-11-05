@@ -242,3 +242,60 @@ play from the beginning and seek to later clips. Check that picture and sound
 start together after the short initial buffer, grades retain their appearance,
 and pausing/seeking stops obsolete playback. Repeat in Fast/HD and compare an
 export with the preview.
+
+
+## Windowed picture decoding — 0.18.4
+
+Scope: X02 responsive preview, C12 seeking and C14 playback. The requested
+outcome is faster first-picture and synchronized playback startup on long
+projects, without making their duration determine picture decoder setup cost.
+
+Cut-only video/card timelines with more than two clips and no visual layers/captions now
+use a separate raw picture producer and a continuous 48 kHz stereo soundtrack
+producer. Pictures load two clips at a time; the producer starts the next window
+while buffered pictures still play. Original grading, framing, fades and speeds
+use the shared composition filters. Stable window boundaries and integer frame
+counts preserve the picture sequence across seeks. The soundtrack keeps all
+processing history, including echo and compression, throughout playback.
+
+Both raw appsrc inputs feed the existing bounded GStreamer multiqueue and shared
+clock. Each carries explicit frame/sample timestamps. There is no preview-file
+render or unbounded picture queue. Stop/seek cancels both producers and removes
+their temporary files. Fast/HD reuse available proxies and retain background
+cache preparation. Image clips, transitions, layers and captions use the established full
+composition path; exports remain on that path as well.
+
+The saved project changed during development to 17 graded clips lasting
+196.292 seconds, at 1080×1080/24 fps. In a read-only Full-resolution run, the
+first picture arrived at 0.739 s and audio began at 0.965 s. The first 30 seconds
+played in 30.968 s, with no rebuffering and no audio timestamp gaps. These are
+native sink measurements on this machine, not a guarantee for every source.
+
+Final same-project comparison with warmed metadata:
+
+| Position | Path | First picture | First audio |
+|---|---|---:|---:|
+| 0:00 | 0.18.3 continuous graph | 3.383 s | 4.245 s |
+| 0:00 | 0.18.4 windows | 0.480 s | 0.658 s |
+| 0:22.6 | 0.18.3 continuous graph | 3.322 s | 4.564 s |
+| 0:22.6 | 0.18.4 windows | 0.623 s | 1.693 s |
+
+Project and source hashes were unchanged. Seeking omits completed clips while
+retaining the same subsequent window boundaries; it avoids decoding the earlier
+clip in a window before reaching the requested picture. Audio still processes
+its history, so deeper seeks can take longer to start sound.
+
+`tests/test_lazy_preview.py` compares all picture bytes and PCM samples against
+the continuous reference, including non-frame-aligned seeks, speed changes,
+grading, fades, an independent soundtrack and echo. Playback tests exercise
+native first-frame delivery, cancellation and worker cleanup.
+
+```sh
+PYTHONPATH=tests /usr/bin/python3 -m unittest test_lazy_preview test_preview_playback -v
+/usr/bin/python3 tools/benchmark_long_preview.py --project /path/to/project.clipcanvas --edge 0
+```
+
+Manual check: play a long graded cut-only timeline from the beginning, pause,
+resume, and seek across several clip boundaries. Check the last clip and audio
+ending. Repeat in Fast/HD, then add a transition or title and confirm the
+established composition path still presents that effect correctly.

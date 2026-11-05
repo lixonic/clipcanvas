@@ -1,4 +1,4 @@
-# ClipCanvas 0.18.3
+# ClipCanvas 0.18.4
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
@@ -31,6 +31,9 @@ platform; a Windows app and installer have not been implemented yet.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
+Version 0.18.4 loads cut-only timelines in two-clip picture windows while keeping
+a continuous soundtrack and bounded playback queues. Transitions and visual
+layers retain the established composition path. See [windowed preview](docs/PREVIEW-BUFFERING.md#windowed-picture-decoding--0184).
 Version 0.18.3 reduces startup delays on graded timelines in Full, HD and Fast
 preview by reusing small color lookup tables and reading embedded audio
 independently of picture decoding. See [graded preview validation](docs/PREVIEW-BUFFERING.md#graded-timeline-startup--0183).
@@ -135,18 +138,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.3_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.18.4_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.18.3_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.18.4_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.18.3_all.deb
+   sudo apt install ./clipcanvas_0.18.4_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.

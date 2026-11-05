@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.18.4 — 2026-11-05
+
+- Start cut-only timelines with more than two clips using two-clip picture
+  windows and a continuous audio mix on one native playback clock. Decoding
+  runs ahead within bounded queues, loading subsequent windows during playback.
+- Preserve grading, crops, clip speed/fades, independent audio and source files.
+  Timelines with transitions or visual layers/captions retain the existing path.
+- Verify exact frame/sample agreement across windows and seeks, and sub-second
+  startup with continuous playback on the reported saved project.
+
 ## 0.18.3 — 2026-11-05
 
 - Reduce startup waits on long color-graded timelines in Full, HD and Fast
