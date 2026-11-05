@@ -178,7 +178,7 @@ Canva features. They are selected; detailed designs and platform validation rema
 | ID | Candidate | Why it matters | Current status |
 |---|---|---|---|
 | X01 | Direct timeline handles, snapping, ripple edits | Faster precise clip assembly | Basic: edge trim, audio fade handles, snapping, ripple trims and lifted drag/drop feedback; linked edits pending |
-| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback with coordinated buffering; persistent HD/Fast source proxies prepared in the background without holding up Play (0.18.2); cached seeks; latest-position frame worker; cropped playback avoids zoom-sized intermediate pictures and redundant exit-frame rendering (0.17.1); optional rendered fallback |
+| X02 | Responsive preview, proxies, background caching | Avoid a full preview render after each change | Live effects/mix playback with coordinated buffering; reusable grading tables and independent embedded-audio reads reduce long-timeline startup (0.18.3); persistent HD/Fast source proxies prepared in the background without holding up Play (0.18.2); cached seeks; latest-position frame worker; cropped playback avoids zoom-sized intermediate pictures and redundant exit-frame rendering (0.17.1); optional rendered fallback |
 | X03 | Keyframes and easing | Animate position, scale, opacity and audio levels | New work |
 | X04 | Reverse, freeze frames and speed ramps | Control pacing within a clip | New work |
 | X05 | Dialogue ducking, audio envelopes, meters and EQ | Mix music, voice and effects predictably | Partial: echo, gain, bass/treble, tone filters, compressor and A/B audition; ducking, meters and arbitrary envelopes pending |

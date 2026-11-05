@@ -3,7 +3,9 @@ import copy
 import hashlib
 import json
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from clipcanvas import color_grading as grading, engine, model, workflow, visuals
 from clipcanvas.scrubber import ScrubSession
@@ -190,6 +192,26 @@ class ColorGradingTests(unittest.TestCase):
         def chroma(data):
             return sum(max(pixel)-min(pixel) for pixel in zip(data[::3],data[1::3],data[2::3]))/(len(data)//3)
         self.assertGreater(chroma(pictures['Pixar-inspired animation']),chroma(pictures['Horror'])+20)
+
+    def test_precomputed_luts_preserve_every_byte_level_and_escaped_paths(self):
+        # Exercise all 256 levels in every channel, including clipping and
+        # partial strength, against the previous expression-based renderer.
+        pixels = b''.join(bytes((n,(n+67)%256,(n+139)%256)) for n in range(256))*2
+        grades = list(grading.PRESETS.values()) + [
+            {'exposure':3,'contrast':2,'gamma':.25,'shadows':1,'highlights':-1,'strength':.5},
+            {'exposure':-3,'contrast':.25,'gamma':3,'temperature':-1,'tint':1,'strength':.33}]
+        with tempfile.TemporaryDirectory() as folder:
+            scratch = Path(folder)/"grade's: [LUT], files";scratch.mkdir()
+            for grade in grades:
+                clip = {'color_grade':grade,'saturation':1.35}
+                outputs = []
+                for workspace in (None,scratch):
+                    filters = ','.join(grading.filters(clip,workspace))
+                    outputs.append(subprocess.check_output([self.fixtures.ffmpeg,'-v','error',
+                        '-f','rawvideo','-pix_fmt','rgb24','-s','256x2','-i','pipe:0',
+                        '-vf',filters,'-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],
+                        input=pixels,env=self.fixtures.env))
+                self.assertEqual(outputs[0],outputs[1],str(grade))
 
 
 if __name__ == '__main__':unittest.main()

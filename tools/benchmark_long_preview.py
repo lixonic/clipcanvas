@@ -18,7 +18,7 @@ import time
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from clipcanvas import engine, live_player, model, preview_cache
+from clipcanvas import engine, live_player, model, preview_cache, color_grading
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
@@ -64,6 +64,8 @@ def measure(project, start, edge, timeout=180):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--project',type=Path,help='Read an existing project without modifying it')
+    parser.add_argument('--grade',choices=list(color_grading.PRESETS),help='Grade every generated clip')
     parser.add_argument('--clips',type=int,default=21)
     parser.add_argument('--clip-seconds',type=float,default=15)
     parser.add_argument('--width',type=int,default=1920)
@@ -75,31 +77,43 @@ def main():
     args = parser.parse_args();Gst.init(None)
     if args.clips<1 or args.clip_seconds<=0 or args.repeats<1:parser.error('Clip count, duration and repeats must be positive.')
     with tempfile.TemporaryDirectory(prefix='clipcanvas-long-preview-benchmark-') as folder:
-        root = Path(folder);source = root/'source.mp4';binary,env = engine._tool('ffmpeg')
-        subprocess.run([binary,'-v','error','-f','lavfi','-i',
-            f'testsrc2=s={args.width}x{args.height}:r=24:d={args.clip_seconds}',
-            '-f','lavfi','-i',f'sine=f=430:r=48000:d={args.clip_seconds}',
-            '-c:v','libx264','-preset','ultrafast','-g','240','-threads','2','-c:a','aac',str(source)],
-            env=env,check=True)
-        project = model.new_project(args.width,args.height)
-        for index in range(args.clips):
-            target = root/f'clip-{index:02}.mp4'
-            shutil.copyfile(source,target)
-            project['clips'].append(model.new_clip(target))
+        root = Path(folder)
+        if args.project:
+            project = model.load_project(args.project)
+        else:
+            source = root/'source.mp4';binary,env = engine._tool('ffmpeg')
+            subprocess.run([binary,'-v','error','-f','lavfi','-i',
+                f'testsrc2=s={args.width}x{args.height}:r=24:d={args.clip_seconds}',
+                '-f','lavfi','-i',f'sine=f=430:r=48000:d={args.clip_seconds}',
+                '-c:v','libx264','-preset','ultrafast','-g','240','-threads','2','-c:a','aac',str(source)],
+                env=env,check=True)
+            project = model.new_project(args.width,args.height)
+            for index in range(args.clips):
+                target = root/f'clip-{index:02}.mp4'
+                shutil.copyfile(source,target)
+                clip = model.new_clip(target)
+                if args.grade:
+                    clip.update(color_grade=color_grading.PRESETS[args.grade],
+                                saturation=color_grading.PRESET_SATURATION.get(args.grade,1))
+                project['clips'].append(clip)
+        # Match the application after media import, including for saved projects.
+        for clip in project['clips']:
+            if not model.is_still(clip):engine.probe(clip['path'])
         duration = model.project_duration(project)
-        if not 0<=args.start<duration:parser.error('Choose a start inside the generated project.')
+        if not 0<=args.start<duration:parser.error('Choose a start inside the project.')
         runs = []
         for repeat in range(args.repeats):
             cache = root/f'cache-{repeat}'
             with mock.patch.object(preview_cache,'directory',return_value=cache):
-                for mode in ('cold','warm'):
+                for mode in (('cold','warm') if args.edge else ('originals',)):
                     if mode=='warm':
                         with tempfile.TemporaryDirectory(prefix='warm-leases-',dir=root) as leases:
                             for clip in project['clips']:
-                                preview_cache.prepare(clip['path'],args.edge,leases)
+                                if not model.is_still(clip):preview_cache.prepare(clip['path'],args.edge,leases)
                     result = measure(project,args.start,args.edge)
-                    result.update(mode=mode,repeat=repeat+1,clips=args.clips,timeline_seconds=duration,
-                                  source_dimensions=[args.width,args.height],
+                    result.update(mode=mode,repeat=repeat+1,clips=len(project['clips']),timeline_seconds=duration,
+                                  canvas_dimensions=[project['width'],project['height']],
+                                  graded_clips=sum(color_grading.active(clip) for clip in project['clips']),
                                   cached_files_after=len(list(cache.glob('*.mp4'))))
                     runs.append(result);print(json.dumps(result),flush=True)
         if args.output:args.output.write_text(json.dumps(runs,indent=2)+'\n')

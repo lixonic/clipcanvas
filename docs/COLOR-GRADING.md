@@ -43,6 +43,11 @@ media files remain unchanged. Live playback, native scrubbing, prepared previews
 and exports use the same primary adjustment model. GTK and FFmpeg decoding,
 scaling and RGB/YUV rounding can differ slightly in previews.
 
+Since 0.18.3, playback and export load precomputed 256-entry lookup files instead
+of rebuilding large grading expressions per clip. Identical grades share one
+file within each temporary render workspace. Byte-level regression checks retain
+the previous colors; see [graded timeline startup](PREVIEW-BUFFERING.md#graded-timeline-startup--0183).
+
 Grades survive save/reopen, recovery, split, duplicate, copy/paste and portable
 collection. Missing settings are neutral; existing desaturation projects keep
 their prior appearance. The project format stays at 8, but rendering these grades

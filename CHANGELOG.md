@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.3 — 2026-11-05
+
+- Reduce startup waits on long color-graded timelines in Full, HD and Fast
+  preview. Write reusable 256-entry RGB lookup files from the native grading
+  tables instead of evaluating large FFmpeg expressions separately per clip.
+- Give live clip audio its own video-disabled input, retaining trim and effect
+  history while preventing audio reads from pulling future video frames through
+  shared demuxers. Preserve original frame timing and soundtrack samples.
+- Validate with the reported 21-clip, 4:58 graded project as well as generated
+  media; add byte-level grading comparisons, a many-clip startup regression,
+  and saved-project/graded-media benchmark options.
+
 ## 0.18.2 — 2026-11-04
 
 - Start Fast/HD playback using available source proxies immediately. Prepare

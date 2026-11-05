@@ -179,3 +179,66 @@ times, edit and export; verify responsive controls, continuous narration,
 correct effects and an unchanged original-resolution export. Cold decoding of
 demanding sources can still need coordinated buffering. Very many inputs and
 complex future transitions/layers also retain graph-setup costs.
+
+## Graded-timeline startup — 0.18.3
+
+Selected scope: X02 responsive preview, C12 seeking and C14 playback, retaining
+C39/C40 color grading. The user's four-minute timeline still waited at **Loading
+preview…** after 0.18.2, including with Full resolution selected. The earlier
+generated benchmark did not include its combination of grading and embedded audio.
+
+Two additional startup costs affected the reported project. Each clip compiled
+the same large RGB grading expressions into FFmpeg lookup tables. Also, sharing
+picture and embedded audio inputs allowed audio preparation to pull future video
+frames through the shared demuxer before the first picture could play.
+
+Rendering now writes 256-entry `.cube` lookup files from the existing native
+grading tables, reusing identical tables within the render workspace. FFmpeg
+loads them with `lut1d` and nearest interpolation at RGB24 precision. Explicit
+quantization retains the previous byte values. Live playback gives embedded
+audio separate inputs with video disabled, preserving complete trimmed audio
+history for effects. Preview/export grading, soundtrack samples and project
+format remain unchanged; workspace cleanup removes the lookup files.
+
+Read-only comparison of the reported 298.368-second project: 21 graded H.264/AAC
+clips, a 1080×1080 canvas at 24 fps, embedded audio, and clip speed changes. Both
+versions use Full resolution and cached source metadata, as after media import.
+The reference uses the committed 0.18.2 engine and expression-based grading.
+
+| Start position | Version | First picture | First audio | Stop and cleanup |
+|---|---|---:|---:|---:|
+| 0:00.0 | 0.18.2 | 17.721 s | 18.097 s | 0.138 s |
+| 0:00.0 | 0.18.3 | 2.319 s | 2.946 s | 0.049 s |
+| 0:22.6 | 0.18.2 | 16.996 s | 17.467 s | 0.126 s |
+| 0:22.6 | 0.18.3 | 2.407 s | 2.986 s | 0.045 s |
+
+These measure native sink arrival with silent audio, not GTK painting or a
+guaranteed startup time on other machines. First-picture startup improved about
+7.6× at the beginning. Project and all original media hashes were unchanged.
+Full-resolution decoding, composition and buffering still take time.
+
+A separate sustained run played the first 30 seconds across two clip boundaries
+with no rebuffering after startup. Audio timestamp gaps stayed below 1 ms of
+container rounding. That run took 34.242 seconds including its initial buffer.
+
+Repeat the saved-project or generated graded benchmark without competing
+CPU-heavy work:
+
+```sh
+/usr/bin/python3 tools/benchmark_long_preview.py --project /path/to/project.clipcanvas --edge 0 --start 0
+/usr/bin/python3 tools/benchmark_long_preview.py --grade 'Pixar-inspired animation' --edge 0
+PYTHONPATH=tests /usr/bin/python3 -m unittest test_color_grading test_live_preview test_preview_playback -v
+```
+
+Regression coverage compares every byte level in all three channels against the
+previous grading expressions, across presets, extreme controls and partial
+strength. It also checks paths containing quotes, colons, brackets and commas,
+and first-picture delivery from 21 graded clips with embedded audio. Existing
+checks cover frame/PCM agreement, seeks, export, cancellation and cleanup.
+The full suite passed 167 tests, with 60 desktop/optional-runtime checks skipped.
+
+Manual check: reopen the graded project in the updated app, select Full resolution,
+play from the beginning and seek to later clips. Check that picture and sound
+start together after the short initial buffer, grades retain their appearance,
+and pausing/seeking stops obsolete playback. Repeat in Fast/HD and compare an
+export with the preview.

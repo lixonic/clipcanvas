@@ -1,6 +1,8 @@
 """Portable SDR primary grading, shared by native pictures and FFmpeg LUTs."""
 from functools import lru_cache
+import hashlib
 import math
+from pathlib import Path
 
 
 RANGES = {'exposure': (-3, 3), 'contrast': (.25, 2), 'gamma': (.25, 3),
@@ -96,10 +98,29 @@ def tables(clip):
     return _tables(tuple(settings(clip).values()))
 
 
-def filters(clip):
-    """Use FFmpeg's compiled lookup tables, with no per-frame expression work."""
+def _lut_file(clip, scratch):
+    lookup = tables(clip)
+    path = Path(scratch)/('grade-'+hashlib.sha256(b''.join(lookup)).hexdigest()+'.cube')
+    if not path.exists():
+        # lut1d truncates float outputs to integer pixels. Stay inside each
+        # 8-bit bin so float roundoff cannot turn an exact byte into byte-1.
+        rows = [' '.join(f'{min(1, (channel[n]+.25)/255):.12f}' for channel in lookup)
+                for n in range(256)]
+        path.write_text('LUT_1D_SIZE 256\n'+'\n'.join(rows)+'\n', encoding='ascii')
+    # Escape once for filter options, then again for the filtergraph parser.
+    value = ''.join('\\'+c if c in "\\':" else c for c in str(path.resolve()))
+    return ''.join('\\'+c if c in "\\'[],;" else c for c in value)
+
+
+def filters(clip, scratch=None):
+    """Load precomputed byte tables instead of evaluating a large expression
+    for every clip at FFmpeg startup. Expression fallback supports graph-only
+    callers without a workspace; playback and export always supply one.
+    """
     result = []
-    if rgb_active(clip):
+    if rgb_active(clip) and scratch is not None:
+        result += ['format=rgb24', 'lut1d=file='+_lut_file(clip, scratch)+':interp=nearest', 'format=yuv420p']
+    elif rgb_active(clip):
         grade = settings(clip)
         x = f"clip(val/255*{2**grade['exposure']:.12g},0,1)"
         x = f"pow(clip(({x}-.5)*{grade['contrast']:.12g}+.5,0,1),{1/grade['gamma']:.12g})"

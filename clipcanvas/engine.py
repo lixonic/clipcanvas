@@ -842,7 +842,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
                         f"x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
                         f"d={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}")
         picture_index = 0 if (proxies or {}).get(clip.get('path')) and preview and not audio_only else metadata['video_index']
-        preparation = ','.join(color_grading.filters(clip)+[framing])
+        preparation = ','.join(color_grading.filters(clip, scratch)+[framing])
         picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
@@ -860,12 +860,13 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             continue
         if metadata["has_audio"] and clip.get("volume", 1) > 0:
             audio_input=video_input
-            if seek or (preview and (proxies or {}).get(clip.get('path'))):
-                # Video can input-seek near the playhead. Audio keeps the
-                # complete trimmed history for echo/compression and envelopes.
-                # This second input only decodes audio, not the old pictures.
+            if seek or (preview and (picture_start is not None or (proxies or {}).get(clip.get('path')))):
+                # Independent audio reads also prevent the live mix from
+                # pulling future clips' pictures through a shared demuxer.
+                # Keep trimmed audio history for echo/compression/envelopes;
+                # explicitly disable video on this input.
                 audio_input=args.count('-i')
-                args += ['-threads','1','-ss',_fmt(clip.get('in',0)),
+                args += ['-threads','1','-vn','-ss',_fmt(clip.get('in',0)),
                          '-t',_fmt(clip['out']-clip.get('in',0)),'-i',clip['path']]
             parts = [f"[{audio_input}:{metadata['audio_index']}]aresample=48000",
                      "aformat=sample_fmts=fltp:channel_layouts=stereo", "asetpts=PTS-STARTPTS"]

@@ -14,7 +14,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, Gst
 
-from clipcanvas import engine, model, preview_cache, live_player
+from clipcanvas import engine, model, preview_cache, live_player, color_grading
 
 Gst.init(None)
 
@@ -240,6 +240,28 @@ class PreviewPlaybackTests(unittest.TestCase):
             self.assertTrue(stopped,'Stopping preview must cancel and reap the background job')
             self.assertTrue(finished.is_set())
             self.assertFalse(any(folder.exists() for folder in workspaces))
+
+    def test_many_graded_clips_deliver_first_picture_without_long_lut_startup(self):
+        p = model.new_project(160,90)
+        p['clips'] = [model.new_clip(self.source) for _ in range(21)]
+        for clip in p['clips']:
+            clip.update(color_grade=color_grading.PRESETS['Pixar-inspired animation'],saturation=1.35)
+        frames, errors = [], []
+        description = live_player.pipeline_description
+        with mock.patch.object(live_player,'pipeline_description',side_effect=lambda:description('fakesink sync=true')):
+            def picture(sample):
+                frames.append(sample.get_buffer().pts)
+                return Gst.FlowReturn.OK
+            player = live_player.StreamPlayer(p,0,True,picture,errors.append,lambda:None,preview_edge=0)
+            try:
+                # Old per-clip expressions spend >10 s initializing even at
+                # this tiny output size; allow ample headroom for CI decoding.
+                self.pump(lambda:bool(frames) or bool(errors),timeout=8)
+                self.assertFalse(errors)
+                self.assertTrue(frames)
+            finally:
+                player.stop();player.thread.join(5)
+                self.assertFalse(player.thread.is_alive())
 
     def test_starvation_pauses_both_streams_retains_samples_and_respects_user_pause(self):
         p = model.new_project(160,90);p['clips'] = [model.new_clip(self.source)]
