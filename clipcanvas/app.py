@@ -2145,11 +2145,25 @@ class ClipCanvasWindow(Gtk.Window):
         quality=Gtk.ComboBoxText()
         for key,text in [('master','Maximum quality · MP4'),('high','High quality · MP4'),('smaller','Smaller file · MP4'),('lossless','Lossless master · MKV · very large')]:quality.append(key,text)
         quality.set_active_id('master');self.export_quality_combo=quality;content.pack_start(quality,False,False,0)
+        content.pack_start(label('Export speed','section'),False,False,0)
+        speed=Gtk.ComboBoxText()
+        for key,text in [('fast','Fast'),('balanced','Balanced'),('compact','Efficient compression · slower')]:speed.append(key,text)
+        remembered=self.preferences.get('export_speed','fast')
+        speed.set_active_id(remembered if isinstance(remembered,str) and remembered in engine.EXPORT_PRESETS else 'fast')
+        self.export_speed_combo=speed;content.pack_start(speed,False,False,0)
+        speed_hint=label('','muted');speed_hint.set_line_wrap(True);speed_hint.set_max_width_chars(58)
+        content.pack_start(speed_hint,False,False,0)
         hint=label('','muted');hint.set_line_wrap(True);hint.set_max_width_chars(58);content.pack_start(hint,False,False,0)
         def update_quality_hint(*args):
-            hint.set_text('Lossless FFV1 video and float PCM audio preserve the composed output. Canvas scaling, effects and 8-bit YUV color conversion still apply. Very large files; use MP4 for social uploads.' if quality.get_active_id()=='lossless' else 'Export reads your originals with saved clip crops at the selected canvas size. Maximum quality minimizes compression changes; MP4 is not lossless. View magnification and preview resolution do not affect export.')
-        quality.connect('changed',update_quality_hint);update_quality_hint()
-        dialog.show_all();response=dialog.run();q=quality.get_active_id();dialog.destroy()
+            lossless=quality.get_active_id()=='lossless'
+            speed.set_sensitive(not lossless)
+            speed_hint.set_text('Export speed applies to MP4. Lossless master uses its own encoder.' if lossless else {
+                'fast':'Spend less time compressing. File size and fine detail can differ from Balanced at the same quality setting.',
+                'balanced':'Balance export time and compression efficiency.',
+                'compact':'Spend more time compressing for better efficiency. A smaller file is not guaranteed at the same quality setting.'}[speed.get_active_id()])
+            hint.set_text('Lossless FFV1 video and float PCM audio preserve the composed output. Canvas scaling, effects and 8-bit YUV color conversion still apply. Very large files; use MP4 for social uploads.' if lossless else 'Export reads your originals with saved clip crops at the selected canvas size. Maximum quality minimizes compression changes; MP4 is not lossless. View magnification and preview resolution do not affect export.')
+        quality.connect('changed',update_quality_hint);speed.connect('changed',update_quality_hint);update_quality_hint()
+        dialog.show_all();response=dialog.run();q=quality.get_active_id();export_speed=speed.get_active_id();dialog.destroy()
         if response!=Gtk.ResponseType.OK:return
         save=file_chooser(self,'Save finished video',Gtk.FileChooserAction.SAVE,'Export')
         save.set_do_overwrite_confirmation(True)
@@ -2161,9 +2175,12 @@ class ClipCanvasWindow(Gtk.Window):
         if not path.lower().endswith(extension):
             path+=extension
             if Path(path).exists() and not self.confirm_replace(path):return
-        self.render_job(path,False,self.export_done,quality=q)
+        if q!='lossless':
+            try:self.preferences.set('export_speed',export_speed)
+            except OSError:pass
+        self.render_job(path,False,self.export_done,quality=q,speed=export_speed)
 
-    def render_job(self,path,preview,done,quality='high'):
+    def render_job(self,path,preview,done,quality='high',speed='fast'):
         self.crop_tools.finish(render_frame=False)
         try:model.validate_project(self.project)
         except Exception as e:self.error(str(e));return
@@ -2206,7 +2223,7 @@ class ClipCanvasWindow(Gtk.Window):
                     if live.thread.is_alive():raise engine.RenderError('The preview is still stopping. Please try exporting again.')
                 try:self.frame_pool.submit(lambda:None).result(timeout=8)
                 except TimeoutError:raise engine.RenderError('The preview frame is still stopping. Please try exporting again.') from None
-                engine.render(snapshot,path,preview=preview,progress=progress,cancel=self.cancel_event,quality=quality,preview_edge=preview_edge);error=None
+                engine.render(snapshot,path,preview=preview,progress=progress,cancel=self.cancel_event,quality=quality,preview_edge=preview_edge,speed=speed);error=None
             except Exception as e:error=e
             GLib.idle_add(finish,error)
         self.pool.submit(work)

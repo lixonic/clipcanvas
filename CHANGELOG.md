@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — 2026-11-05
+
+- Add Fast, Balanced and Efficient compression MP4 export speeds independently
+  of the existing quality choices. Default to Fast and remember the last
+  confirmed MP4 speed across launches; cancelling either dialog keeps it unchanged.
+- Allow up to two export filter workers while retaining single-threaded input
+  decoders, the encoder's four-thread cap and the existing preview budget.
+- Keep original-source resolution, crops, grading, frame timing, audio effects,
+  atomic output publication and cancellation. Lossless masters retain FFV1/PCM;
+  their speed selector is disabled. Project format remains 8.
+- Add a repeatable full-export time/memory benchmark and generated-media checks
+  for speed choices, image quality, exact serial/parallel lossless output,
+  soundtrack agreement, source safety and native dialog preferences.
+- Measure 28–32% shorter Fast exports on generated 1080-pixel graded and layered
+  timelines; Balanced retains the previous compression preset and takes about
+  14–15% less time in those fixtures. The full suite passes with 238 successful
+  tests and two optional speech-runtime checks skipped.
+
 ## 0.18.4 — 2026-11-05
 
 - Start cut-only timelines with more than two clips using two-clip picture

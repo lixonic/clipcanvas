@@ -757,11 +757,11 @@ class DesktopWorkflowTests(unittest.TestCase):
                 self.assertFalse(live.thread.is_alive(),'Paused preview FFmpeg must exit before export starts')
                 self.assertFalse(w.canvas.live);self.assertEqual(w.scrub_timer,0)
                 self.assertIs(w.canvas.frame,frame);self.assertEqual(w.playhead,at)
-                self.assertEqual(project,before);self.assertEqual(options['quality'],'high')
+                self.assertEqual(project,before);self.assertEqual(options['quality'],'high');self.assertEqual(options['speed'],'balanced')
                 seen.append(path);return execute(project,path,**options)
             output=self.fixtures.root/'released-preview-export.mp4'
             with mock.patch.object(engine,'render',render):
-                w.render_job(str(output),False,lambda path:w.set_status('Export completed'),quality='high')
+                w.render_job(str(output),False,lambda path:w.set_status('Export completed'),quality='high',speed='balanced')
                 self.assertTrue(w.busy);self.pump(lambda:not w.busy)
             self.assertEqual(seen,[str(output)]);self.assertTrue(output.is_file());self.assertEqual(w.project,before)
             self.assertIsNone(w.preview_key);self.assertEqual(w.playhead,at)

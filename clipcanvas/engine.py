@@ -1070,13 +1070,27 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
                 watcher.join(timeout=4)
 
 
-def render(project, output, preview=False, progress=None, cancel=None, quality="high", preview_edge=640):
+EXPORT_PRESETS = {'fast': 'veryfast', 'balanced': 'medium', 'compact': 'slow'}
+
+
+def _render_filter_threads(preview):
+    # Export can share slice-capable filters between two workers. Keep the
+    # preview budget and per-input decoder limits independent; a large graph
+    # must not create a CPU-sized thread pool for every source.
+    return 1 if preview else min(2, os.cpu_count() or 1)
+
+
+def render(project, output, preview=False, progress=None, cancel=None, quality="high", preview_edge=640, speed="fast"):
     """Render synchronously; progress receives (fraction_0_to_1, message).
 
     Call from a background worker. Prepared preview uses preview_edge (640 by
     default) and a fast encoder. Choices: high (CRF 18), smaller (23), master (14).
     Lossless uses FFV1/float PCM in MKV, preserving the composed frames/audio.
     Source decoding, scaling, compositing and 8-bit YUV conversion still apply.
+    MP4 speed is independent of quality: fast (veryfast), balanced (medium), or
+    compact (slow). Presets trade encoding time against compression efficiency;
+    equal CRF values across presets do not promise identical visual quality.
+    Preview and lossless encoding ignore speed.
     """
     project = copy.deepcopy(project)
     _source_rate(project)
@@ -1086,6 +1100,8 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         raise RenderError(str(error)) from error
     if quality not in ("high", "smaller", "master", "lossless"):
         raise RenderError("Choose high, smaller, master or lossless export quality.")
+    if not isinstance(speed, str) or speed not in EXPORT_PRESETS:
+        raise RenderError("Choose fast, balanced or compact export speed.")
     output = Path(output).expanduser().resolve()
     for item in media_items(project):
         source = Path(item["path"]).resolve()
@@ -1116,11 +1132,11 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
                             '-pix_fmt', 'yuv420p', '-c:a', 'pcm_f32le']
             else:
                 crf = "18" if preview else {"high": "18", "smaller": "23", "master": "14"}[quality]
-                encoding = ['-c:v', 'libx264', '-preset', 'ultrafast' if preview else 'medium',
+                encoding = ['-c:v', 'libx264', '-preset', 'ultrafast' if preview else EXPORT_PRESETS[speed],
                             '-crf', crf, '-pix_fmt', 'yuv420p', '-c:a', 'aac',
                             '-b:a', '192k' if preview else '320k', '-movflags', '+faststart']
             arguments = ["-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
-                         "-filter_complex_threads", "1"] + input_args + [
+                         "-filter_complex_threads", str(_render_filter_threads(preview))] + input_args + [
                          "-filter_complex_script", str(graph_path), "-map", "[outvideo]", "-map", "[outaudio]"] + encoding + [
                          "-threads", str(min(4, os.cpu_count() or 2)), "-ar", "48000", "-ac", "2", "-t", _fmt(seconds),
                          "-max_muxing_queue_size", "2048", "-progress", "pipe:1", "-stats_period", "0.2", temporary]
