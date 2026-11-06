@@ -1,5 +1,8 @@
 # Export speed — 0.19.0
 
+Version 0.20.0 adds [Automatic/Software hardware encoding](HARDWARE-EXPORT.md).
+The software measurements and preset mappings below describe the 0.19.0 path.
+
 Selected scope: **X08** and **C55**. The intended outcome is to shorten full-video
 exports with independent speed controls and a measured CPU filter budget.
 
@@ -43,7 +46,7 @@ unchanged. Preview decoders are still released before export. Files are written
 to a temporary destination and published only after successful completion;
 cancellation preserves an existing destination and original media.
 
-This release uses software encoding. GPU encoding, reusable rendered sections,
+Version 0.19.0 uses software encoding. GPU encoding, reusable rendered sections,
 parallel segment rendering and stream-copy shortcuts remain separate work.
 The whole composition is still one graph; there is no fixed total RAM cap.
 More complex filters can remain the bottleneck even when H.264 encoding is fast.

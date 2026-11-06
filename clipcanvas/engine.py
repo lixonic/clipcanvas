@@ -1071,6 +1071,7 @@ def live_stream(project, start=0, cancel=None, preview_edge=640, status=None):
 
 
 EXPORT_PRESETS = {'fast': 'veryfast', 'balanced': 'medium', 'compact': 'slow'}
+EXPORT_ENCODINGS = ('auto', 'software')
 
 
 def _render_filter_threads(preview):
@@ -1080,7 +1081,65 @@ def _render_filter_threads(preview):
     return 1 if preview else min(2, os.cpu_count() or 1)
 
 
-def render(project, output, preview=False, progress=None, cancel=None, quality="high", preview_edge=640, speed="fast"):
+def _vaapi_encoding(quality, speed):
+    # VAAPI CQP and x264 CRF are different quality scales. Keep their mappings
+    # explicit; a matching numeric value does not imply matching visual quality.
+    return ['-c:v', 'h264_vaapi', '-rc_mode', 'CQP', '-qp',
+            {'master': '14', 'high': '18', 'smaller': '23'}[quality],
+            '-compression_level', {'fast': '7', 'balanced': '4', 'compact': '1'}[speed]]
+
+
+def _probe_vaapi(device, width, height, fps, quality, speed, cancel=None, timeout=4):
+    """Actually encode at the requested size/settings, with bounded cancellation.
+
+    Build-time encoder listings cannot establish that a driver/device works.
+    Called only from the render worker, never GTK's main thread.
+    """
+    if cancel is not None and cancel.is_set():
+        raise RenderCancelled('Export cancelled.')
+    binary, env = _tool('ffmpeg')
+    with tempfile.TemporaryDirectory(prefix='clipcanvas-hardware-probe-') as scratch:
+        output = Path(scratch)/'probe.mp4'
+        with (Path(scratch)/'probe.log').open('wb') as log:
+            try:
+                process = subprocess.Popen([binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+                    '-y', '-vaapi_device', str(device), '-filter_threads', '1', '-f', 'lavfi',
+                    '-i', f'color=black:s={width}x{height}:r={_fmt(fps)}',
+                    '-vf', 'format=nv12,hwupload', '-frames:v', '2'] +
+                    _vaapi_encoding(quality, speed) + ['-an', str(output)],
+                    stdout=subprocess.DEVNULL, stderr=log, stdin=subprocess.DEVNULL, env=env)
+            except OSError:
+                return False
+            deadline = time.monotonic()+timeout
+            try:
+                while process.poll() is None:
+                    if cancel is not None and cancel.is_set():
+                        raise RenderCancelled('Export cancelled.')
+                    if time.monotonic() >= deadline:
+                        return False
+                    if cancel is not None:
+                        cancel.wait(.025)
+                    else:
+                        time.sleep(.025)
+                if cancel is not None and cancel.is_set():
+                    raise RenderCancelled('Export cancelled.')
+                return process.returncode == 0 and output.is_file() and output.stat().st_size > 0
+            finally:
+                _stop(process, immediate=True)
+
+
+def _vaapi_device(width, height, fps, quality, speed, cancel=None):
+    """Select a currently usable Linux render node; do not cache driver failures."""
+    for device in sorted(Path('/dev/dri').glob('renderD*'))[:4]:
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled('Export cancelled.')
+        if (device.is_char_device() and os.access(device, os.R_OK | os.W_OK)
+                and _probe_vaapi(device, width, height, fps, quality, speed, cancel)):
+            return device
+    return None
+
+
+def render(project, output, preview=False, progress=None, cancel=None, quality="high", preview_edge=640, speed="fast", encoding="software"):
     """Render synchronously; progress receives (fraction_0_to_1, message).
 
     Call from a background worker. Prepared preview uses preview_edge (640 by
@@ -1091,6 +1150,9 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
     compact (slow). Presets trade encoding time against compression efficiency;
     equal CRF values across presets do not promise identical visual quality.
     Preview and lossless encoding ignore speed.
+    Automatic encoding probes VAAPI at the actual canvas size, then falls back
+    to software if unavailable or if hardware rendering fails. Preview/lossless
+    ignore encoding. The API retains software as its default.
     """
     project = copy.deepcopy(project)
     _source_rate(project)
@@ -1102,6 +1164,8 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
         raise RenderError("Choose high, smaller, master or lossless export quality.")
     if not isinstance(speed, str) or speed not in EXPORT_PRESETS:
         raise RenderError("Choose fast, balanced or compact export speed.")
+    if encoding not in EXPORT_ENCODINGS:
+        raise RenderError('Choose automatic or software encoding.')
     output = Path(output).expanduser().resolve()
     for item in media_items(project):
         source = Path(item["path"]).resolve()
@@ -1127,20 +1191,60 @@ def render(project, output, preview=False, progress=None, cancel=None, quality="
             input_args, graph, seconds = _graph(project, preview, scratch=scratch, cancel=cancel, preview_edge=preview_edge)
             graph_path = Path(scratch) / "filters.txt"
             graph_path.write_text(graph, encoding="utf-8")
+            device = None
+            if encoding == 'auto' and not preview and not lossless:
+                if progress:
+                    progress(0.0, 'Testing graphics hardware…')
+                device = _vaapi_device(project['width'], project['height'], project['fps'], quality, speed, cancel)
+                if device is None and progress:
+                    progress(0.0, 'Graphics encoding unavailable. Using software…')
             if lossless:
-                encoding = ['-c:v', 'ffv1', '-level', '3', '-g', '1', '-slicecrc', '1',
+                software_encoding = ['-c:v', 'ffv1', '-level', '3', '-g', '1', '-slicecrc', '1',
                             '-pix_fmt', 'yuv420p', '-c:a', 'pcm_f32le']
             else:
                 crf = "18" if preview else {"high": "18", "smaller": "23", "master": "14"}[quality]
-                encoding = ['-c:v', 'libx264', '-preset', 'ultrafast' if preview else EXPORT_PRESETS[speed],
+                software_encoding = ['-c:v', 'libx264', '-preset', 'ultrafast' if preview else EXPORT_PRESETS[speed],
                             '-crf', crf, '-pix_fmt', 'yuv420p', '-c:a', 'aac',
                             '-b:a', '192k' if preview else '320k', '-movflags', '+faststart']
-            arguments = ["-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
-                         "-filter_complex_threads", str(_render_filter_threads(preview))] + input_args + [
-                         "-filter_complex_script", str(graph_path), "-map", "[outvideo]", "-map", "[outaudio]"] + encoding + [
-                         "-threads", str(min(4, os.cpu_count() or 2)), "-ar", "48000", "-ac", "2", "-t", _fmt(seconds),
-                         "-max_muxing_queue_size", "2048", "-progress", "pipe:1", "-stats_period", "0.2", temporary]
-            _execute(arguments, seconds, progress, cancel, Path(scratch) / "ffmpeg.log")
+            for active_device in ((device, None) if device is not None else (None,)):
+                selected_graph = graph_path
+                video_label = '[outvideo]'
+                device_args = []
+                selected_encoding = software_encoding
+                if active_device is not None:
+                    # Only the final composed frames move to the GPU. The same
+                    # original-source composition/audio graph is reused on retry.
+                    selected_graph = Path(scratch)/'filters-hardware.txt'
+                    selected_graph.write_text(graph+';\n[outvideo]format=nv12,hwupload[hardwarevideo]', encoding='utf-8')
+                    video_label = '[hardwarevideo]'
+                    device_args = ['-vaapi_device', str(active_device)]
+                    selected_encoding = _vaapi_encoding(quality, speed) + [
+                        '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart']
+                message = ('Rendering preview…' if preview else
+                           'Rendering with graphics hardware…' if active_device is not None else
+                           'Rendering with software…')
+                if progress:
+                    progress(0.0, message)
+                def report(value, detail):
+                    if progress:
+                        progress(value, message)
+                arguments = ["-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
+                             "-filter_complex_threads", str(_render_filter_threads(preview))] + device_args + input_args + [
+                             "-filter_complex_script", str(selected_graph), "-map", video_label, "-map", "[outaudio]"] + selected_encoding + [
+                             "-threads", str(min(4, os.cpu_count() or 2)), "-ar", "48000", "-ac", "2", "-t", _fmt(seconds),
+                             "-max_muxing_queue_size", "2048", "-progress", "pipe:1", "-stats_period", "0.2", temporary]
+                try:
+                    _execute(arguments, seconds, report, cancel, Path(scratch)/('hardware.log' if active_device is not None else 'ffmpeg.log'))
+                    break
+                except RenderCancelled:
+                    raise
+                except RenderError:
+                    if active_device is None:
+                        raise
+                    if cancel is not None and cancel.is_set():
+                        raise RenderCancelled('Export cancelled.') from None
+                    if progress:
+                        progress(0.0, 'Graphics encoding failed. Retrying with software…')
         if cancel is not None and cancel.is_set():
             raise RenderCancelled("Export cancelled.")
         if not Path(temporary).stat().st_size:

@@ -24,7 +24,7 @@ from clipcanvas import color_grading, engine, model
 from benchmark_crop_memory import resident_kib
 
 
-def measure(project, output, speed, legacy=False):
+def measure(project, output, speed, legacy=False, encoding='software'):
     stopped = threading.Event()
     peak = 0
     children = Path(f'/proc/{os.getpid()}/task/{threading.get_native_id()}/children')
@@ -39,16 +39,22 @@ def measure(project, output, speed, legacy=False):
     monitor = threading.Thread(target=sample, daemon=True)
     monitor.start()
     started = time.monotonic()
+    messages = []
+    def progress(value, message):
+        if not messages or messages[-1] != message:
+            messages.append(message)
     try:
         budget = mock.patch.object(engine, '_render_filter_threads', return_value=1) if legacy else contextlib.nullcontext()
         with budget:
-            engine.render(project, output, quality='master', speed=speed)
+            engine.render(project, output, quality='master', speed=speed, encoding=encoding, progress=progress)
         elapsed = time.monotonic()-started
     finally:
         stopped.set();monitor.join()
     info = engine.probe(output)
+    backend = next((message for message in reversed(messages) if message.startswith('Rendering with ')), '')
     return {'seconds': round(elapsed, 3), 'peak_ffmpeg_rss_mib': round(peak/1024, 2),
             'bytes': output.stat().st_size,
+            'encoding': encoding, 'rendering_status': backend,
             'video': {key: info[key] for key in ('width', 'height', 'fps', 'duration')}}
 
 
@@ -82,6 +88,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, help='Read a saved project without modifying it')
     parser.add_argument('--layered', action='store_true', help='Add crops, transitions, title, caption and echo to generated media')
+    parser.add_argument('--hardware', action='store_true', help='Compare automatic hardware encoding with software Fast')
     parser.add_argument('--repeats', type=int, default=2)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -100,11 +107,13 @@ def main():
         sources += project['audio'] + [layer for layer in project['layers'] if layer['kind'] == 'video']
         for item in sources:
             engine.probe(item['path'])
-        cases = [('legacy', 'balanced'), ('fast', 'fast'), ('balanced', 'balanced'), ('compact', 'compact')]
+        cases = ([('software-fast', 'fast', 'software'), ('automatic-fast', 'fast', 'auto')] if args.hardware else
+                 [('legacy', 'balanced', 'software'), ('fast', 'fast', 'software'),
+                  ('balanced', 'balanced', 'software'), ('compact', 'compact', 'software')])
         for repeat in range(args.repeats):
-            for name, speed in (cases if repeat % 2 == 0 else list(reversed(cases))):
+            for name, speed, encoding in (cases if repeat % 2 == 0 else list(reversed(cases))):
                 output = root/f'{repeat}-{name}.mp4'
-                result = measure(project, output, speed, legacy=name == 'legacy')
+                result = measure(project, output, speed, legacy=name == 'legacy', encoding=encoding)
                 result.update(mode=name, repeat=repeat+1)
                 runs.append(result)
                 output.unlink()
@@ -112,13 +121,13 @@ def main():
         if project != original:
             raise RuntimeError('Export modified the in-memory project.')
         summary = []
-        for name, _ in cases:
+        for name, _, _ in cases:
             selected = [run for run in runs if run['mode'] == name]
             summary.append({'mode': name,
                 'median_seconds': round(statistics.median(run['seconds'] for run in selected), 3),
                 'max_peak_ffmpeg_rss_mib': max(run['peak_ffmpeg_rss_mib'] for run in selected)})
         report = {'fixture': 'saved project' if args.project else 'layered' if args.layered else 'graded cuts',
-                  'timeline_seconds': model.project_duration(project), 'crf': 14,
+                  'timeline_seconds': model.project_duration(project), 'quality': 'master',
                   'export_filter_threads': engine._render_filter_threads(False),
                   'runs': runs, 'summary': summary}
         if args.output:

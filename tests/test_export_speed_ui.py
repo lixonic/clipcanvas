@@ -44,10 +44,11 @@ class ExportSpeedUITests(unittest.TestCase):
         def choose(w):
             self.assertEqual(w.export_quality_combo.get_active_id(), 'master')
             self.assertEqual(w.export_speed_combo.get_active_id(), 'fast')
+            self.assertEqual(w.export_encoding_combo.get_active_id(), 'software')
             w.export_quality_combo.set_active_id('high')
             w.export_speed_combo.set_active_id('balanced')
         render = self.choose_export(choose)
-        self.assertEqual(render.call_args.kwargs, {'quality': 'high', 'speed': 'balanced'})
+        self.assertEqual(render.call_args.kwargs, {'quality': 'high', 'speed': 'balanced', 'encoding': 'software'})
         self.assertEqual(self.window.preferences.get('export_speed'), 'balanced')
         reopened = ClipCanvasWindow(recovery_dir=self.root/'recovery')
         try:
@@ -87,3 +88,28 @@ class ExportSpeedUITests(unittest.TestCase):
         with mock.patch.object(self.window.preferences, 'set', side_effect=OSError('Read-only config')):
             render = self.choose_export(lambda w: w.export_speed_combo.set_active_id('compact'))
         self.assertEqual(render.call_args.kwargs['speed'], 'compact')
+
+    def test_encoding_is_remembered_and_lossless_does_not_replace_it(self):
+        render = self.choose_export(lambda w: w.export_encoding_combo.set_active_id('auto'))
+        self.assertEqual(render.call_args.kwargs['encoding'], 'auto')
+        self.assertEqual(self.window.preferences.get('export_encoding'), 'auto')
+        def choose_master(w):
+            self.assertEqual(w.export_encoding_combo.get_active_id(), 'auto')
+            w.export_encoding_combo.set_active_id('software')
+            w.export_quality_combo.set_active_id('lossless')
+            self.assertFalse(w.export_encoding_combo.get_sensitive())
+            w.export_quality_combo.set_active_id('master')
+            self.assertTrue(w.export_encoding_combo.get_sensitive())
+            self.assertEqual(w.export_encoding_combo.get_active_id(), 'software')
+            w.export_quality_combo.set_active_id('lossless')
+        self.choose_export(choose_master)
+        self.assertEqual(self.window.preferences.get('export_encoding'), 'auto')
+
+    def test_invalid_encoding_defaults_to_software_and_cancellation_keeps_saved_choice(self):
+        self.window.preferences.set('export_encoding', {'invalid': True})
+        self.choose_export(lambda w: self.assertEqual(w.export_encoding_combo.get_active_id(), 'software'))
+        self.window.preferences.set('export_encoding', 'software')
+        choose = lambda w: w.export_encoding_combo.set_active_id('auto')
+        self.choose_export(choose, response=Gtk.ResponseType.CANCEL).assert_not_called()
+        self.choose_export(choose, save_response=Gtk.ResponseType.CANCEL).assert_not_called()
+        self.assertEqual(self.window.preferences.get('export_encoding'), 'software')

@@ -184,7 +184,7 @@ Canva features. They are selected; detailed designs and platform validation rema
 | X05 | Dialogue ducking, audio envelopes, meters and EQ | Mix music, voice and effects predictably | Partial: echo, gain, bass/treble, tone filters, compressor and A/B audition; ducking, meters and arbitrary envelopes pending |
 | X06 | Chroma key, masks and optional motion tracking | Composite and follow subjects | New work |
 | X07 | LUT/color tools and explicit HDR handling | Make picture treatment and color conversion deliberate | New work |
-| X08 | Export codec/bitrate choices, queue and optional hardware encoding | Control quality, size and processing time | Independent Fast/Balanced/Efficient compression H.264 speeds, remembered MP4 speed and up to two export filter workers (0.19.0); quality presets plus lossless FFV1/float-PCM MKV master; queue/hardware encoding pending |
+| X08 | Export codec/bitrate choices, queue and optional hardware encoding | Control quality, size and processing time | Automatic/Software MP4 encoding with actual VAAPI probes, cancellation and software retry (0.20.0); independent H.264 speeds, remembered MP4 choices and up to two filter workers (0.19.0); quality presets plus lossless FFV1/float-PCM MKV master; queue/other hardware backends pending |
 | X09 | Autosave recovery, missing-media relink and collect-media projects | Resume work safely and move it between computers | Existing: 30-second recovery, relink and portable collection |
 | X10 | Native Windows installer and Ubuntu release checks | Deliver the same core workflow on both platforms | Ubuntu .deb tested; portable progress reader; Windows runtime/installer pending |
 

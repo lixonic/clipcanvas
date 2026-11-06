@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.20.0 — 2026-11-06
+
+- Add Automatic/Software MP4 encoding choices. Automatic tests Linux VAAPI with
+  the selected canvas, frame rate, quality and speed before using the GPU, and
+  retries the same composition in software if hardware rendering fails.
+- Remember the last confirmed MP4 encoding choice; retain Software as the
+  default. Hardware speedups depend on composition and load. Lossless masters
+  and prepared previews retain their own software
+  encoders. Source decoding, grading, crops, captions and audio processing stay
+  on the shared composition path; saved project format remains 8.
+- Bound each capability probe to four seconds, support prompt cancellation and
+  process cleanup, and preserve original media/existing exports on failure or
+  cancellation. Show the active encoding path and software retries in progress.
+- Verify real Intel VAAPI exports at every quality/speed combination, including
+  full frame counts, picture fidelity and exact soundtrack agreement. Extend the
+  export benchmark with hardware/software comparisons and actual-path reporting.
+
 ## 0.19.0 — 2026-11-05
 
 - Add Fast, Balanced and Efficient compression MP4 export speeds independently

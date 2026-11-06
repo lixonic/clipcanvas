@@ -21,7 +21,7 @@ def resident_kib(pid):
     """Read Linux's process high-water mark without adding a dependency."""
     try:
         fields = Path(f'/proc/{pid}/status').read_text().splitlines()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return 0
     return max([int(line.split()[1]) for line in fields
                 if line.startswith(('VmRSS:', 'VmHWM:'))] or [0])
