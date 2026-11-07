@@ -119,6 +119,7 @@ def _probe_cached(path, size, mtime):
                 "has_audio": bool(audios), "has_video": bool(videos),
                 "fps": _fraction(video.get("avg_frame_rate", "0/1")) or _fraction(video.get("r_frame_rate", "0/1")),
                 "video_index": video.get("index", 0),
+                "color_range": video.get("color_range", "unknown"),
                 "audio_index": audios[0].get("index", 0) if audios else None,
                 "audio_sample_rate": int(audios[0].get("sample_rate", 48000)) if audios else 0,
                 "audio_channels": int(audios[0].get("channels", 1)) if audios else 0,

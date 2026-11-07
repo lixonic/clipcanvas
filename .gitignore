@@ -57,6 +57,7 @@ htmlcov/
 !/installers/ubuntu/clipcanvas_0.17.1_all.deb
 !/installers/ubuntu/clipcanvas_0.19.0_all.deb
 !/installers/ubuntu/clipcanvas_0.20.0_all.deb
+!/installers/ubuntu/clipcanvas_0.20.1_all.deb
 *.clipcanvas
 *.mp4
 *.mov

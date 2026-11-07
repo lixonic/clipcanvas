@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.20.1 — 2026-11-07
+
+- Fix dark paused/scrub previews of full-range video when native decoding
+  reports limited-range levels. Correct color-range interpretation before RGB
+  conversion, preserving the source matrix, transfer and primaries.
+- Keep repeated seeks on the reusable native decoder. Read proxy range metadata
+  independently so limited-range proxies are not expanded a second time.
+  Fall back to the composition renderer if native range correction is unavailable.
+- Verify original import color, full/limited-range sources, forward/backward
+  seeking, proxies, live playback and lossless/MP4 exports with generated media.
+  No automatic grade is added; saved edits and original files remain intact.
+
 ## 0.20.0 — 2026-11-06
 
 - Add Automatic/Software MP4 encoding choices. Automatic tests Linux VAAPI with

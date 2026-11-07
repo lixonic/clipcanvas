@@ -21,6 +21,50 @@ from . import engine, model, visuals
 Gst.init(None)
 
 
+class _FullRangeFilter:
+    """Reconcile decoded YUV caps with the source's explicit full-range flag.
+
+    Some MP4 demux/decoder combinations negotiate limited-range raw caps
+    even when the source says full range. Correct the interpretation
+    before videoconvert, without touching pixels, matrix, transfer or primaries.
+    """
+    # GStreamer's standard colorimetry aliases: range:matrix:transfer:primaries.
+    _ALIASES = {'bt601': '2:4:16:4', 'bt709': '2:3:5:1',
+                'smpte240m': '2:5:6:5', 'sRGB': '1:1:7:1',
+                'bt2020': '2:6:11:7', 'bt2020-10': '2:6:13:7',
+                'bt2100-pq': '2:6:14:7', 'bt2100-hlg': '2:6:15:7'}
+
+    def __init__(self):
+        self.element = Gst.ElementFactory.make('capssetter', None)
+        if self.element is None:
+            raise engine.RenderError('Full-range native preview is unavailable.')
+        self.error = None
+        self.pad = self.element.get_static_pad('sink')
+        self.probe_id = self.pad.add_probe(Gst.PadProbeType.EVENT_DOWNSTREAM, self._caps)
+
+    def _caps(self, pad, info):
+        event = info.get_event()
+        if event.type == Gst.EventType.CAPS:
+            caps = event.parse_caps()
+            value = caps.get_structure(0).get_string('colorimetry')
+            parts = self._ALIASES.get(value, value or '').split(':')
+            if len(parts) == 4 and all(part.isdigit() for part in parts):
+                # RGB output has already been converted. Do not reinterpret it.
+                if parts[1] == '1' and parts[0] != '1':
+                    self.error = 'Native decoder converted color before range correction.'
+                else:
+                    parts[0] = '1'
+                    self.element.set_property('caps', Gst.Caps.from_string(
+                        'video/x-raw,colorimetry='+':'.join(parts)))
+                    self.error = None
+            else:
+                self.error = 'Native decoder did not supply usable color information.'
+        return Gst.PadProbeReturn.OK
+
+    def close(self):
+        self.pad.remove_probe(self.probe_id)
+
+
 class ScrubSession:
     """Worker-owned seeking with one decoder and two buffered source frames."""
     def __init__(self):
@@ -29,14 +73,18 @@ class ScrubSession:
         self.last_backend = None
         self.open_count = 0
         self._source_pts = self._source_picture = None
+        self._range_filter = None
 
     def close(self):
         with self._lock:
             pipeline, self.pipeline = self.pipeline, None
+            range_filter, self._range_filter = self._range_filter, None
             self.sink = self.path = None
             self._source_pts = self._source_picture = None
         if pipeline is not None:
             pipeline.set_state(Gst.State.NULL)
+        if range_filter is not None:
+            range_filter.close()
 
     @staticmethod
     def _check(cancel):
@@ -58,15 +106,23 @@ class ScrubSession:
         pipeline.set_property('video-sink', sink)
         pipeline.set_property('audio-sink', Gst.ElementFactory.make('fakesink', None))
         pipeline.set_property('flags', 1)  # Decode the picture only.
+        # Probe the actual decoder input, including a proxy when one is used.
+        # Unknown/limited-range sources retain GStreamer's normal negotiation.
+        range_filter = None
+        if engine.probe(path).get('color_range') == 'pc':
+            range_filter = _FullRangeFilter()
+            pipeline.set_property('video-filter', range_filter.element)
         pipeline.set_property('uri', Path(path).resolve().as_uri())
         with self._lock:
             self.pipeline, self.sink, self.path = pipeline, sink, path
+            self._range_filter = range_filter
             self.open_count += 1
         pipeline.set_state(Gst.State.PAUSED)
         return pipeline, sink
 
     def _picture(self, path, at, cancel):
         pipeline, sink = self._decoder(path)
+        range_filter = self._range_filter
         bus = pipeline.get_bus()
         deadline = time.monotonic() + 8
         # Wait for the initial preroll so seek_simple can operate immediately.
@@ -92,6 +148,8 @@ class ScrubSession:
             self._check(cancel)
             sample = sink.emit('try-pull-sample' if nearby else 'try-pull-preroll', 20*Gst.MSECOND)
             if sample is not None:
+                if range_filter is not None and range_filter.error:
+                    raise engine.RenderError(range_filter.error)
                 buffer = sample.get_buffer()
                 timestamp=buffer.pts
                 segment=sample.get_segment()
