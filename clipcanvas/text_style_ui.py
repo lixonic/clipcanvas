@@ -153,10 +153,12 @@ class TextStyleEditor:
         # sample; effect widths are scaled by the same factor as the real glyphs.
         scale = 22/max(1,style.get('font_size',48))
         for key in ('outline_width','shadow_x','shadow_y','shadow_blur',
-                    'background_radius','background_padding'):
+                    'background_radius','background_padding','highlight_radius','highlight_padding'):
             style[key] = style.get(key,0)*scale
         style.update(kind='text',text=text,font_size=22,x=.5,y=.5,width=.96,height=.92,
                      rotation=0,opacity=1)
+        if style.get('word_highlight'):
+            style.update(_text_effect='highlight', _text_step=max(0, len(text.split())-1))
         visuals._paint(cr,{'width':width,'height':height},style,(0,0,width,height))
         return False
 
@@ -168,3 +170,101 @@ class TextStyleEditor:
     def draw_preview(self, widget, cr):
         self.paint_sample(widget,cr,self.read_into(copy.deepcopy(self.base)),self.sample)
         return False
+
+
+class CaptionStyleEditor(TextStyleEditor):
+    """Caption appearance, placement and persistent named presets in one editor."""
+    def __init__(self, parent, style, preferences):
+        from . import caption_styles
+        self.preferences = preferences
+        super().__init__(parent, style)
+        controls = column()
+        parent.pack_start(controls, False, False, 0)
+        parent.reorder_child(controls, 3)
+        reference = Gtk.Button(label='Spoken word · yellow highlight')
+        reference.connect('clicked', lambda _:self.set_style(caption_styles.spoken_word(self.read_into(copy.deepcopy(self.base)))))
+        controls.pack_start(reference, False, False, 0)
+        self.word_highlight = Gtk.CheckButton(label='Highlight the spoken word')
+        controls.pack_start(self.word_highlight, False, False, 0)
+        self.word_highlight.connect('toggled', self.changed)
+        hint = Gtk.Label(label='Generated captions follow speech timestamps. Imported, older or edited captions use evenly spaced timing until regenerated.', xalign=0)
+        hint.set_line_wrap(True);hint.set_max_width_chars(42)
+        controls.pack_start(hint, False, False, 0)
+        for key, title in (('highlight_color', 'Active word background'), ('active_color', 'Active word text')):
+            picker = Gtk.ColorButton();picker.set_use_alpha(True);self.colors[key] = picker
+            self.row(controls, title, picker);picker.connect('color-set', self.changed)
+        self.highlight_radius = self.number(controls, 'Highlight roundness', 0, 256, 1)
+        self.highlight_padding = self.number(controls, 'Highlight padding', 0, 128, 1)
+        for widget in (self.highlight_radius, self.highlight_padding):widget.connect('value-changed', self.changed)
+        self.position = {}
+        placement = column()
+        for key, title, low in (('x','Horizontal position (%)',0), ('y','Vertical position (%)',0),
+                                ('width','Caption width (%)',5), ('height','Caption height (%)',1)):
+            self.position[key] = self.number(placement, title, low, 100, 1)
+        positions = Gtk.Box(spacing=6)
+        for title, y in (('Top', .18), ('Middle', .5), ('Bottom', .88)):
+            button = Gtk.Button(label=title)
+            button.connect('clicked', lambda _, at=y:self.position['y'].set_value(at*100))
+            positions.pack_start(button, True, True, 0)
+        placement.pack_start(positions, False, False, 0)
+        expander = Gtk.Expander(label='Caption position and size');expander.set_expanded(True);expander.add(placement)
+        controls.pack_start(expander, False, False, 0)
+        self.saved = Gtk.ComboBoxText()
+        self.saved.get_accessible().set_name('Saved caption presets')
+        self.row(controls, 'Saved presets', self.saved)
+        load = Gtk.Button(label='Load preset');load.connect('clicked', self.load_preset)
+        controls.pack_start(load, False, False, 0)
+        self.preset_name = Gtk.Entry();self.preset_name.set_placeholder_text('Preset name');self.preset_name.set_max_length(80)
+        controls.pack_start(self.preset_name, False, False, 0)
+        save = Gtk.Button(label='Save as preset');save.connect('clicked', self.save_preset)
+        controls.pack_start(save, False, False, 0)
+        self.preset_message = Gtk.Label(label='Presets include style and placement, and are available in every project. Saving the same name updates it.', xalign=0)
+        self.preset_message.set_line_wrap(True);self.preset_message.set_max_width_chars(42)
+        controls.pack_start(self.preset_message, False, False, 0)
+        self.refresh_presets()
+        self.set_style(style)
+
+    def set_style(self, style):
+        from . import caption_styles
+        style = {**caption_styles.defaults(), **style}
+        self.base = copy.deepcopy(style)
+        super().set_style(style)
+        if not hasattr(self, 'position'):return
+        self.loading = True
+        self.word_highlight.set_active(style['word_highlight'])
+        for key in ('highlight_radius', 'highlight_padding'):getattr(self,key).set_value(style[key])
+        for key, widget in self.position.items():widget.set_value(style.get(key, self.base[key])*100)
+        self.loading = False
+        self.preview.queue_draw()
+
+    def read_into(self, item):
+        super().read_into(item)
+        if hasattr(self, 'position'):
+            item['animation'] = copy.deepcopy(self.base.get('animation', {}))
+            item['word_highlight'] = self.word_highlight.get_active()
+            for key in ('highlight_radius', 'highlight_padding'):item[key] = getattr(self,key).get_value()
+            for key, widget in self.position.items():item[key] = widget.get_value()/100
+        return item
+
+    def refresh_presets(self, selected=None):
+        from .caption_styles import saved_presets
+        self.saved.remove_all()
+        for name in saved_presets(self.preferences):self.saved.append(name, name)
+        if selected:self.saved.set_active_id(selected)
+
+    def load_preset(self, *_):
+        from .caption_styles import saved_presets
+        name = self.saved.get_active_id()
+        style = saved_presets(self.preferences).get(name)
+        if style:
+            self.set_style(style);self.preset_name.set_text(name)
+            self.preset_message.set_text('Loaded '+name+'. Apply to use it in this project.')
+
+    def save_preset(self, *_):
+        from .caption_styles import save_preset
+        try:
+            name = save_preset(self.preferences, self.preset_name.get_text(), self.read_into(copy.deepcopy(self.base)))
+        except (ValueError, OSError) as error:
+            self.preset_message.set_text(str(error));return
+        self.refresh_presets(name)
+        self.preset_message.set_text('Saved '+name+' with its style and placement.')

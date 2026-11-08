@@ -50,6 +50,8 @@ def text_style():
 def caption_style():
     """Captions share a style; each cue stores only its text and timing."""
     result = text_style()
+    from .caption_styles import defaults
+    result.update(defaults())
     result.update({"font_size": 48.0, "width": 0.9, "height": 0.15, "y": 0.88})
     return result
 
@@ -445,11 +447,16 @@ def validate_project(project, check_files=True, require_clips=False):
         label = f"Caption {index + 1}"
         _timed_item(item, label)
         _text(item.get("text"), f"{label} text", 2000)
+        if 'word_timings' in item:
+            from .captions import validate_word_timings
+            validate_word_timings(item['word_timings'])
         _animation(item,label,True);_sound_effect(item,label,check_files)
     style = project.get("caption_style")
     if not isinstance(style, dict):
         raise ValueError("The caption style is missing or invalid.")
     _text_style(style, "Caption")
+    from .caption_styles import validate as validate_caption_style
+    validate_caption_style(style)
     _animation(style,'Caption style',True)
     assets = project.get('assets', [])
     if not isinstance(assets, list) or len(assets) > 1000:

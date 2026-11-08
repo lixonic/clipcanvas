@@ -486,10 +486,9 @@ def _caption_stream(project, scratch, width, height, total, cancel=None, prefix=
         for key, entering in (('start', True), ('end', False)):
             boundary = max(0.0, min(total, float(cue[key])))
             events.setdefault(boundary, []).append((index, entering))
-        if animations.normalise(cue.get('animation', project.get('caption_style', {}).get('animation')))['text_effect'] != 'none':
-            steps = max(1, animations.text_steps(cue))
-            for step in range(1, steps):
-                boundary = cue['start']+(cue['end']-cue['start'])*step/steps
+        styled = visuals.caption_item(project, cue['text'], cue)
+        if animations.normalise(styled.get('animation'))['text_effect'] != 'none':
+            for boundary in animations.text_boundaries(styled):
                 if 0 < boundary < total: events.setdefault(boundary, [])
     boundaries = sorted({0.0, total} | set(events))
     active = set()
@@ -506,7 +505,7 @@ def _caption_stream(project, scratch, width, height, total, cancel=None, prefix=
                 active.add(index)
             else:
                 active.discard(index)
-        text = tuple((cues[index]['text'], animations.text_step(cues[index], begin+1e-8),
+        text = tuple((cues[index]['text'], animations.text_step(visuals.caption_item(project, cues[index]['text'], cues[index]), begin+1e-8),
                       str(cues[index].get('animation', project.get('caption_style', {}).get('animation')))) for index in sorted(active))
         if text not in cached:
             path = Path(scratch)/f'{prefix}-{len(cached)}.png'

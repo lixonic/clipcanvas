@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.21.0 — 2026-11-08
+
+- Preserve recognized word timestamps and highlight the spoken word with a
+  rounded yellow background and dark text, keeping other words white/outlined.
+  Respect pauses and Malayalam shaping in native preview and exported video.
+- Add caption position/size controls and Top/Middle/Bottom shortcuts, plus named
+  style presets that retain placement and are available across projects.
+- Keep word timing when moving cues and scale it when stretching their duration.
+  Older/imported or reworded captions use evenly spaced timing until regenerated.
+  Project files retain word timestamps; SRT retains cue text/timing only.
+- Verify timing, persistence, preset save/load, native editor integration and
+  real preview/export agreement, including silent gaps. Project format stays 8.
+
 ## 0.20.1 — 2026-11-07
 
 - Fix dark paused/scrub previews of full-range video when native decoding

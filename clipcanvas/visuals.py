@@ -82,6 +82,8 @@ def _text(cr, project, item, width, height):
     padding = max(4, outline+2, background_padding if tight and background[3] else 0)
     if shadow[3]:
         padding = max(padding, abs(float(item.get('shadow_x', 3)))+float(item.get('shadow_blur', 0)))
+    if item.get('word_highlight'):
+        padding = max(padding, float(item.get('highlight_padding', 6)))
     layout = _layout(cr, project, item, max(1, width-padding*2))
     _, extents = layout.get_pixel_extents()
     tx = padding
@@ -108,11 +110,24 @@ def _text(cr, project, item, width, height):
     first, last = animations.text_word_range(item, int(item.get('_text_step', -1)))
     active_boxes = [box for index, box in word_boxes if first <= index < last]
     if effect == 'highlight':
-        cr.set_source_rgba(*rgba(animations.normalise(item.get('animation'))['colour']))
+        spoken = item.get('word_highlight', False)
+        cr.set_source_rgba(*rgba(item.get('highlight_color', '#ffe500ff') if spoken else
+                                animations.normalise(item.get('animation'))['colour']))
+        pad = float(item.get('highlight_padding', 6)) if spoken else 3
+        radius = float(item.get('highlight_radius', 10)) if spoken else 4
         for bx, by, bw, bh in active_boxes:
-            _rounded_box(cr, bx-3, by-1, bw+6, bh+2, 4)
+            _rounded_box(cr, bx-pad, by-pad/3, bw+2*pad, bh+2*pad/3, radius)
             cr.fill()
     cr.save()
+    if effect == 'highlight' and item.get('word_highlight'):
+        # The active word has a clean dark fill, without the inactive words'
+        # white fill / dark outline making small Malayalam counters close up.
+        cr.rectangle(0, 0, width, height)
+        for bx, by, bw, bh in active_boxes:
+            cr.rectangle(bx-outline-1, by-outline-1, bw+2*outline+2, bh+2*outline+2)
+        cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        cr.clip()
+        cr.set_fill_rule(cairo.FILL_RULE_WINDING)
     if effect == 'reveal':
         for index, box in word_boxes:
             if index < last:
@@ -155,6 +170,18 @@ def _text(cr, project, item, width, height):
         cr.set_source_rgba(*rgba(item.get('color', '#ffffff')))
         PangoCairo.show_layout(cr, layout)
     cr.restore()
+    if effect == 'highlight' and item.get('word_highlight'):
+        # Paint the active glyphs with their own fill. The layout
+        # remains intact, preserving Malayalam shaping and stable line breaks.
+        cr.save()
+        for bx, by, bw, bh in active_boxes:
+            cr.rectangle(bx-outline-1, by-outline-1, bw+2*outline+2, bh+2*outline+2)
+        cr.clip()
+        cr.move_to(tx, ty)
+        PangoCairo.layout_path(cr, layout)
+        cr.set_source_rgba(*rgba(item.get('active_color', '#111111ff')))
+        cr.fill()
+        cr.restore()
     if effect == 'snake':
         colour = rgba(animations.normalise(item.get('animation'))['colour'])
         cr.save()
@@ -362,8 +389,12 @@ def caption_item(project, text, cue=None):
     item.setdefault('font_size', 48)
     if cue is not None:
         item.update(start=cue['start'], end=cue['end'])
+        if 'word_timings' in cue:
+            item['word_timings'] = cue['word_timings']
         if 'animation' in cue:
             item['animation'] = cue['animation']
+    if item.get('word_highlight'):
+        item['animation'] = dict(animations.normalise(item.get('animation')), text_effect='highlight')
     return item
 
 

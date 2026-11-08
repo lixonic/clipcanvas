@@ -35,7 +35,25 @@ def words(text):
 
 
 def text_steps(item):
+    if word_timings(item):
+        return len(item['word_timings'])
     return min(MAX_TEXT_STEPS, len(words(item.get('text', ''))))
+
+
+def word_timings(item):
+    timings = item.get('word_timings', [])
+    # Edited wording cannot silently reuse a different word's timestamp.
+    return timings if [w['text'] for w in timings] == item.get('text', '').split() else []
+
+
+def text_boundaries(item):
+    start = float(item.get('start', 0))
+    length = float(item.get('end', 0))-start
+    timings = word_timings(item)
+    if timings:
+        return sorted({start+length*w[key] for w in timings for key in ('start', 'end')})
+    count = max(1, text_steps(item))
+    return [start+length*step/count for step in range(1, count)]
 
 
 def text_step(item, seconds):
@@ -44,13 +62,22 @@ def text_step(item, seconds):
         return -1
     length = max(1e-9, float(item.get('end', 0))-float(item.get('start', 0)))
     progress = max(0, min(1, (seconds-float(item.get('start', 0)))/length))
+    timings = word_timings(item)
+    if timings:
+        for index, word in enumerate(timings):
+            if word['start'] <= progress < word['end']:
+                return index
+        # Keep revealed words visible through pauses; highlights follow speech.
+        if normalise(item.get('animation'))['text_effect'] == 'reveal':
+            return max((i for i, word in enumerate(timings) if word['start'] <= progress), default=-1)
+        return -1
     return min(count-1, int(progress*count))
 
 
 def text_word_range(item, step):
     """Return the inclusive-exclusive active word group for a bounded step count."""
     count = len(words(item.get('text', '')))
-    steps = min(MAX_TEXT_STEPS, count)
+    steps = text_steps(item)
     if not steps or step < 0:
         return 0, 0
     step = min(steps-1, step)

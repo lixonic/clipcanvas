@@ -103,7 +103,12 @@ class CaptionTests(unittest.TestCase):
         self.assertEqual(options['beam_size'],1);self.assertEqual(options['temperature'],0.0)
         self.assertEqual(speech.max_length,888);self.assertEqual(options['max_new_tokens'],884)
         result=emit.call_args.args[0]['result']
-        self.assertEqual(result['captions'],[{'start':.2,'end':2.4,'text':'മലയാളം വാർത്തകൾ'}])
+        cue = result['captions'][0]
+        self.assertEqual({k:cue[k] for k in ('start','end','text')},
+                         {'start':.2,'end':2.4,'text':'മലയാളം വാർത്തകൾ'})
+        self.assertEqual([w['text'] for w in cue['word_timings']], ['മലയാളം','വാർത്തകൾ'])
+        self.assertAlmostEqual(cue['word_timings'][0]['end'], 1/2.2)
+        self.assertEqual(cue['word_timings'][-1]['end'], 1)
 
     def test_malayalam_setup_requires_the_pinned_model_and_tokenizer(self):
         import importlib.util

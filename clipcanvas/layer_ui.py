@@ -292,8 +292,9 @@ class LayerTools:
         line.pack_end(spin,False,False,0);parent.pack_start(line,False,False,0);self.owner.fields[key]=(spin,mult);return spin
 
     def style_controls(self,parent,style):
-        from .text_style_ui import TextStyleEditor
-        self.style_editor=TextStyleEditor(parent,style)
+        from .text_style_ui import TextStyleEditor, CaptionStyleEditor
+        self.style_editor=(CaptionStyleEditor(parent,style,self.owner.preferences) if 'word_highlight' in style
+                           else TextStyleEditor(parent,style))
         # Keep these aliases for the existing editor controls and native checks.
         for key in ('font','bold','italic','colors','outline','align'):
             setattr(self,key,getattr(self.style_editor,key))
@@ -340,12 +341,9 @@ class LayerTools:
         content.pack_start(scroll,True,True,0);body=row_box();body.set_border_width(6);scroll.add(body)
         style=copy.deepcopy(w.project['caption_style']);editor=self.style_controls(body,style)
         if w.project.get('captions'):editor.set_sample(w.project['captions'][0]['text'])
-        self.spin(body,'y','Vertical position (%)',style['y']*100,0,100,1,100)
-        self.spin(body,'width','Caption width (%)',style['width']*100,5,100,1,100)
         dialog.show_all();response=dialog.run()
         if response==Gtk.ResponseType.OK:
             editor.read_into(style)
-            for key in ('y','width'):spin,mult=w.fields[key];style[key]=spin.get_value()/mult
             candidate=copy.deepcopy(w.project);candidate['caption_style']=style
             try:model.validate_project(candidate,check_files=False);w.checkpoint();w.project=candidate;w.changed()
             except ValueError as e:w.error(str(e))

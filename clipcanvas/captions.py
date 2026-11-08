@@ -45,6 +45,40 @@ class CaptionCancelled(CaptionError):
     pass
 
 
+def validate_word_timings(value):
+    """Word intervals are fractions of the cue, so moving/stretching is safe."""
+    if not isinstance(value, list) or len(value) > 2000:
+        raise ValueError('Caption word timings must be a list of up to 2000 words.')
+    previous = 0.0
+    for word in value:
+        if not isinstance(word, dict) or not isinstance(word.get('text'), str) or not word['text'].strip():
+            raise ValueError('Each timed word needs text.')
+        start, end = word.get('start'), word.get('end')
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+               or not 0 <= v <= 1 for v in (start, end)) or start < previous or end < start:
+            raise ValueError('Word timings must be ordered fractions within the caption.')
+        previous = end
+
+
+def timed_words(group, start, end):
+    """Map recognizer tokens (including split-script tokens) to visible words."""
+    text = ''.join(word.word for word in group)
+    tokens = []
+    offset = 0
+    for word in group:
+        tokens.append((offset, offset+len(word.word), word))
+        offset += len(word.word)
+    result = []
+    previous = 0.0
+    for match in re.finditer(r'\S+', text):
+        parts = [w for a, b, w in tokens if a < match.end() and b > match.start()]
+        begin = max(previous, min(1., max(0., (float(parts[0].start)-start)/(end-start))))
+        finish = max(begin, min(1., (float(parts[-1].end)-start)/(end-start)))
+        result.append({'text': match.group(), 'start': begin, 'end': finish})
+        previous = finish
+    return result
+
+
 def _text(value):
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError("Each caption needs non-empty text without null characters.")
@@ -70,6 +104,9 @@ def _entries(entries):
         if round(end * 1000) <= round(start * 1000):
             raise ValueError("Each SRT caption must last at least one millisecond.")
         result.append({"start": float(start), "end": float(end), "text": _text(item.get("text"))})
+        if 'word_timings' in item:
+            validate_word_timings(item['word_timings'])
+            result[-1]['word_timings'] = item['word_timings']
     return sorted(result, key=lambda item: (item["start"], item["end"]))
 
 
@@ -345,7 +382,8 @@ def generate_from_audio(path, runtime_dir=None, model="small", language=None, pr
     except ValueError as error:
         raise CaptionError("The caption worker returned invalid timing or text.") from error
     validate_language(entries, result['language'], language)
-    return {"captions": [new_caption(item["text"], item["start"], item["end"]) for item in entries],
+    return {"captions": [dict(new_caption(item["text"], item["start"], item["end"]),
+                              **({'word_timings': item['word_timings']} if 'word_timings' in item else {})) for item in entries],
             "language": result["language"]}
 
 
@@ -402,7 +440,8 @@ def _worker():
                         text = "".join(word.word for word in group).strip()
                         start, end = float(group[0].start), float(group[-1].end)
                         if text and end > start:
-                            captions.append({"start": start, "end": end, "text": text})
+                            captions.append({"start": start, "end": end, "text": text,
+                                             "word_timings": timed_words(group, start, end)})
                         group.clear()
                 for word in words:
                     if group and (len(group) >= 7 or len("".join(w.word for w in group) + word.word) > 52
