@@ -3,8 +3,8 @@ import copy
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, Pango
-from . import text_styles, visuals, bundled_fonts
+from gi.repository import Gtk, Gdk, GLib, Pango
+from . import text_styles, visuals, bundled_fonts, caption_styles
 
 
 def column(spacing=8):
@@ -12,6 +12,8 @@ def column(spacing=8):
 
 
 class TextStyleEditor:
+    presets = text_styles.PRESETS
+
     def __init__(self, parent, style):
         self.base = copy.deepcopy(style)
         self.loading = True
@@ -21,7 +23,7 @@ class TextStyleEditor:
         label.get_style_context().add_class('section')
         parent.pack_start(label, False, False, 0)
         grid = Gtk.Grid(column_spacing=6, row_spacing=6, column_homogeneous=True)
-        for index, (key, title, description) in enumerate(text_styles.PRESETS):
+        for index, (key, title, description) in enumerate(self.presets):
             button = Gtk.Button()
             content = column(3);content.set_border_width(4)
             preview = Gtk.DrawingArea();preview.set_size_request(126, 44)
@@ -60,7 +62,7 @@ class TextStyleEditor:
         self.outline = self.number(parent, 'Outline thickness', 0, 64, .5)
         self.align = Gtk.ComboBoxText()
         for value in ('left', 'center', 'right'):self.align.append(value, value.capitalize())
-        self.row(parent, 'Alignment', self.align)
+        self.alignment_row = self.row(parent, self.horizontal_label, self.align)
         details = column()
         self.background_mode = Gtk.ComboBoxText()
         self.background_mode.append('box', 'Full text box')
@@ -87,6 +89,9 @@ class TextStyleEditor:
         line = Gtk.Box(spacing=8)
         line.pack_start(Gtk.Label(label=title, xalign=0), True, True, 0)
         line.pack_end(widget, False, False, 0);parent.pack_start(line, False, False, 0)
+        return line
+
+    horizontal_label = 'Alignment'
 
     def number(self, parent, title, low, high, step):
         spin = Gtk.SpinButton.new_with_range(low, high, step)
@@ -123,7 +128,7 @@ class TextStyleEditor:
 
     def choose(self, preset):
         style = self.read_into(copy.deepcopy(self.base))
-        self.set_style(text_styles.apply_preset(style,preset))
+        self.set_style(self.preset_style(style, preset))
         for key, button in self.preset_buttons.items():
             context = button.get_style_context()
             context.add_class('suggested-action') if key==preset else context.remove_class('suggested-action')
@@ -158,14 +163,18 @@ class TextStyleEditor:
         style.update(kind='text',text=text,font_size=22,x=.5,y=.5,width=.96,height=.92,
                      rotation=0,opacity=1)
         if style.get('word_highlight'):
-            style.update(_text_effect='highlight', _text_step=max(0, len(text.split())-1))
+            step = getattr(self, 'sample_step', 0) if widget is self.preview else 1
+            style.update(_text_effect='highlight', _text_step=step % max(1, len(text.split())))
         visuals._paint(cr,{'width':width,'height':height},style,(0,0,width,height))
         return False
 
     def draw_preset(self, widget, cr, key):
         from . import model
-        self.paint_sample(widget,cr,text_styles.apply_preset(model.text_style(),key),'Aa')
+        style = self.preset_style(model.text_style(), key)
+        self.paint_sample(widget, cr, style, 'One two' if style.get('word_highlight') else 'Aa')
         return False
+
+    preset_style = staticmethod(text_styles.apply_preset)
 
     def draw_preview(self, widget, cr):
         self.paint_sample(widget,cr,self.read_into(copy.deepcopy(self.base)),self.sample)
@@ -174,16 +183,30 @@ class TextStyleEditor:
 
 class CaptionStyleEditor(TextStyleEditor):
     """Caption appearance, placement and persistent named presets in one editor."""
+    presets = tuple((key, 'Highlight', 'Highlight each word as it is spoken.') if key == 'highlight'
+                    else (key, title, description) for key, title, description in text_styles.PRESETS)
+    horizontal_label = 'Horizontal alignment'
+
+    @staticmethod
+    def preset_style(style, preset):
+        if preset == 'highlight':
+            return caption_styles.spoken_word(style)
+        return dict(text_styles.apply_preset(style, preset), word_highlight=False)
+
     def __init__(self, parent, style, preferences):
-        from . import caption_styles
         self.preferences = preferences
+        self.sample_step = 0
         super().__init__(parent, style)
         controls = column()
         parent.pack_start(controls, False, False, 0)
         parent.reorder_child(controls, 3)
-        reference = Gtk.Button(label='Spoken word · yellow highlight')
-        reference.connect('clicked', lambda _:self.set_style(caption_styles.spoken_word(self.read_into(copy.deepcopy(self.base)))))
-        controls.pack_start(reference, False, False, 0)
+        parent.remove(self.alignment_row)
+        controls.pack_start(self.alignment_row, False, False, 0)
+        self.vertical = Gtk.ComboBoxText()
+        for value in ('top', 'middle', 'bottom'):
+            self.vertical.append(value, value.capitalize())
+        self.row(controls, 'Vertical alignment', self.vertical)
+        self.vertical.connect('changed', self.changed)
         self.word_highlight = Gtk.CheckButton(label='Highlight the spoken word')
         controls.pack_start(self.word_highlight, False, False, 0)
         self.word_highlight.connect('toggled', self.changed)
@@ -196,19 +219,9 @@ class CaptionStyleEditor(TextStyleEditor):
         self.highlight_radius = self.number(controls, 'Highlight roundness', 0, 256, 1)
         self.highlight_padding = self.number(controls, 'Highlight padding', 0, 128, 1)
         for widget in (self.highlight_radius, self.highlight_padding):widget.connect('value-changed', self.changed)
-        self.position = {}
-        placement = column()
-        for key, title, low in (('x','Horizontal position (%)',0), ('y','Vertical position (%)',0),
-                                ('width','Caption width (%)',5), ('height','Caption height (%)',1)):
-            self.position[key] = self.number(placement, title, low, 100, 1)
-        positions = Gtk.Box(spacing=6)
-        for title, y in (('Top', .18), ('Middle', .5), ('Bottom', .88)):
-            button = Gtk.Button(label=title)
-            button.connect('clicked', lambda _, at=y:self.position['y'].set_value(at*100))
-            positions.pack_start(button, True, True, 0)
-        placement.pack_start(positions, False, False, 0)
-        expander = Gtk.Expander(label='Caption position and size');expander.set_expanded(True);expander.add(placement)
-        controls.pack_start(expander, False, False, 0)
+        self.preview_timer = 0
+        self.preview.connect('map', self.start_sample)
+        self.preview.connect('unmap', self.stop_sample)
         self.saved = Gtk.ComboBoxText()
         self.saved.get_accessible().set_name('Saved caption presets')
         self.row(controls, 'Saved presets', self.saved)
@@ -225,26 +238,64 @@ class CaptionStyleEditor(TextStyleEditor):
         self.set_style(style)
 
     def set_style(self, style):
-        from . import caption_styles
         style = {**caption_styles.defaults(), **style}
         self.base = copy.deepcopy(style)
         super().set_style(style)
-        if not hasattr(self, 'position'):return
+        if not hasattr(self, 'vertical'):return
         self.loading = True
         self.word_highlight.set_active(style['word_highlight'])
         for key in ('highlight_radius', 'highlight_padding'):getattr(self,key).set_value(style[key])
-        for key, widget in self.position.items():widget.set_value(style.get(key, self.base[key])*100)
+        for combo, current, anchors in ((self.align, style['x'], self.horizontal_anchors(style)),
+                                        (self.vertical, style['y'], self.vertical_anchors(style))):
+            # Preserve an existing free-positioned preset until this axis is changed.
+            choices = list(anchors)
+            if len(combo.get_model()) > len(choices):
+                combo.remove(len(choices))
+            selected = style['align'] if combo is self.align else min(choices, key=lambda key: abs(anchors[key]-current))
+            if abs(anchors[selected]-current) > 1e-6:
+                combo.append('saved', 'Saved position')
+                selected = 'saved'
+            combo.set_active_id(selected)
         self.loading = False
         self.preview.queue_draw()
 
     def read_into(self, item):
         super().read_into(item)
-        if hasattr(self, 'position'):
+        if hasattr(self, 'vertical'):
             item['animation'] = copy.deepcopy(self.base.get('animation', {}))
             item['word_highlight'] = self.word_highlight.get_active()
             for key in ('highlight_radius', 'highlight_padding'):item[key] = getattr(self,key).get_value()
-            for key, widget in self.position.items():item[key] = widget.get_value()/100
+            item.update(width=self.base['width'], height=self.base['height'])
+            horizontal = self.align.get_active_id()
+            item['align'] = self.base['align'] if horizontal == 'saved' else horizontal
+            item['x'] = self.horizontal_anchors(item).get(horizontal, self.base['x'])
+            item['y'] = self.vertical_anchors(item).get(self.vertical.get_active_id(), self.base['y'])
         return item
+
+    @staticmethod
+    def horizontal_anchors(style):
+        inset = min(.5, style['width']/2+.05)
+        return dict(left=inset, center=.5, right=1-inset)
+
+    @staticmethod
+    def vertical_anchors(style):
+        inset = min(.5, style['height']/2+.045)
+        return dict(top=inset, middle=.5, bottom=1-inset)
+
+    def start_sample(self, *_):
+        if not self.preview_timer:
+            self.preview_timer = GLib.timeout_add(450, self.advance_sample)
+
+    def stop_sample(self, *_):
+        if self.preview_timer:
+            GLib.source_remove(self.preview_timer)
+            self.preview_timer = 0
+
+    def advance_sample(self):
+        if self.word_highlight.get_active():
+            self.sample_step += 1
+            self.preview.queue_draw()
+        return True
 
     def refresh_presets(self, selected=None):
         from .caption_styles import saved_presets

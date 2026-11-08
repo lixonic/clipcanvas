@@ -260,7 +260,7 @@ class LayerTools:
         if kind=='captions' or item['kind']=='text':
             text_page=page('Text');self.text=Gtk.TextView();self.text.set_wrap_mode(Gtk.WrapMode.WORD_CHAR);self.text.get_buffer().set_text(item['text'])
             scroll=Gtk.ScrolledWindow();scroll.set_size_request(320,110);scroll.add(self.text);text_page.pack_start(scroll,False,False,0)
-            editor=self.style_controls(text_page,item if kind=='layers' else w.project['caption_style'])
+            editor=self.style_controls(text_page,item if kind=='layers' else w.project['caption_style'], is_caption=kind=='captions')
             editor.set_sample(item['text'])
             self.text.get_buffer().connect('changed',lambda buffer:editor.set_sample(buffer.get_text(buffer.get_start_iter(),buffer.get_end_iter(),True)))
             if kind=='captions':text_page.pack_start(caption('Appearance applies to all captions. Words and timing change only for this caption.'),False,False,0)
@@ -291,9 +291,9 @@ class LayerTools:
         spin=Gtk.SpinButton.new_with_range(low,high,step);spin.set_digits(2 if step<1 else 0);spin.set_width_chars(5);spin.set_value(value)
         line.pack_end(spin,False,False,0);parent.pack_start(line,False,False,0);self.owner.fields[key]=(spin,mult);return spin
 
-    def style_controls(self,parent,style):
+    def style_controls(self,parent,style,is_caption=False):
         from .text_style_ui import TextStyleEditor, CaptionStyleEditor
-        self.style_editor=(CaptionStyleEditor(parent,style,self.owner.preferences) if 'word_highlight' in style
+        self.style_editor=(CaptionStyleEditor(parent,style,self.owner.preferences) if is_caption
                            else TextStyleEditor(parent,style))
         # Keep these aliases for the existing editor controls and native checks.
         for key in ('font','bold','italic','colors','outline','align'):
@@ -339,13 +339,16 @@ class LayerTools:
         scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC)
         scroll.set_max_content_height(460);scroll.set_propagate_natural_height(True)
         content.pack_start(scroll,True,True,0);body=row_box();body.set_border_width(6);scroll.add(body)
-        style=copy.deepcopy(w.project['caption_style']);editor=self.style_controls(body,style)
+        style=copy.deepcopy(w.project['caption_style']);editor=self.style_controls(body,style,is_caption=True)
         if w.project.get('captions'):editor.set_sample(w.project['captions'][0]['text'])
         dialog.show_all();response=dialog.run()
         if response==Gtk.ResponseType.OK:
             editor.read_into(style)
             candidate=copy.deepcopy(w.project);candidate['caption_style']=style
-            try:model.validate_project(candidate,check_files=False);w.checkpoint();w.project=candidate;w.changed()
+            try:
+                model.validate_project(candidate,check_files=False)
+                at = w.playhead
+                w.checkpoint();w.project=candidate;w.changed();w.seek(at)
             except ValueError as e:w.error(str(e))
         dialog.destroy();w.fields=saved_fields;w.show_inspector()
 
@@ -363,13 +366,16 @@ class LayerTools:
         self.replace_captions(items)
 
     def replace_captions(self,items,language=None):
-        from . import bundled_fonts
+        from . import bundled_fonts, caption_styles
         w=self.owner
         if w.project['captions']:
             dialog=Gtk.MessageDialog(transient_for=w,modal=True,message_type=Gtk.MessageType.QUESTION,buttons=Gtk.ButtonsType.OK_CANCEL,text='Replace existing captions?')
             dialog.format_secondary_text('You can undo this replacement.');answer=dialog.run();dialog.destroy()
             if answer!=Gtk.ResponseType.OK:return False
-        w.checkpoint();w.project['captions']=items
+        w.checkpoint()
+        if language and items and not w.project['captions'] and w.project['caption_style'] == model.caption_style():
+            w.project['caption_style'] = caption_styles.spoken_word(w.project['caption_style'])
+        w.project['captions']=items
         if items and (language=='ml' or any(bundled_fonts.has_malayalam(item['text']) for item in items)):
             if w.project['caption_style']['font_family'] in ('Sans','Serif','Sans Serif'):
                 w.project['caption_style']['font_family']='Noto Sans Malayalam'

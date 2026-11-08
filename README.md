@@ -1,11 +1,11 @@
-# ClipCanvas 0.21.0
+# ClipCanvas 0.21.1
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.21.0. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.21.1. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -152,18 +152,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.21.0_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.21.1_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.21.0_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.21.1_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.21.0_all.deb
+   sudo apt install ./clipcanvas_0.21.1_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -415,20 +415,19 @@ extract an audio track when you want their sound.
    tab or **Caption style**. The same editable controls used for titles apply
    to generated, imported and manually entered captions. Appearance changes
    apply to all cues; words/timing change only for the selected cue.
-   In **Caption style**, choose **Spoken word · yellow highlight** for white
+   In **Caption style**, choose **Highlight** for white
    outlined captions with dark text on a rounded yellow box that follows the
    spoken word. Newly generated captions retain speech word timestamps, including
    pauses. Older, imported, manually entered or reworded cues use evenly spaced
    timing; regenerate speech captions to recover recognized word timing. Moving
    a cue keeps its word timing; stretching its duration scales the word intervals.
-   Use **Caption position and size** for horizontal/vertical placement, width,
-   height, and Top/Middle/Bottom shortcuts. Set colors, font and roundness, enter a
+   Choose **Horizontal alignment** (Left, Center, Right) and **Vertical alignment**
+   (Top, Middle, Bottom). Set colors, font and roundness, enter a
    preset name, then **Save as preset**. Saved presets include placement and are
    available across projects; choose one and **Load preset**, then **Apply**.
    Saving an existing name updates that preset. Cancel leaves project styling
    unchanged, while explicitly saved presets remain available.
-   Its
-   **Malayalam Google Fonts** selector offers bundled Noto Sans Malayalam
+   The **Malayalam Google Fonts** selector offers bundled Noto Sans Malayalam
    (everyday captions), Manjari (soft rounded text) and Anek Malayalam (bold
    captions/titles). Generated Malayalam and imported Malayalam SRT use Noto
    Sans Malayalam when the project still uses a generic default font.

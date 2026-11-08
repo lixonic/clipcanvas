@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.1 — 2026-11-08
+
+- Make the caption Highlight tile follow the spoken word and animate its sample.
+  The first speech generation in a project with untouched caption settings now
+  selects this style. Applying caption appearance retains the playhead.
+- Replace numeric caption placement with horizontal and vertical alignment.
+  Existing custom positions survive editing and preset round trips.
+- Point the packaged desktop entry directly at the packaged executable.
+
 ## 0.21.0 — 2026-11-08
 
 - Preserve recognized word timestamps and highlight the spoken word with a
