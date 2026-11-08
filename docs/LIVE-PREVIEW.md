@@ -32,9 +32,9 @@ magnification relative to the fitted canvas. **Ctrl+wheel** also zooms. When
 enlarged, scroll normally to move vertically, or use **Shift+scroll** to move
 horizontally. Trackpads support smooth movement in both directions. Scrolling
 stops at the picture edges and leaves the playback position unchanged.
-The visible preview window keeps the selected landscape, portrait or square
-canvas ratio. Zoom and pan move the picture behind that fixed window; video and
-layers outside it are hidden. Below Fit, the smaller canvas remains centered.
+The canvas retains its aspect ratio as zoom enlarges it into the available
+preview pane. Panning becomes available on each axis when the magnified
+canvas exceeds the space on that axis. Below Fit, the smaller canvas remains centered.
 **Shift+drag** or middle-button drag also pans within the canvas; **Fit**
 centers and shows the complete composed canvas again. Toolbar zoom remains through playback and
 seeking, and resets on new/open/recovered projects. It changes only the preview
@@ -242,8 +242,8 @@ by editing frames, composed scrubbing, live/prepared playback and export. Undo
 and Redo restore the crop settings. Clips in older projects default to 100% zoom,
 preserving their previous framing.
 
-The preview uses a fixed window in the project ratio, including visual layers.
-Resizing the editor or changing the canvas preset recalculates that window.
+At Fit, the preview shows the project canvas and its layers in the selected
+aspect ratio. Above Fit, it expands into the available preview pane.
 The existing toolbar **− / Fit / +** controls remain preview-only: they magnify
 the composed picture for inspection, independently of the saved clip zoom.
 Scroll/drag panning also changes only that view. Overlay dragging keeps the
@@ -266,10 +266,10 @@ Repeatable manual check:
    older project and confirm its zoom starts at 100% with its prior framing.
 4. With a saved clip crop applied, select 200% and 400% in the toolbar. Scroll
    vertically, Shift+scroll horizontally, then try Shift+drag and middle-button
-   drag. The visible frame keeps its fitted size and ratio. Pan to both limits
-   on each axis; picture and layer content outside it stays hidden, and no empty
-   gap enters the frame. Resize the window and move the timeline divider; the
-   preview still fits the selected ratio in editing and playback modes.
+   drag. Check that the portrait image grows wider than its Fit frame where
+   there is spare horizontal space. Pan to the limits on each overflowing
+   axis. Resize the window and move the timeline divider to verify that the
+   visible area follows the pane in editing and playback modes.
 5. Pan until the layer lies partly outside the frame. Clicking its hidden portion
    in the workspace must leave selection, playback and the picture unchanged.
    Drag its visible portion; it follows the pointer correctly at the chosen zoom.

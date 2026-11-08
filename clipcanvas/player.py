@@ -184,11 +184,12 @@ class VideoCanvas(Gtk.DrawingArea):
         padding = min(28, width/12, height/12)
         available_w, available_h = max(1, width-2*padding), max(1, height-2*padding)
         scale = min(available_w/self.aspect_width, available_h/self.aspect_height)
-        vw, vh = self.aspect_width*scale, self.aspect_height*scale
-        # Magnification moves the picture behind a fixed project-ratio window.
-        # Keep the transformed canvas for overlay placement and drag distances.
+        cw = self.aspect_width*scale*self.preview_zoom
+        ch = self.aspect_height*scale*self.preview_zoom
+        # Let the magnified canvas use the spare workspace on either axis.
+        # Only the part that overflows the preview pane needs panning.
+        vw, vh = min(cw, available_w), min(ch, available_h)
         self.viewport_rect = ((width-vw)/2, (height-vh)/2, vw, vh)
-        cw, ch = vw*self.preview_zoom, vh*self.preview_zoom
         mx, my = max(0, (cw-vw)/2), max(0, (ch-vh)/2)
         self.pan_x, self.pan_y = max(-mx, min(mx, self.pan_x)), max(-my, min(my, self.pan_y))
         self.canvas_rect = ((width-cw)/2+self.pan_x, (height-ch)/2+self.pan_y, cw, ch)
@@ -513,17 +514,12 @@ class VideoCanvas(Gtk.DrawingArea):
         cr.paint()
         cx, cy, cw, ch = self._view_rect()
         vx, vy, vw, vh = self.viewport_rect
-        sx, sy = max(cx, vx), max(cy, vy)
-        sw, sh = min(cx+cw, vx+vw)-sx, min(cy+ch, vy+vh)-sy
         for spread in range(9, 0, -1):
             cr.set_source_rgba(0.12, 0.10, 0.23, 0.008)
-            cr.rectangle(sx - spread, sy - spread / 2 + 3, sw + spread * 2, sh + spread)
+            cr.rectangle(vx - spread, vy - spread / 2 + 3, vw + spread * 2, vh + spread)
             cr.fill()
         cr.save()
         cr.rectangle(vx, vy, vw, vh)
-        cr.clip()
-        # Below Fit, retain the smaller canvas instead of painting its margins.
-        cr.rectangle(cx, cy, cw, ch)
         cr.clip()
         cr.set_source_rgb(0.015, 0.015, 0.02) if self.frame else cr.set_source_rgb(1, 1, 1)
         cr.paint()

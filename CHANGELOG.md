@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.2 — 2026-11-08
+
+- Expand the visible canvas into the available preview pane as toolbar zoom
+  increases. Pan only where the magnified canvas extends beyond the pane.
+  Video, captions and layer hit testing share the same visible area.
+
 ## 0.21.1 — 2026-11-08
 
 - Make the caption Highlight tile follow the spoken word and animate its sample.

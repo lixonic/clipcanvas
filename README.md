@@ -1,11 +1,11 @@
-# ClipCanvas 0.21.1
+# ClipCanvas 0.21.2
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.21.1. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.21.2. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -152,18 +152,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.21.1_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.21.2_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.21.1_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.21.2_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.21.1_all.deb
+   sudo apt install ./clipcanvas_0.21.2_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -272,8 +272,8 @@ separate application and does not change VLC.
    Above the preview, use **− / Fit / +** for 25–400% magnification relative to
    Fit. **Ctrl+wheel** zooms. When enlarged, scroll to move vertically, use
    **Shift+scroll** to move horizontally, or pan with **Shift+drag** or the middle
-   mouse button. Trackpads support both axes. The preview frame keeps the selected
-   canvas ratio: zoomed video and layers outside it stay hidden. Choose **Fit**
+   mouse button. Trackpads support both axes. Zoom uses the available preview pane while
+   preserving the canvas proportions. Pan to see parts beyond the pane. Choose **Fit**
    to center the complete canvas again. These controls
    only change your view. Use **Picture → Crop and zoom** to save a clip crop
    that also applies to export.

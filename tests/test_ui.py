@@ -439,7 +439,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
-    def test_preview_clips_zoomed_video_and_layers_to_fixed_project_ratio(self):
+    def test_zoomed_picture_and_overlays_expand_to_available_preview_area(self):
         from clipcanvas.player import VideoCanvas
         from gi.repository import GdkPixbuf
         window=Gtk.OffscreenWindow();canvas=VideoCanvas()
@@ -451,7 +451,7 @@ class DesktopWorkflowTests(unittest.TestCase):
             for width,height in ((1920,1080),(1080,1920),(1080,1080)):
                 canvas.set_aspect(width,height);canvas.reset_view()
                 canvas.set_still(pixbuf)
-                viewport=canvas.viewport_rect
+                fit_width, fit_height = canvas._view_rect()[2:]
                 for composed in (False,True):
                     canvas.composited=composed
                     def overlay(cr,rect):
@@ -466,20 +466,22 @@ class DesktopWorkflowTests(unittest.TestCase):
                                 canvas.pan_x=canvas.pan_y=pan
                                 surface=cairo.ImageSurface(cairo.FORMAT_RGB24,900,600)
                                 canvas._draw(canvas,cairo.Context(surface))
-                                self.assertEqual(canvas.viewport_rect,viewport)
+                                vx,vy,vw,vh=canvas.viewport_rect
+                                self.assertAlmostEqual(vw, min(900-56,fit_width*zoom))
+                                self.assertAlmostEqual(vh, min(600-56,fit_height*zoom))
                                 picture=Gdk.pixbuf_get_from_surface(surface,0,0,900,600)
                                 pixels=picture.get_pixels();stride=picture.get_rowstride()
                                 def pixel(x,y):
                                     offset=int(y)*stride+int(x)*3
                                     return tuple(pixels[offset:offset+3])
-                                vx,vy,vw,vh=viewport
                                 background=pixel(0,0)
                                 for x,y in ((vx-15,300),(vx+vw+15,300),(450,vy-15),(450,vy+vh+15)):
                                     self.assertEqual(pixel(x,y),background,'Cropped picture/layers must not bleed into the workspace')
-                                color=pixel(450,300)
-                                self.assertGreater(color[0] if composed else color[1],200)
+                                for x,y in ((vx+12,300),(vx+vw-12,300),(450,vy+12),(450,vy+vh-12)):
+                                    self.assertGreater(pixel(x,y)[0 if composed else 1],200)
                 canvas.set_preview_zoom(4);canvas.pan_x=canvas.pan_y=10000
                 canvas._view_rect()
+                viewport=canvas.viewport_rect
                 self.assertAlmostEqual(canvas.canvas_rect[0],viewport[0])
                 self.assertAlmostEqual(canvas.canvas_rect[1],viewport[1])
                 canvas.pan_x=canvas.pan_y=-10000;canvas._view_rect()
