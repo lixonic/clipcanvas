@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.3 — 2026-11-12
+
+- Dispose of replaced properties editors on the GTK main thread.
+  This fixes a native text layout crash when a worker collects an old editor
+  after applying caption edits and starting playback.
+- Preserve the selected animation when applying it to all captions.
+- Exercise repeated edits, save, reopen and live playback of generated Malayalam
+  captions with a worker collection during playback.
+
 ## 0.21.2 — 2026-11-08
 
 - Expand the visible canvas into the available preview pane as toolbar zoom

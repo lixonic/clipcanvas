@@ -238,7 +238,6 @@ class LayerTools:
     def show_properties(self):
         self.stop_sound_preview()
         w=self.owner;item=w.selected_item();kind=w.selected[0];self.controls={};w.fields={};w.property_pages={}
-        for child in w.inspector.get_children():w.inspector.remove(child)
         w.context_title.set_text(item.get('text','').replace('\n',' ')[:45] or Path(item.get('path','')).name)
         for button in (w.edit_button,w.apply_button,w.duplicate_button,w.remove_button):button.set_sensitive(True)
         w.picture_button.set_sensitive(kind=='layers');w.sound_button.set_sensitive(True);w.split_button.set_sensitive(kind=='layers')
@@ -313,10 +312,10 @@ class LayerTools:
         item['animation']=self.animation_editor.read();item['sound_effect']=self.sound_editor.read()
         if self.animation_editor.match_id is not None:item['match_id']=self.animation_editor.match_id.get_text().strip()
         candidate=copy.deepcopy(w.project);candidate[kind][index]=item
+        if kind=='captions':self.read_style(candidate['caption_style'])
         if kind=='captions' and self.all_caption_animation.get_active():
             candidate['caption_style']['animation']=copy.deepcopy(item['animation'])
             for cue in candidate['captions']:cue['animation']=copy.deepcopy(item['animation'])
-        if kind=='captions':self.read_style(candidate['caption_style'])
         try:model.validate_project(candidate,check_files=False)
         except ValueError as e:w.error(str(e));return
         self.sound_editor.stop_preview();w.checkpoint();w.project=candidate;w.properties_popover.popdown()

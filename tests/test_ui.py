@@ -74,6 +74,51 @@ class DesktopWorkflowTests(unittest.TestCase):
             time.sleep(.015)
         self.fail('The desktop workflow did not finish in time')
 
+    def test_generated_caption_editor_destroyed_on_apply_then_save_reopen_play(self):
+        import gc
+        import threading
+        from clipcanvas import caption_styles
+
+        w = ClipCanvasWindow(recovery_dir=self.fixtures.root/'caption-edit-recovery')
+        errors = []
+        w.error = errors.append
+        w.canvas.on_error = errors.append
+        w.canvas._pipeline.set_property('volume', 0)
+        try:
+            w.start_project(320, 180)
+            w.project['clips'] = [model.new_card('#16384b', 4)]
+            cue = model.new_caption('ഇത് മലയാളം', 0, 4)
+            cue['word_timings'] = [dict(text='ഇത്', start=0, end=.3),
+                                   dict(text='മലയാളം', start=.4, end=1)]
+            w.project['captions'] = [cue]
+            w.project['caption_style'] = caption_styles.spoken_word(model.caption_style())
+            w.changed()
+            w.project_path = str(self.fixtures.root/'edited-caption.clipcanvas')
+            for correction in ('ഇത് മലയാളം വാർത്ത', 'ഇത് മലയാളം വാർത്തയാണ്'):
+                w.layer_tools.select('captions', 0, edit=True)
+                view = w.layer_tools.text
+                self.pump(view.get_mapped)
+                view.grab_focus()
+                disposed = []
+                view.connect('destroy', lambda *_: disposed.append(threading.get_ident()))
+                view.get_buffer().set_text(correction)
+                w.apply_button.clicked()
+                # An external Python reference to the old view must not defer
+                # native teardown to the thread which next collects garbage.
+                self.assertEqual(disposed, [threading.get_ident()])
+                self.assertTrue(w.save())
+            w.open_project(w.project_path)
+            self.assertEqual(w.project['captions'][0]['text'], correction)
+            self.assertEqual(w.project['captions'][0]['word_timings'], cue['word_timings'])
+            self.pump(lambda: not w.busy and not w.scrub_timer and not w._scrub_settling)
+            w.toggle_play()
+            collection = w.pool.submit(gc.collect)
+            self.pump(lambda: collection.done() and w.canvas.playing and w.playhead > .2)
+            self.assertFalse(errors)
+        finally:
+            w.cleanup(); w.destroy()
+            while Gtk.events_pending(): Gtk.main_iteration_do(False)
+
     def test_live_play_pause_seek_replay_edit_and_cleanup_without_mp4(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'live-recovery')
         w.canvas._pipeline.set_property('volume',0)
@@ -1190,7 +1235,7 @@ class DesktopWorkflowTests(unittest.TestCase):
 
     def test_caption_button_starts_small_directly_and_cancel_keeps_edits(self):
         import threading
-        from clipcanvas import captions
+        from clipcanvas import captions, caption_styles
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'direct-captions-recovery');errors=[];w.error=errors.append
         release=threading.Event()
         try:
@@ -1213,6 +1258,7 @@ class DesktopWorkflowTests(unittest.TestCase):
                 self.assertIsNone(transcribe.call_args.kwargs['language'])
                 self.assertEqual(render.call_args.kwargs['source'],'video')
             expected=copy.deepcopy(before);expected['captions']=result['captions']
+            expected['caption_style'] = caption_styles.spoken_word(before['caption_style'])
             self.assertEqual(w.project,expected);self.assertEqual(len(w.history),history+1)
             w.project['captions'][0]['text']='My corrected words'
             before=copy.deepcopy(w.project);history=len(w.history);entered=threading.Event()

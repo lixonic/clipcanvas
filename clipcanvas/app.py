@@ -1366,7 +1366,12 @@ class ClipCanvasWindow(Gtk.Window):
         self.layer_tools.stop_sound_preview()
         old_page=getattr(self,'properties_page','Timing')
         self.apply_button.set_label('Apply changes')
-        for child in self.inspector.get_children():self.inspector.remove(child)
+        # Dispose the old editor on the GTK thread. Merely unparenting it
+        # lets a later Python collection on a render worker tear down a live
+        # GtkStack/TextView while the main loop is validating its text layout.
+        self.properties_stack = None
+        for child in self.inspector.get_children():
+            child.destroy()
         item=self.selected_item();self.fields={};self.property_pages={}
         self.apply_all_transitions_button.set_no_show_all(True);self.apply_all_transitions_button.hide()
         self.color_button.set_sensitive(item is not None and self.selected[0]=='clips')
