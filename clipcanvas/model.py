@@ -384,6 +384,10 @@ def validate_project(project, check_files=True, require_clips=False):
                 _number(item.get(key, 0), f"{label} fade", 0, max(duration, duration / speed))
             if group == "clips":
                 _number(item.get('saturation', 1), f'{label} saturation', 0, 2)
+                if 'sparkle_patch' in item:
+                    from . import watermark
+                    if is_still(item):raise ValueError('Watermark removal requires a video clip.')
+                    watermark.validate(item['sparkle_patch'])
                 if 'color_grade' in item:color_grading.validate(item['color_grade'])
                 _number(item.get('source_fps', 0), f'{label} original frame rate', 0, 240)
                 for key in ("video_fade_in", "video_fade_out"):

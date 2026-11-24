@@ -32,8 +32,7 @@ edit. The composition includes transitions and overlays at the chosen clip time.
 **Reset all color adjustments** returns every slider and saturation to neutral.
 
 Press **Apply grade** to save one undoable edit. If several timeline clips are
-selected, optionally enable **Apply to all selected clips** to replace their
-individual color settings with the displayed grade. Other selected item types
+selected, **Apply to all selected clips** is on by default. Clear it to grade only the active clip. Other selected item types
 are ignored. Cancel or closing the dialog keeps the previous project settings.
 
 Timeline thumbnails show the applied look and a **COLOR** marker. Grading happens

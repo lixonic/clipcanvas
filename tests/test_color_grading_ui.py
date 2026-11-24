@@ -76,12 +76,10 @@ class ColorGradingUITests(unittest.TestCase):
                 menu=window.context_menu('clips',0);menu.popdown()
                 picture=next(action for action in menu.get_children() if action.get_label()=='Picture').get_submenu()
                 self.assertIn('Color grading…',[action.get_label() for action in picture.get_children()])
-                # Restore the multi-selection after opening the single-item context menu.
-                window.selection={('clips',clip['id']) for clip in window.project['clips']}
                 def apply(dialog):
                     dialog.presets.set_active_id('Horror')
                     self.assertTrue(dialog.apply_selection.get_visible())
-                    dialog.apply_selection.set_active(True)
+                    self.assertTrue(dialog.apply_selection.get_active())
                     self.pump(lambda:self.ready(dialog))
                     return Gtk.ResponseType.OK
                 with mock.patch.object(ColorGradingDialog,'run',apply):window.edit_color_grading()

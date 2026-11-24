@@ -6,11 +6,11 @@ from pathlib import Path
 import gi
 gi.require_version('Gtk','3.0');gi.require_version('Gst','1.0')
 from gi.repository import Gtk, GLib, Gst, Pango
-from . import audio_effects, engine, model
+from . import audio_effects, engine, model, workflow
 
 
 class VoiceEffectsDialog(Gtk.Dialog):
-    def __init__(self, owner, item, audible_length):
+    def __init__(self, owner, item, audible_length, selection_count=1):
         super().__init__(title='Voice effects',transient_for=owner,modal=True)
         self.owner=owner;self.item=copy.deepcopy(item);self.audible_length=audible_length
         self.controls={};self.loading=True;self.closed=False;self.serial=0;self.cancel_event=None
@@ -60,6 +60,10 @@ class VoiceEffectsDialog(Gtk.Dialog):
         body.pack_start(audition,False,False,0)
         self.status=Gtk.Label(label='Listen to the first 12 seconds of this track. Original files stay unchanged.',xalign=0)
         self.status.set_line_wrap(True);self.status.set_max_width_chars(50);body.pack_start(self.status,False,False,0)
+        self.apply_selection=Gtk.CheckButton(label=f'Apply to all {selection_count} selected items with audio')
+        self.apply_selection.set_active(selection_count>1)
+        self.apply_selection.set_no_show_all(selection_count<2)
+        body.pack_start(self.apply_selection,False,False,0)
         self.player=Gst.ElementFactory.make('playbin',None)
         self.player.set_property('video-sink',Gst.ElementFactory.make('fakesink',None))
         self.bus=self.player.get_bus();self.bus.add_signal_watch();self.bus_handler=self.bus.connect('message',self.on_message)
@@ -156,22 +160,35 @@ class VoiceEffectsDialog(Gtk.Dialog):
 def edit_voice_effects(owner,page='Echo'):
     item=owner.selected_item()
     if owner.busy or not item or owner.selected[0] not in ('clips','audio'):return
-    if not engine.probe(item['path'])['has_audio']:
-        owner.set_status('This clip has no audio.');return
-    kind,index=owner.selected;source_id=item.get('id');at=owner.playhead
+    targets=[]
+    for kind,index,selected in owner.selected_sound_items():
+        metadata=owner.media_metadata.get(selected['path'])
+        if metadata is None:
+            try:metadata=engine.probe(selected['path'])
+            except engine.RenderError as error:owner.error(str(error));return
+        if metadata.get('has_audio'):
+            targets.append((kind,index,selected))
+    if not targets:
+        owner.set_status('The selection has no audio.');return
+    kind,index,item=next((entry for entry in targets if entry[:2]==owner.selected),targets[0])
+    selection={(group,selected['id']) for group,_,selected in targets}
+    at=owner.playhead
     length=model.clip_duration(item)
     if kind=='audio':length=max(0,min(length,model.project_duration(owner.project)-item.get('start',0)))
     owner.canvas.pause();owner.update_play_button(False)
-    dialog=VoiceEffectsDialog(owner,item,length);owner.voice_dialog=dialog
+    dialog=VoiceEffectsDialog(owner,item,length,len(selection));owner.voice_dialog=dialog
     dialog.pages.set_current_page(('Amplify','Tone','Echo','Compressor').index(page))
     while dialog.run()==Gtk.ResponseType.OK:
         try:
             value=dialog.read();candidate=copy.deepcopy(owner.project)
-            if candidate[kind][index].get('id')!=source_id:break
-            candidate[kind][index]['audio_effects']=value;model.validate_project(candidate,check_files=False)
+            scope=selection if dialog.apply_selection.get_active() else {(kind,item['id'])}
+            for _,_,target in workflow.selected_items(candidate,scope):
+                target['audio_effects']=value.copy()
+            model.validate_project(candidate,check_files=False)
         except ValueError as error:dialog.status.set_text(str(error));continue
         try:owner.preferences.set('last_voice_effects',value)
         except OSError as error:owner.set_status('Could not remember voice settings: '+str(error))
-        owner.checkpoint();owner.project=candidate;owner.changed();owner.seek(at)
-        owner.set_status('Voice effects applied. Press Preview to hear them in the full mix.');break
+        if candidate!=owner.project:
+            owner.checkpoint();owner.project=candidate;owner.changed();owner.seek(at)
+        owner.set_status(f'Voice effects applied to {len(scope)} selected item(s).');break
     dialog.destroy();owner.voice_dialog=None

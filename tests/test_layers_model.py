@@ -53,7 +53,7 @@ class LayerProjectTests(unittest.TestCase):
             source.unlink()
         relocated = self.root / "moved"
         Path(target).parent.rename(relocated)
-        loaded = model.load_project(relocated / "Project.clipcanvas")
+        loaded = model.load_project(relocated / "Project.clip")
         self.assertTrue(model.validate_project(loaded, check_files=True))
         self.assertEqual(Path(loaded["layers"][1]["path"]).read_bytes(), b"logo.png")
         self.assertEqual(Path(loaded["layers"][2]["path"]).read_bytes(), b"inset.mp4")

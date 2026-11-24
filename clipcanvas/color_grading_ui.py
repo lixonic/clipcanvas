@@ -94,6 +94,7 @@ class ColorGradingDialog(Gtk.Dialog):
         reset.connect('clicked', lambda *_: self.load(color_grading.defaults(), 1))
         controls.pack_start(reset, False, False, 4)
         self.apply_selection = Gtk.CheckButton(label=f'Apply to all {selection_count} selected clips')
+        self.apply_selection.set_active(selection_count > 1)
         self.apply_selection.set_no_show_all(selection_count < 2)
         self.apply_selection.connect('toggled', lambda *_: self.schedule_preview())
         body.pack_start(self.apply_selection, False, False, 0)

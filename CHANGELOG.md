@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.0 — 2026-11-24
+
+- Apply voice effects and color grading to all eligible selected timeline items by default. Undo restores the whole batch.
+- Add visible Gemini sparkle detection and removal to the timeline context menu for 720p and 1080p clips in either orientation.
+- Use `.clip` for new projects, portable copies and recovery snapshots. Continue opening and saving existing `.clipcanvas` projects.
+
 ## 0.21.3 — 2026-11-12
 
 - Dispose of replaced properties editors on the GTK main thread.

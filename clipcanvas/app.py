@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1482,7 +1483,7 @@ class ClipCanvasWindow(Gtk.Window):
                     sound.pack_start(button('Use last volume and fade settings',self.use_last_audio_settings),False,False,0)
                 hint(sound,'Fades soften the beginning and end of the sound.')
                 hint(sound,audio_effects.summary(item))
-                sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
+            sound.pack_start(button('Voice effects…',self.edit_voice_effects),False,False,0)
             if kind=='clips':
                 self.extract_button=ui_theme.icon_button('audio-x-generic-symbolic',self.extract_audio,'Separate this clip’s audio into its own track',label='Extract audio')
                 self.extract_button.set_sensitive(self.extraction_available(item))
@@ -1576,6 +1577,10 @@ class ClipCanvasWindow(Gtk.Window):
         still=model.is_still(self.selected_item())
         sound_items=self.selected_sound_items();count=len(sound_items)
         if kind=='clips':
+            videos=[clip for _,_,clip in self.selected_picture_items() if not model.is_still(clip)]
+            if videos:
+                title='Remove watermark' if len(videos)==1 else f'Remove watermark from selected clips ({len(videos)})'
+                action(menu,title,self.remove_watermarks,any('sparkle_patch' not in clip for clip in videos))
             picture=group('Picture')
             picture_items=self.selected_picture_items();picture_count=len(picture_items)
             action(picture,'Picture…',lambda:self.open_properties('Picture'))
@@ -1590,7 +1595,7 @@ class ClipCanvasWindow(Gtk.Window):
         elif kind in ('clips','audio') and not still:
             audio=group('Audio')
             action(audio,f'Volume for {count} selected items…' if count>1 else 'Volume and fades…',lambda:self.open_properties('Sound'))
-            if count<=1:action(audio,'Voice effects…',self.edit_voice_effects)
+            action(audio,'Voice effects…',self.edit_voice_effects)
             audio.append(Gtk.SeparatorMenuItem())
             if count>1:
                 target='videos' if all(k=='clips' for k,_,_ in sound_items) else 'audio tracks' if all(k=='audio' for k,_,_ in sound_items) else 'items'
@@ -1687,6 +1692,55 @@ class ClipCanvasWindow(Gtk.Window):
         finally:dialog.destroy()
         self.checkpoint();self.project=candidate;self.changed();self.seek(at)
         self.set_status(f'Color grade applied to {len(selection)} clip(s). Undo restores their previous settings.')
+
+    def remove_watermarks(self):
+        from . import watermark
+        if self.busy:return
+        clips=[clip for _,_,clip in self.selected_picture_items()
+               if not model.is_still(clip) and 'sparkle_patch' not in clip]
+        if not clips:return
+        self.canvas.pause();self.update_play_button(False)
+        self.set_busy(True)
+        cancelled=threading.Event()
+        dialog=Gtk.Dialog(title='Remove watermark',transient_for=self,modal=True)
+        dialog.add_button('Cancel',Gtk.ResponseType.CANCEL)
+        info=label('Looking for the Gemini sparkle…')
+        content=dialog.get_content_area();content.set_border_width(18);content.add(info)
+        def cancel(*_):
+            cancelled.set();info.set_text('Cancelling…')
+            return True
+        dialog.connect('response',cancel);dialog.connect('delete-event',cancel);dialog.show_all()
+        def progress(message):
+            if not cancelled.is_set():info.set_text(message)
+            return False
+        def finish(matches,failed):
+            dialog.destroy()
+            if self.closed:return False
+            self.set_busy(False)
+            if cancelled.is_set():
+                self.set_status('Watermark removal cancelled.');return False
+            if matches:
+                at=self.playhead
+                self.checkpoint()
+                for clip,patch in matches:clip['sparkle_patch']=patch
+                self.changed();self.seek(at)
+            skipped=len(clips)-len(matches)-len(failed)
+            message=f'Watermark removed from {len(matches)} clip(s).'
+            if skipped:message+=f' No matching Gemini sparkle on {skipped} clip(s).'
+            if failed:message+=' Could not scan: '+', '.join(failed)
+            self.set_status(message)
+            return False
+        def work():
+            matches=[];failed=[]
+            for index,clip in enumerate(clips,1):
+                if cancelled.is_set():break
+                GLib.idle_add(progress,f'Scanning {index} of {len(clips)} · {model.item_name(clip)}')
+                try:patch=watermark.detect(clip)
+                except (OSError,ValueError,subprocess.SubprocessError,engine.RenderError):
+                    failed.append(model.item_name(clip));continue
+                if patch:matches.append((clip,patch))
+            GLib.idle_add(finish,matches,failed)
+        self.pool.submit(work)
 
     def apply_selected_saturation(self,saturation):
         if self.busy:return
@@ -2078,7 +2132,7 @@ class ClipCanvasWindow(Gtk.Window):
         if self.closed or serial!=self.scrub_serial:return False
         candidates=[(c,t) for c,t in zip(self.project['clips'],model.timeline(self.project)) if t['start']<=seconds<t['start']+t['duration']]
         if not candidates:return False
-        if any(model.is_image(item) for item,_ in candidates):
+        if any(model.is_image(item) or item.get('sparkle_patch') for item,_ in candidates):
             return self.scrub_frame(serial,seconds)
         if model.is_card(candidates[-1][0]):
             pix=GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB,False,8,64,64)
@@ -2265,11 +2319,11 @@ class ClipCanvasWindow(Gtk.Window):
         path=None if save_as else self.project_path
         if not path:
             dialog=file_chooser(self,'Save project',Gtk.FileChooserAction.SAVE,'Save')
-            dialog.set_do_overwrite_confirmation(True);dialog.set_current_name('My story.clipcanvas')
+            dialog.set_do_overwrite_confirmation(True);dialog.set_current_name('My story'+storage.PROJECT_EXTENSION)
             path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
             if not path:return False
-            if not path.endswith('.clipcanvas'):
-                path+='.clipcanvas'
+            if not path.lower().endswith(storage.PROJECT_EXTENSIONS):
+                path+=storage.PROJECT_EXTENSION
                 if Path(path).exists() and not self.confirm_replace(path):return False
         try:
             model.save_project(self.project,path);self.project_path=path;self.saved=json.dumps(self.project,sort_keys=True);self.update_title()
@@ -2283,7 +2337,10 @@ class ClipCanvasWindow(Gtk.Window):
         if self.busy or not self.confirm_discard():return
         if not path:
             dialog=file_chooser(self,'Open project',Gtk.FileChooserAction.OPEN,'Open')
-            filt=Gtk.FileFilter();filt.set_name('ClipCanvas projects');filt.add_pattern('*.clipcanvas');filt.add_pattern('*.json');dialog.add_filter(filt)
+            filt=Gtk.FileFilter();filt.set_name('ClipCanvas projects (*.clip, *.clipcanvas, *.json)')
+            filt.add_custom(Gtk.FileFilterFlags.FILENAME,
+                lambda info: info.filename.lower().endswith((*storage.PROJECT_EXTENSIONS,'.json')))
+            dialog.add_filter(filt)
             path=dialog.get_filename() if dialog.run()==Gtk.ResponseType.ACCEPT else None;dialog.destroy()
         if not path:return
         try:project=model.load_project(path)

@@ -13,6 +13,10 @@ import uuid
 from . import model
 
 
+PROJECT_EXTENSION = ".clip"
+PROJECT_EXTENSIONS = (PROJECT_EXTENSION, ".clipcanvas")
+
+
 def recovery_directory():
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
@@ -24,7 +28,7 @@ def recovery_directory():
 class Recovery:
     def __init__(self, directory=None):
         self.directory = Path(directory) if directory else recovery_directory()
-        self.path = self.directory / (uuid.uuid4().hex + ".clipcanvas")
+        self.path = self.directory / (uuid.uuid4().hex + PROJECT_EXTENSION)
 
     def write(self, project, project_path=None):
         data = copy.deepcopy(project)
@@ -39,8 +43,8 @@ class Recovery:
         if not self.directory.is_dir():
             return []
         found = []
-        for path in self.directory.glob("*.clipcanvas"):
-            if path == self.path:
+        for path in self.directory.iterdir():
+            if path == self.path or path.suffix.lower() not in PROJECT_EXTENSIONS or not path.is_file():
                 continue
             try:
                 found.append((path.stat().st_mtime, path))
@@ -84,11 +88,12 @@ def collect_project(project, destination):
                 shutil.copy2(source, target)
                 copied[source] = str(target)
             item["path"] = copied[source]
-        model.save_project(data, staging / "Project.clipcanvas")
+        filename = "Project" + PROJECT_EXTENSION
+        model.save_project(data, staging / filename)
         if destination.exists():
             raise ValueError("The destination folder already exists.")
         staging.rename(destination)
-        return str(destination / "Project.clipcanvas")
+        return str(destination / filename)
     finally:
         if staging.exists():
             shutil.rmtree(staging)

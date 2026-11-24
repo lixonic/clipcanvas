@@ -780,6 +780,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         speed = clip.get("speed", 1)
         seek=skip if index==0 else 0
         remaining=duration-seek
+        proxy = None
         video_input=args.count('-i')
         if is_card(clip):
             metadata = {'has_video': True, 'has_audio': False, 'video_index': 0,
@@ -798,7 +799,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             metadata = probe(clip["path"])
             if not metadata["has_video"]:
                 raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-            proxy = (proxies or {}).get(clip['path']) if preview and not audio_only else None
+            proxy = (proxies or {}).get(clip['path']) if preview and not audio_only and not clip.get('sparkle_patch') else None
             args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", proxy or clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
@@ -841,8 +842,12 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             framing += (f",zoompan=z='1+{_fmt(clip.get('zoom_amount', .15))}*({progress})':"
                         f"x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
                         f"d={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}")
-        picture_index = 0 if (proxies or {}).get(clip.get('path')) and preview and not audio_only else metadata['video_index']
-        preparation = ','.join(color_grading.filters(clip, scratch)+[framing])
+        picture_index = 0 if proxy else metadata['video_index']
+        repair = []
+        if clip.get('sparkle_patch') and not audio_only:
+            from . import watermark
+            repair = watermark.removal_filter(clip['sparkle_patch'], metadata, scratch)
+        preparation = ','.join(repair + color_grading.filters(clip, scratch) + [framing])
         picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]

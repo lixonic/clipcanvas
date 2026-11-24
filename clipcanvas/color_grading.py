@@ -107,6 +107,10 @@ def _lut_file(clip, scratch):
         rows = [' '.join(f'{min(1, (channel[n]+.25)/255):.12f}' for channel in lookup)
                 for n in range(256)]
         path.write_text('LUT_1D_SIZE 256\n'+'\n'.join(rows)+'\n', encoding='ascii')
+    return filter_path(path)
+
+
+def filter_path(path):
     # Escape once for filter options, then again for the filtergraph parser.
     value = ''.join('\\'+c if c in "\\':" else c for c in str(path.resolve()))
     return ''.join('\\'+c if c in "\\'[],;" else c for c in value)

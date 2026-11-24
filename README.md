@@ -1,11 +1,11 @@
-# ClipCanvas 0.21.3
+# ClipCanvas 0.22.0
 
 ClipCanvas is a small native Ubuntu app for making social videos from clips and
 soundtracks already on your computer. Choose a canvas, arrange clips, add
 transitions, layer audio, and export. Your media stays on your computer; there is
 no account, upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.21.3. Windows is an intended
+**Project status:** Ubuntu prototype, version 0.22.0. Windows is an intended
 platform; a Windows app and installer have not been implemented yet.
 
 - [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
@@ -30,6 +30,9 @@ platform; a Windows app and installer have not been implemented yet.
 - [Changelog](CHANGELOG.md)
 - [Image clips, duration and slow zoom](docs/IMAGE-CLIPS.md)
 - [Preview audio buffering and Fast/HD cache](docs/PREVIEW-BUFFERING.md)
+
+New projects use the `.clip` extension. Existing `.clipcanvas` projects still open and save in place.
+Right-click one or more timeline videos and choose **Remove watermark** to patch a detected visible Gemini sparkle on 720p or 1080p footage. Play the clip and export a short segment to compare the repaired area.
 
 The full feature inventory is in scope for staged development. C44–C49 and
 AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
@@ -152,18 +155,18 @@ library, design templates, collaboration, or publishing services.
 
 Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
 
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.21.3_all.deb)
+[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.22.0_all.deb)
 and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
 file's **Download raw file** button. Future Ubuntu builds are also available in
 the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
 successful workflow run. Those artifacts expire after 14 days.
 
-1. Open the supplied `clipcanvas_0.21.3_all.deb` using your software installer, if
+1. Open the supplied `clipcanvas_0.22.0_all.deb` using your software installer, if
    it supports local Debian packages.
 2. Alternatively, open a terminal in the folder containing the installer and run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.21.3_all.deb
+   sudo apt install ./clipcanvas_0.22.0_all.deb
    ```
 
 3. Open **ClipCanvas** from the applications menu.
@@ -211,6 +214,7 @@ separate application and does not change VLC.
    Click **Color** for cinematic presets and full color/light controls, or
    right-click → **Picture → Color grading…**. Choose a look, adjust its strength and
    compare with original color, then **Apply grade**. Saturation supports 0–200%.
+   With several clips selected, **Apply grade** updates them all by default.
    These controls open in a compact popover, leaving the canvas clear when
    closed. Click **Apply changes** to keep the entered settings. Video and audio
    speed ranges from 0.25× to 4× and preserves audio pitch.
@@ -342,6 +346,7 @@ including attached video sound. Pick a starting preset (**Neutral**, **Narration
 Use **Listen with effects** and **Without effects** to compare the first 12
 seconds of that edited track, then **Apply effects**. **Enable voice effects**
 provides bypass; the Neutral preset resets them. Cancel keeps the prior settings.
+With a multi-selection, **Apply effects** updates every selected item with audio by default.
 Applied effects support undo/redo and save/reopen; the timeline shows **FX**.
 
 Press the main **Preview** to hear the complete mix. Preview/export share the

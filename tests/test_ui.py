@@ -1727,6 +1727,35 @@ class DesktopWorkflowTests(unittest.TestCase):
             while Gtk.events_pending():Gtk.main_iteration_do(False)
 
 
+    def test_batch_voice_effects_from_context_menu(self):
+        from clipcanvas.audio_effects_ui import VoiceEffectsDialog
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'batch-fx-recovery',
+                           preferences_dir=self.fixtures.root/'batch-fx-preferences')
+        try:
+            w.start_project(320,180)
+            w.project['clips']=[model.new_clip(self.fixtures.root/name)
+                                for name in ('landscape.mp4','portrait.mp4','landscape.mp4')]
+            w.project['audio']=[model.new_audio(self.fixtures.root/'music.wav')]
+            w.changed()
+            w.select('clips',0,seek=False)
+            w.select_modified('audio',0,Gdk.ModifierType.CONTROL_MASK,seek=False)
+            w.select_modified('clips',1,Gdk.ModifierType.CONTROL_MASK,seek=False)
+            before=copy.deepcopy(w.project)
+            menu=w.context_menu('clips',1)
+            entry=next(item for item in menu_items(menu) if item.get_label()=='Voice effects…')
+            menu.popdown()
+            def apply(dialog):
+                self.assertTrue(dialog.apply_selection.get_active())
+                self.assertTrue(dialog.apply_selection.get_visible())
+                dialog.presets.set_active_id('Echo')
+                return Gtk.ResponseType.OK
+            with mock.patch.object(VoiceEffectsDialog,'run',apply):entry.activate()
+            self.assertTrue(w.project['clips'][0]['audio_effects']['echo_enabled'])
+            self.assertEqual(w.project['clips'][0]['audio_effects'],w.project['audio'][0]['audio_effects'])
+            self.assertEqual(w.project['clips'][1:],before['clips'][1:])
+            w.undo();self.assertEqual(w.project,before)
+        finally:w.cleanup();w.destroy()
+
     def test_right_click_voice_effects_audition_cancel_apply_undo_and_save(self):
         from clipcanvas import audio_effects
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'voice-ui-recovery')
@@ -2094,6 +2123,26 @@ class DesktopWorkflowTests(unittest.TestCase):
             if getattr(w,'active_context_menu',None):w.active_context_menu.popdown()
             w.cleanup();w.destroy()
             while Gtk.events_pending():Gtk.main_iteration_do(False)
+
+    def test_remove_watermark_from_selected_videos(self):
+        w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'sparkle-recovery')
+        try:
+            w.start_project(320,180)
+            w.project['clips']=[model.new_clip(self.fixtures.root/'landscape.mp4') for _ in range(3)]
+            w.changed()
+            w.select('clips',0,seek=False)
+            w.select_modified('clips',1,Gdk.ModifierType.CONTROL_MASK)
+            menu=w.context_menu('clips',1)
+            command=next(i for i in menu_items(menu) if i.get_label()=='Remove watermark from selected clips (2)')
+            menu.popdown()
+            with mock.patch('clipcanvas.watermark.detect',return_value={'template':'720','offset':120}) as detect:
+                command.activate()
+                self.pump(lambda:not w.busy)
+                self.assertEqual(detect.call_count,2)
+            self.assertEqual(['sparkle_patch' in c for c in w.project['clips']],[True,True,False])
+            w.undo()
+            self.assertFalse(any('sparkle_patch' in c for c in w.project['clips']))
+        finally:w.cleanup();w.destroy()
 
     def test_desaturate_selection_picture_control_undo_and_reopen(self):
         w=ClipCanvasWindow(recovery_dir=self.fixtures.root/'desaturate-recovery')
