@@ -1,582 +1,105 @@
 # ClipCanvas 0.22.1
 
-ClipCanvas is a small native Ubuntu app for making social videos from clips and
-soundtracks already on your computer. Choose a canvas, arrange clips, add
-transitions, layer audio, and export. Your media stays on your computer; there is
-no account, upload, subscription, or watermark.
+A fast, offline desktop video editor for Ubuntu. Pick a canvas, arrange clips, add transitions, captions, color grades, and audio layers, and export—with no account, cloud upload, subscription, or watermark.
 
-**Project status:** Ubuntu prototype, version 0.22.1. Windows is an intended
-platform; a Windows app and installer have not been implemented yet.
+> **Platform status:** Native Ubuntu 24.04 app (GTK 3 + FFmpeg). Windows support is planned; no Windows installer is available yet.
 
-- [Canva video feature inventory and implementation status](docs/CANVA-FEATURES.md)
-- [Canva UI study and native editor design](docs/UI-STUDY.md)
-- [Overhaul and platform development plan](docs/DEVELOPMENT-PLAN.md)
-- [Contributing and build instructions](CONTRIBUTING.md)
-- [Media library, shortcuts, settings and project workflow](docs/EDITOR-WORKFLOW.md)
-- [Shared audio lanes, placement and validation](docs/AUDIO-LANES.md)
-- [Export memory use and validation](docs/EXPORT-MEMORY.md)
-- [Export speeds and measured performance](docs/EXPORT-SPEED.md)
-- [Automatic hardware encoding and software fallback](docs/HARDWARE-EXPORT.md)
-- [Preview quality, lossless masters and color cards](docs/QUALITY-CARDS.md)
-- [Live preview, automatic FPS and validation](docs/LIVE-PREVIEW.md)
-- [Dragging/seeking improvements and measured limits](docs/SEEK-PERFORMANCE.md)
-- [Play startup improvements and measurements](docs/PLAYBACK-STARTUP.md)
-- [Full-resolution transition performance](docs/TRANSITION-PERFORMANCE.md)
-- [Animation playback and audio validation](docs/ANIMATION-AUDIO.md)
-- [Transitions, layer animation and attached sound effects](docs/EFFECTS.md)
-- [Voice effects and validation](docs/VOICE-EFFECTS.md)
-- [Timeline desaturation and validation](docs/DESATURATION.md)
-- [Cinematic color grading presets and validation](docs/COLOR-GRADING.md)
-- [Changelog](CHANGELOG.md)
-- [Image clips, duration and slow zoom](docs/IMAGE-CLIPS.md)
-- [Preview audio buffering and Fast/HD cache](docs/PREVIEW-BUFFERING.md)
+![ClipCanvas workspace showing media library, live preview, and timeline](docs/images/editor-workflow-0.9.0.png)
 
-New projects use the `.clip` extension. Existing `.clipcanvas` projects still open and save in place.
-Right-click one or more timeline videos and choose **Remove watermark** to patch a detected visible Gemini sparkle on 720p or 1080p footage. Run **Remove watermark** again if a clip has a second sparkle; each pass supports Undo. Play the clip and export a short segment to compare the repaired area.
+---
 
-The full feature inventory is in scope for staged development. C44–C49 and
-AI/API/MCP connections are deferred. Version 0.7.0 adds live composition playback and automatic source frame rates.
-Version 0.21.0 adds speech-timed yellow word highlights, caption positioning and
-named presets that include placement across projects. See [caption controls](#generate-and-edit-captions).
-Version 0.20.1 fixes dark paused previews of full-range videos. Imports retain
-their original color; no grade is applied automatically. See [source color and preview](docs/COLOR-RANGE.md).
-Version 0.20.0 adds **Automatic** and **Software** MP4 encoding choices. Automatic
-tests graphics hardware before using it and retries in software if needed.
-The last confirmed MP4 encoding choice is remembered; lossless masters and
-prepared previews retain their existing encoders. See [hardware export](docs/HARDWARE-EXPORT.md).
-Version 0.19.0 adds independent **Fast**, **Balanced** and **Efficient compression**
-MP4 export speeds. Fast is the default; the last confirmed MP4 choice is remembered.
-Exports use up to two filter workers while retaining the original canvas size,
-quality selection and audio processing. See [export performance](docs/EXPORT-SPEED.md).
-Version 0.18.4 loads cut-only timelines in two-clip picture windows while keeping
-a continuous soundtrack and bounded playback queues. Transitions and visual
-layers retain the established composition path. See [windowed preview](docs/PREVIEW-BUFFERING.md#windowed-picture-decoding--0184).
-Version 0.18.3 reduces startup delays on graded timelines in Full, HD and Fast
-preview by reusing small color lookup tables and reading embedded audio
-independently of picture decoding. See [graded preview validation](docs/PREVIEW-BUFFERING.md#graded-timeline-startup--0183).
-Version 0.18.2 starts Fast/HD playback before missing proxies are prepared,
-building them in the background for later playback and seeks. Discarded preview
-decoders stop promptly. See [long-timeline preview](docs/PREVIEW-BUFFERING.md#long-timeline-startup--0182).
-Version 0.18.1 groups timeline right-click commands into Edit, Picture, Audio,
-Motion, Arrange and Insert submenus, with Select all and Delete in the main menu.
-Version 0.18.0 displays **Your media** as a responsive thumbnail grid. Larger
-video/image previews preserve their aspect ratio; audio uses a media icon.
-Add videos, Add images and Add audio share a line when the sidebar has enough
-room and wrap at narrower widths.
-Search, filters, click-to-add and removal controls remain available on the tiles.
-Version 0.17.1 reduces the RAM spike after cropping by trimming invisible source
-regions before enlargement and skipping an extra still render when starting
-playback. Saved framing, selected preview resolution and export dimensions are
-preserved. See [crop memory and validation](docs/EXPORT-MEMORY.md#crop-playback-memory--0171).
-Version 0.17.0 adds direct mouse cropping: left-click the preview picture for
-an outline, drag the picture to position it, or drag a corner to zoom. Done or
-Enter finishes; Escape cancels the current drag. Each released change supports
-Undo and applies to preview and export. See [mouse crop controls](docs/LIVE-PREVIEW.md#mouse-crop-controls--0170).
-Version 0.16.0 adds **Picture → Crop and zoom** with saved 100–400% clip zoom
-and horizontal/vertical reframing shared by preview and export. The preview
-also hides content outside the selected canvas ratio. The toolbar zoom remains
-a view setting. See [crop and preview framing](docs/LIVE-PREVIEW.md#saved-crop-and-fixed-preview-frame--0160).
-Version 0.15.0 adds **Apply transition to all clips** beneath Apply changes in the
-Transition panel. Copy the chosen effect and settings to every join with one Undo.
-Version 0.14.0 adds the Color grading editor with Pixar-inspired animation,
-Horror, Adventure, Romantic and Mystery presets, adjustable look strength,
-exposure/contrast/gamma, shadows/highlights, temperature/tint and saturation.
-Compare original color, bypass/reset, or apply to selected clips in one undo step.
-Version 0.7.1 adds continuous playhead scrubbing and preview zoom/pan.
-Version 0.8.0 adds full-resolution previews by default, a quality selector,
-lossless masters, color cards and visible clip dragging/drop gaps.
-Version 0.9.0 adds a saved media library (click assets to place timeline copies),
-group selection/copy/paste/Delete, Ctrl+wheel timeline zoom, remembered folders
-and audio settings, labelled Save/Open controls and a larger Play button.
-Version 0.9.1 adds group volume and a Mute selected videos/audio command.
-Shift+right-click a video, then Mute selected videos, or open group Volume,
-set 0% and Apply volume to all selected items.
-Version 0.9.2 adds multiple audio clips per lane, vertical dragging, drop previews
-and a Move to audio lane menu. Audio splits stay in the original lane.
-Version 0.9.3 releases paused preview decoders and pending scrub work before
-export, reducing simultaneous memory use without changing export quality.
-Version 0.9.4 updates the preview and white playhead in the same GTK display
-cycle and redraws only their changed timeline areas during playback.
-Version 0.10.0 adds the nine illustrated transitions, six entry/exit animations,
-Reveal/Highlight/Snake text animations, attached original sound cues and own WAV/MP3
-effects. Repeated dragging/seeking reuses a native decoder at the chosen resolution.
-Playback time follows each displayed frame; silent scrub frames seek into the active source.
-Version 0.10.1 starts live playback near the requested picture instead of decoding
-the active clip from its beginning. Audio retains its echo/voice-effect history;
-the Play button responds immediately and shows Loading preview until a picture arrives.
-Version 0.10.2 replaces slow per-pixel wipes and Flow with native compositing
-and reusable lossless masks, retaining full-resolution preview and export quality.
-Version 0.10.3 replaces costly per-pixel text/caption animation processing with
-native operations to keep live video and sound flowing together. Audio files,
-settings, preview resolution and export quality are retained.
-Version 0.10.4 adds wheel and trackpad scrolling through enlarged previews.
-Version 0.10.5 adds sidebar import removal with a native icon, right-click menu
-and focused Delete key. Undo restores imports; original files, timeline copies
-and live playback are preserved.
-Version 0.10.6 starts captions directly with Small and automatic language
-detection. A separate gear button offers remembered caption settings.
-Version 0.10.7 adds a trash button on hovered sidebar captions. It deletes only
-that cue and supports Undo/Redo.
-Version 0.11.0 adds image clips with an independent duration, timeline duration
-badges and slow zoom in/out. Images can make a complete slideshow or join videos
-and color cards in the same sequence.
-Version 0.11.1 buffers preview audio and video together at slow joins and adds
-cached smaller source videos for faster Fast/HD playback and seeking. The first
-use shows preparation progress; later playback reuses the cache.
-Version 0.11.2 includes explicit SVG/WebP image-loader dependencies for minimal
-Ubuntu installations and CI.
-Version 0.11.3 keeps the zoomed timeline viewport steady during clicks, dragging,
-right-click menus and transition editing far along the sequence.
-Version 0.11.4 makes short text layers stretchable at minimum timeline zoom and
-offers Fit to full video for watermarks, with a visible drag preview.
-Version 0.11.5 moves the playhead and preview to the point clicked inside a
-video or audio clip, including on a zoomed and scrolled timeline.
-Version 0.13.1 fixes Malayalam captions using a dedicated Malayalam speech model,
-upgrades saved language settings and rejects results in another language/script.
-Version 0.13.0 adds timeline clip desaturation: Picture → Saturation (0–100%),
-right-click Desaturate/Restore original color for individual or selected clips,
-and matching timeline thumbnails, preview and export.
-Version 0.12.0 adds a Malayalam caption language selector and bundles Noto Sans
-Malayalam, Manjari and Anek Malayalam for offline text, caption previews and export.
-Version 0.11.7 fixes silent WAV splits with incorrect byte-rate headers and speeds
-up forward scrubbing and paused transition seeks.
-Version 0.11.6 shows detailed source-sample waveforms and preserves continuous
-sound when adjoining audio pieces are split without further edits.
-Voice effects include echo, gain, tone filters and a compressor, with isolated A/B listening.
-Four editable text/caption styles, logo opacity, Up/Down timeline rows,
-positioned overlays and local speech captions are included. The inventory records what is still pending.
+## Install on Ubuntu
 
-This version focuses on local assembly and mixing. It does not include Canva's stock
-library, design templates, collaboration, or publishing services.
-
-![ClipCanvas native media library, preview and project controls](docs/images/editor-workflow-0.9.0.png)
-
-## Install and open
-
-Built for Ubuntu 24.04 and compatible Ubuntu systems with GTK 3 and FFmpeg.
-
-[Download the current Ubuntu installer](installers/ubuntu/clipcanvas_0.22.1_all.deb)
-and its [SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt). On GitHub, use the
-file's **Download raw file** button. Future Ubuntu builds are also available in
-the [Actions artifacts](https://github.com/lixonic/clipcanvas/actions) after a
-successful workflow run. Those artifacts expire after 14 days.
-
-1. Open the supplied `clipcanvas_0.22.1_all.deb` using your software installer, if
-   it supports local Debian packages.
-2. Alternatively, open a terminal in the folder containing the installer and run:
+1. Download [`clipcanvas_0.22.1_all.deb`](installers/ubuntu/clipcanvas_0.22.1_all.deb) ([SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt)). On GitHub, use **Download raw file**.
+   *(Recent CI builds are also available under [GitHub Actions artifacts](https://github.com/lixonic/clipcanvas/actions) for 14 days.)*
+2. Double-click the `.deb` file in your software installer, or run:
 
    ```sh
    sudo apt install ./clipcanvas_0.22.1_all.deb
    ```
 
-3. Open **ClipCanvas** from the applications menu.
+3. Launch **ClipCanvas** from the Ubuntu applications menu (or run `clipcanvas`).
 
-The first installation may need an internet connection to fetch Ubuntu's
-supporting packages. Video creation works offline. Automatic captions require a one-time model and
-library download; recognition then runs offline on your computer. The installer adds a
-separate application and does not change VLC.
+First-time installation fetches standard Ubuntu dependencies (GTK 3, GStreamer, FFmpeg). After that, editing and exporting work completely offline. Automatic captions perform a one-time local speech model download.
 
-## Make your first video
+To uninstall later, use Ubuntu's app manager or run `sudo apt remove clipcanvas`. Your media, projects, and exports remain untouched.
 
-1. **Choose a canvas.** Landscape is 16:9 for YouTube, portrait is 9:16 for Reels
-   and Shorts, and square is 1:1. The **Canvas** menu remains above
-   the preview. Frame rate follows the first source video automatically.
-2. **Import local videos or images.** Use **Add videos** or **Add images** in the media sidebar or the plus
-   action after the final timeline clip. Import adds to the saved media library,
-   shown as thumbnail tiles that wrap to the sidebar width; **click an asset**
-   to append an independent timeline copy. Audio copies start at the playhead.
-   Importing does not start a timeline or replace your preview.
-   File pickers remember accepted folders across launches. Drag clips to reorder them: a lifted
-   thumbnail follows your pointer, neighboring clips make room, and **Drop here**
-   marks the destination. Hold near the viewport edge to scroll the timeline.
-   Release commits one undoable move. Search the
-   library by filename or filter it to videos/images/audio. Use a media row's remove
-   icon or right-click → **Remove from media library** to remove an import.
-   **Delete** also works when the media row has keyboard focus. Originals and
-   timeline copies remain; **Ctrl+Z** restores the import. Collapse the sidebar for
-   more canvas space; drag the divider above the timeline to adjust its height.
-3. **Edit a selected clip.** Click **Edit** for source trim and playback speed,
-   or **Picture** for saturation, fit/fill, crop and zoom, rotation, flips, and
-   picture fades.
-   For mouse cropping, left-click the video or image in the preview. A crop
-   outline appears: drag the picture to position it, or drag a corner to zoom
-   from 100% to 400%. Click **Done** or press **Enter** to finish. **Escape**
-   cancels the current drag; each released change is one Undo step. Movement
-   also works at 100% zoom; exposed areas are black. The saved result appears
-   in preview and export. Clicking a visible overlay still selects that layer.
-   Color cards use their existing controls.
-   Open **Crop and zoom**, set **Zoom** to 100–400%, and adjust **Horizontal** and
-   **Vertical** to choose the visible region. Apply changes to use that framing
-   in preview and export. This setting is saved per clip; older projects start
-   at 100% zoom.
-   Set saturation to 0% for black and white or 100% for original color. Right-click
-   → **Picture → Desaturate** also works on multiple selected clips.
-   Click **Color** for cinematic presets and full color/light controls, or
-   right-click → **Picture → Color grading…**. Choose a look, adjust its strength and
-   compare with original color, then **Apply grade**. Saturation supports 0–200%.
-   With several clips selected, **Apply grade** updates them all by default.
-   These controls open in a compact popover, leaving the canvas clear when
-   closed. Click **Apply changes** to keep the entered settings. Video and audio
-   speed ranges from 0.25× to 4× and preserves audio pitch.
-4. **Choose a transition at the join.** Click the round join button between two
-   clips, choose an illustrated effect and duration, then **Apply changes**.
-   Direction and colour controls appear for effects that use them. A cut also has a
-   join button. Transitions overlap the neighboring clips and shorten the total
-   running time. The popover displays the actual overlap, limited to half of
-   either adjacent clip. The final clip's plus button adds videos; it is not an
-   outgoing transition.
-   To use the same effect everywhere, press **Apply transition to all clips**
-   beneath Apply changes. It copies only the transition, duration, direction and
-   color to all existing joins; Undo restores their previous individual settings.
-   Choose **None** and apply to all to remove every transition. Each join still
-   limits its overlap to half of its neighboring clips.
-5. **Add soundtracks.** Use **Add audio** or drag local audio files into the app.
-   WAV is supported, including 16-bit PCM, 24-bit PCM, and 32-bit floating-point
-   audio. Add separate layers for music, voice-over, and effects. Select a layer
-   and open **Edit** for its start time, source trim, and speed. Drag its body to
-   change when it starts. Drag vertically into another Audio lane to place
-   multiple clips beside one another. Snap aligns a clip to another clip's end.
-   A lifted waveform and Drop here marker show the destination; an overlap is
-   rejected without changing your edit. Right-click → **Arrange → Move to audio lane**
-   can keep the current time or append after that lane's last clip. The menu
-   labels the resulting time. Drag into **new lane** for simultaneous music or
-   voices. Soundtracks stop at the video end and do not extend
-   the composition.
-6. **Mix and fade sound.** Right-click a clip or soundtrack and choose **Audio → Volume
-   and fades…**, or use the selected item's **Audio** button. Enter volume and
-   audio fade durations, then **Apply changes**. Selected soundtrack fade
-   handles can also be dragged on the waveform; the taper shows the fade. Fade
-   out ends at the audible video boundary when a soundtrack extends beyond it.
-   Right-click a video and open **Audio** for **Mute / Unmute**. **Picture** fades are separate:
-   they fade the image from/to black; audio fades change sound level.
-7. **Extract a clip's audio.** Right-click the video and choose **Audio → Extract audio**.
-   The new track starts at the clip's timeline position and retains source trim,
-   speed, volume, audio fades, and existing transition audio envelopes. The
-   original clip is muted to avoid doubled sound. The track then edits and moves
-   independently; subsequent video edits do not move or retime it. Extraction
-   is disabled for clips without an audio stream and while an extracted track for that clip
-   remains. Undo restores the original sound and removes the new track.
-8. **Trim and split.** Drag either selected item's edge to trim; zoom in for
-   short clips. **Snap** aligns edits with clip/audio edges and the playhead.
-   Drag the ruler to choose a time, then **Split** (or press **S**) to cut the
-   selected video or audio item. Video trims close gaps. Audio beyond the video
-   end appears faded and is excluded from export. Splits within audio fades or
-   too near transitions require shortening that effect first. Right-click also
-   groups split and duplicate under **Edit**, clip moves under **Arrange**, and
-   keeps Delete in the main menu.
-9. **Press Play or Preview.** The composition streams directly into the native
-   player, with transitions, fades, overlays, captions and mixed sound. It buffers
-   picture and audio together when a slow clip or transition needs more time.
-   Press Space to pause/resume; drag the ruler or white
-   playhead line to seek. Frames update while you hold and move the line,
-   including transitions, captions and overlays. Dragging pauses sound; playback
-   resumes on release if it was playing before. Paused scrubbing reuses a native decoder for ordinary scenes and draws
-   timed text/images directly, without waiting for the audio mix. Transitions
-   and overlay videos use the composed frame renderer.
-   Above the preview, use **− / Fit / +** for 25–400% magnification relative to
-   Fit. **Ctrl+wheel** zooms. When enlarged, scroll to move vertically, use
-   **Shift+scroll** to move horizontally, or pan with **Shift+drag** or the middle
-   mouse button. Trackpads support both axes. Zoom uses the available preview pane while
-   preserving the canvas proportions. Pan to see parts beyond the pane. Choose **Fit**
-   to center the complete canvas again. These controls
-   only change your view. Use **Picture → Crop and zoom** to save a clip crop
-   that also applies to export.
-   The first main clip supplies the frame rate automatically, including 29.97
-   and 59.94. Mixed-rate projects follow that first clip; reordering updates it.
-   The selector above the preview defaults to **Full resolution**, matching the
-   project canvas. **HD preview** caps the longest edge at 1280 pixels and
-   **Fast preview** at 640. Playback, scrubbing and prepared previews follow
-   that choice; export always uses original media at the project canvas size.
-   Fast/HD start with available cached videos, reading originals for missing
-   entries at the selected preview size. Smaller copies build in the background
-   for later playback and seeks. Full resolution and soundtrack processing use
-   the originals.
-   Heavy projects or seeks deep into long clips can take time or stutter. Use
-   **Project → Render smooth preview…** when you need a prepared playback file.
-10. **Export.** **Maximum quality · MP4** is selected by default for social
-    videos. Choose **Lossless master · MKV** to preserve the composed frames and
-    audio without lossy encoding; these files are very large. Choose the save
-    location with the native file chooser and keep the app open until finished.
+---
 
-## Use images as clips with slow zoom
+## Key Features
 
-Choose **Add images**, then click an image in **Your media** to append a photo
-clip. Each copy starts at **5 seconds**. Select it and open **Edit → Timing →
-Duration (s)** to set how long that image stays on screen, then **Apply changes**.
-You can also drag its timeline edges to shorten or extend it.
+- **Flexible timeline & media library:** Landscape (`16:9`), portrait (`9:16`), and square (`1:1`) canvases with automatic source FPS. Mix videos, images (with optional slow zoom), and solid color cards; drag to reorder, trim edges, snap, split (`S`), and batch-edit multi-selected items.
+- **Picture, crop & color grading:** Click the preview to pan and zoom/crop (`100–400%`) directly with the mouse, rotate/flip, add picture fades, desaturate, or apply cinematic color presets and exposure/tone/saturation adjustments. Includes multi-pass visible Gemini sparkle watermark removal for 720p/1080p footage.
+- **Transitions & visual layers:** 9 illustrated transitions (including **Apply to all clips**), plus text titles, logos/images, and video overlays with entry/exit animations, opacity, stacking controls, and attached sound cues.
+- **Multi-lane audio & voice effects:** Layer WAV (16/24-bit PCM, 32-bit float), MP3, and other audio across multiple lanes with draggable fades, group volume/mute, audio extraction, pitch-preserving speed (`0.25×–4×`), and built-in voice effects (Amplify, Tone/EQ, Echo, Compressor with A/B audition).
+- **Offline speech captions:** Generate word-timed captions locally with automatic language detection or a dedicated **Malayalam** model (with bundled *Noto Sans Malayalam*, *Manjari*, and *Anek Malayalam* fonts). Includes spoken-word yellow highlights, reusable cross-project style presets, and SRT import/export.
+- **Live preview & fast export:** Stream full compositions with selectable **Full / HD / Fast** preview resolutions. Export to **Maximum quality MP4** (with Fast, Balanced, or Efficient speed presets and optional VAAPI hardware encoding) or **Lossless master MKV**.
+- **Safe local projects:** Projects save as `.clip` files (existing `.clipcanvas` files still open and save in place). Originals are never modified. Includes 30-second crash recovery, missing-media relinking, and **Save portable copy** to bundle a project with its media.
 
-In **Edit → Motion**, choose **Still image**, **Slow zoom in**, or **Slow zoom
-out**. **Zoom amount** controls the change in scale (15% by default); a longer
-duration makes the move slower. **Picture** provides fit/fill, crop and zoom,
-rotation, flips and picture fades. Photo clips can be mixed with videos and color
-cards, reordered, split and joined with transitions. Image-only videos support
-soundtracks, text, logos and captions too. Settings survive undo/redo and saving.
-Use **Layers → Image / logo** when you want a positioned overlay.
+---
 
-See the [image clip guide](docs/IMAGE-CLIPS.md) for supported files and validation.
+## Quick Start
 
-## Insert a color card between videos
+1. **Choose a canvas & import media**
+   Select **16:9**, **9:16**, or **1:1** above the preview. Click **Add videos**, **Add images**, or **Add audio** in the sidebar, then click any thumbnail tile to append a copy to the timeline.
+2. **Arrange & trim clips**
+   Drag clips to reorder them, drag clip edges to trim, or move the playhead and press **S** to split. Use **+ Card** to insert solid color scenes, or **Edit → Motion** on image clips for slow zoom.
+3. **Crop, color & clean up picture**
+   Left-click the video in the preview to drag-position or corner-zoom your crop (**Enter** or **Done** to apply). Use **Picture** or **Color** for rotation, fades, desaturation, and cinematic grades. Right-click video clips and choose **Remove watermark** to patch detected Gemini sparkles.
+4. **Add transitions, layers & captions**
+   - **Transitions:** Click the round join button between two clips to choose an effect and duration (or apply it to all joins).
+   - **Layers:** Open **Layers** in the sidebar to add text, logos, or overlay videos; drag them on the canvas to position.
+   - **Captions:** Open **Captions → Generate captions** (select **Malayalam · മലയാളം** if needed), then edit wording, timing, or style presets—including spoken-word **Highlight**.
+5. **Mix audio & voice effects**
+   Drag audio clips across lanes or drag their waveform fade handles. Right-click any audio or video clip for **Audio → Volume and fades…**, **Extract audio**, or **Voice effects…**.
+6. **Preview & export**
+   Press **Space** to play/pause or drag the playhead to scrub. Switch the preview selector above the canvas between **Full resolution**, **HD preview**, and **Fast preview** as needed—exports always render from your original files at full canvas resolution. Click **Export** to save an **MP4** or **Lossless master MKV**.
 
-Select the preceding clip and press **+ Card** above the timeline. Choose a
-color with Ubuntu's native chooser, enter its duration, then **Insert card**.
-Alternatively, right-click a clip, open **Insert** and choose **Insert color card before…** or
-**after…**. With no selection, the toolbar action inserts at the next clip
-boundary at/after the playhead (or at the end).
+---
 
-Select a card and choose **Edit** to change its color and duration. Cards support
-reordering, edge trims, split, duplicate, delete, undo/redo and transitions at
-both joins. Cards have no source file or sound; soundtracks continue across them.
-You can create an entire video from cards with text/logos in **Layers**. Layer,
-caption and soundtrack times remain absolute when a card is inserted or resized;
-check their timing after changing the story. The card is saved in the project
-and included in recovery/portable collection without generating a media file.
+## Keyboard & Mouse Shortcuts
 
-## Add echo and adjust a voice track
+| Action | Shortcut |
+|---|---|
+| Play / Pause | `Space` |
+| Split selected clip or audio at playhead | `S` |
+| Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` |
+| Save / Save as / Open project | `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+O` |
+| Select all / Range / Toggle item | `Ctrl+A` / `Shift+Click` / `Ctrl+Click` |
+| Select all items of same type (video or audio) | `Shift+Right-Click` |
+| Copy / Cut / Paste / Delete selection | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Delete` |
+| Zoom timeline (over timeline) or preview (over canvas) | `Ctrl+Wheel` |
+| Pan zoomed preview | `Shift+Drag`, middle-drag, or scroll/trackpad |
 
-Right-click a WAV, MP3 or other soundtrack in the timeline and choose
-**Audio → Voice effects…**. The same editor is available through the **Audio** controls,
-including attached video sound. Pick a starting preset (**Neutral**, **Narration**,
-**Telephone**, **Echo**) or adjust the tabs:
+---
 
-- **Amplify:** gain from −24 to +24 dB, separate from the track volume.
-- **Tone:** bass/treble and optional high-pass/low-pass cutoffs; 0 turns a filter off.
-- **Echo:** enable echo, then set delay, first echo level, decay and repeat count.
-- **Compressor:** threshold, ratio, attack/release and make-up gain for voice levels.
+## Good to Know
 
-Use **Listen with effects** and **Without effects** to compare the first 12
-seconds of that edited track, then **Apply effects**. **Enable voice effects**
-provides bypass; the Neutral preset resets them. Cancel keeps the prior settings.
-With a multi-selection, **Apply effects** updates every selected item with audio by default.
-Applied effects support undo/redo and save/reopen; the timeline shows **FX**.
+- **Originals stay safe:** Edits are non-destructive; exports always read your original media at the project canvas size.
+- **Overlay timing:** Layer, caption, and soundtrack timestamps stay fixed when you move or resize base clips—double-check their alignment after rearranging the main sequence.
+- **Heavy timelines:** Live preview computes effects on the CPU. If playback stutters, switch to **HD/Fast preview** or use **Project → Render smooth preview…**.
+- **Scope:** Focused on local editing—no stock library, cloud templates, collaboration, caption translation, or animated GIF layers.
 
-Press the main **Preview** to hear the complete mix. Preview/export share the
-same effect chain. Source waveforms remain a view of the original recording.
-No original file is rewritten. Echo stops at the trimmed track/video boundary;
-leave silence inside the track if the final words need room to echo. Splitting
-starts an independent effect chain in each part. These are track-wide effects,
-not selection-based waveform processing, plugin hosting or automatic noise removal.
+---
 
-## Add titles, logos, and visual layers
+## Run or Build from Source
 
-Open **Layers** in the sidebar and choose **Add text**, **Image / logo**, or
-**Overlay video**. Images can also be dropped into the window. Adding/selecting
-text opens its editable words and shared style controls. Choose **Clean**,
-**Outline**, **Shadow**, or **Highlight**, then **Apply changes**. Presets keep
-your words, font family/size, timing, position and overall opacity. You can still
-edit fonts, bold/italic, alignment, colors and outline thickness; expand
-**Background and shadow adjustments** for line-following backgrounds, padding,
-roundness, shadow offsets and softness. Unicode and installed fonts are supported.
-
-For a logo, choose **Image / logo**, select the imported image, and use the
-sidebar's **Selected overlay opacity** slider. Transparent PNGs retain their
-existing alpha; the slider adjusts overall opacity. **Full video** sets its
-visibility from the beginning through the current video end. **Size / position**
-opens its geometry controls. Drag the logo on the canvas to place it.
-
-Drag the selected layer on the canvas to position it. Use **Picture** for width,
-height, rotation, opacity, fit/fill, and **Bring forward / Send backward**.
-Layer sizes and positions follow the canvas when switching aspect ratio.
-
-Select any timeline video, audio, overlay or caption, then use **Up / Down**
-above the timeline to arrange its row. All base clips share the Video row and
-all caption cues share the Captions row. Multiple sequential audio clips can
-share a lane; each visual overlay has its own row. Up/Down moves a whole lane.
-Row order is saved with the project and supports undo/redo. It changes display
-order only: playback timing, clip sequence and visual stacking stay unchanged.
-Use **Bring forward / Send backward** separately to change visual stacking.
-
-Each visual layer has its own timeline row. Drag its body to move it in time,
-or its edges to trim its visibility. **Edit → Timing** also accepts exact start
-and end times. Layers can be split, duplicated, removed, and undone. Video
-layers have source start and speed controls; their last frame holds when their
-visibility exceeds the source duration. Overlay videos are silent; add or
-extract an audio track when you want their sound.
-
-## Generate and edit captions
-
-1. Click **Captions → Generate captions**. Recognition starts immediately with
-   **Small** for better accuracy and automatic language detection. Choose
-   **Malayalam · മലയാളം** above Generate for Malayalam videos; this selects
-   **Malayalam**, a model trained specifically for Malayalam speech. Saved
-   Small/Tiny/Turbo settings switch automatically when Malayalam is selected.
-2. Optionally use the gear beside Generate to change **Caption settings**.
-   Original-video speech is the default, recognizing clips even when muted in
-   the mix. Choose **Full mix** for narration in separate soundtracks. Tiny is
-   available for quick drafts; language can be detected or set with a code such
-   as `en`, `hi`, `ml` or `ta`. **Apply** remembers choices across app launches;
-   it does not start generation.
-3. The first use downloads about 1.5 GB for Malayalam, 1.6 GB for Turbo,
-   490 MB for Small or 75 MB
-   for optional Tiny, plus
-   supporting libraries, into a private environment in your user data folder.
-   The job follows the current sequence, trims, speed and transition timing.
-4. Progress and cancellation are available. No footage or audio is uploaded.
-   Subsequent recognition with an installed model works offline.
-5. Select a caption, open the **Text** tab, correct its words, and apply. Change
-   its start/end in **Timing**, or drag its timeline body/edges. **Add caption**
-   lets you fill a gap. Hover a sidebar caption to reveal its trash button and
-   delete only that cue. Undo/redo applies to caption changes.
-6. Choose **Clean**, **Outline**, **Shadow**, or **Highlight** in the cue's Text
-   tab or **Caption style**. The same editable controls used for titles apply
-   to generated, imported and manually entered captions. Appearance changes
-   apply to all cues; words/timing change only for the selected cue.
-   In **Caption style**, choose **Highlight** for white
-   outlined captions with dark text on a rounded yellow box that follows the
-   spoken word. Newly generated captions retain speech word timestamps, including
-   pauses. Older, imported, manually entered or reworded cues use evenly spaced
-   timing; regenerate speech captions to recover recognized word timing. Moving
-   a cue keeps its word timing; stretching its duration scales the word intervals.
-   Choose **Horizontal alignment** (Left, Center, Right) and **Vertical alignment**
-   (Top, Middle, Bottom). Set colors, font and roundness, enter a
-   preset name, then **Save as preset**. Saved presets include placement and are
-   available across projects; choose one and **Load preset**, then **Apply**.
-   Saving an existing name updates that preset. Cancel leaves project styling
-   unchanged, while explicitly saved presets remain available.
-   The **Malayalam Google Fonts** selector offers bundled Noto Sans Malayalam
-   (everyday captions), Manjari (soft rounded text) and Anek Malayalam (bold
-   captions/titles). Generated Malayalam and imported Malayalam SRT use Noto
-   Sans Malayalam when the project still uses a generic default font.
-   Captions appear in preview and are
-   burned into exported MP4s. **Import SRT / Export SRT** exchanges editable
-   subtitle files; SRT stores cue text and cue timing, not styling or individual
-   word timestamps. Save the ClipCanvas project to retain those details.
-
-Recognition accuracy varies with language, music, accents, and model size.
-Review the words and timings. Caption translation remains pending. See
-[local caption setup and troubleshooting](docs/CAPTIONS.md).
-
-Use **Ctrl+Z** to undo an edit and **Ctrl+Shift+Z** to redo it. **Ctrl+S** saves the
-project, and **Ctrl+O** opens a saved project. Undo/redo controls also appear above
-the story strip. Project actions live in the header's menu.
-
-ClipCanvas uses Ubuntu's GTK theme, system fonts, symbolic icons, and native
-file choosers. Light/dark presentation follows the desktop theme; it does not
-embed a browser or the full Files application.
-
-## Save projects and keep your originals
-
-**Save project** and **Open project** are labelled buttons in the top bar.
-Use Ctrl+S to save, Ctrl+Shift+S to Save as, and Ctrl+O to reopen.
-Save a project so you can return to the composition later. Projects store edit
-decisions, the media library and paths to your originals, with relative paths where possible. If
-you move a project without its media, use **Project → Relink missing media**.
-Replacement files must contain the same media type and be long enough for the
-saved trim points.
-
-Use **Project → Save portable copy** to create a new folder containing the
-project and copies of every referenced source file. Move that entire folder to
-another computer. This can take disk space comparable to your originals; no
-media is re-encoded during collection.
-
-Recovery copies are saved every 30 seconds while you have unsaved changes.
-After a crash, use **Project → Recover unsaved project**. A normal save or clean
-close removes the current recovery copy. Recovery is separate from your saved
-project and references originals; it is not a media backup.
-
-Version 0.11.0 reads project formats 1–7 and adds missing defaults on load.
-It saves project format 8 for image scenes and slow zoom. Use a build with image
-clip support (0.11.0 or newer) to open newly saved projects; earlier releases cannot open format 8.
-Earlier files are migrated when opened.
-Shadows, rounded highlights and custom row order need 0.5.x or newer.
-Apps older than 0.4 cannot read layers and captions. Portable copies and recovery
-include the media references, editable text, captions, styles and row layout.
-
-Shift+right-click a video or audio item selects all items of that kind.
-Shift+click selects a range; Ctrl+click toggles individual items. Ctrl+A selects
-all timeline items, including layers/captions. For group volume, Shift+right-click
-a video, open **Audio** and choose **Mute selected videos**, or **Volume for selected items**,
-set the percentage and **Apply volume to N items**. Video-only selection leaves
-independent soundtracks alone; Ctrl-selection can include video and audio together.
-Ctrl+C/X/V copies/cuts/pastes;
-Delete removes the selection in one undo step. Text fields keep their text shortcuts.
-Ctrl+wheel over the timeline zooms around the pointer; over the canvas it zooms the preview.
-See the [workflow guide](docs/EDITOR-WORKFLOW.md) for placement and remembered audio settings.
-
-The exported MP4 is a standalone video that you can share or upload.
-
-## Video quality
-
-Exports are made from the original media at the project canvas size.
-Preview resolution and toolbar zoom never change export resolution or source files.
-Frame rate follows the first main clip; choose a canvas appropriate for your source. Increasing resolution
-does not restore detail that is absent in the original, and cropping landscape
-video into portrait necessarily removes part of the image.
-
-The MP4 export is re-encoded because the composition contains
-scaling, transitions, or mixed audio. It is intended to preserve good visual
-quality, but even **Maximum quality** is not mathematically lossless. Social
-platforms may compress the finished MP4 again after upload.
-
-The export dialog selects **Maximum quality · MP4**, **Software** encoding
-and **Fast** by default. Automatic tests a Linux VAAPI graphics encoder at the
-selected canvas/settings, then uses software if unavailable or if rendering fails.
-Software keeps the previous H.264 encoder. Hardware quality and file size can
-differ; decoding and effects still use the CPU. The confirmed MP4 encoding choice
-is remembered. See [hardware encoding and validation](docs/HARDWARE-EXPORT.md).
-
-Speed and quality are separate choices: Fast spends less time compressing,
-Balanced balances time and compression efficiency, and Efficient compression
-spends more time on compression efficiency. Software + Balanced uses the previous
-MP4 compression preset. File size and fine detail can differ
-between speeds at the same quality setting. The last confirmed MP4 speed is
-remembered across launches. The speed control is disabled for lossless masters.
-See [measurements and validation](docs/EXPORT-SPEED.md).
-
-**Lossless master · MKV** uses FFV1 video and floating-point PCM audio. It adds
-no lossy encoding to the composed output. Source decoding, cropping, resizing,
-effects and the existing 8-bit YUV 4:2:0 composition still apply; it is not a
-bit-for-bit copy of the source or HDR/high-bit-depth mastering. See
-[quality and validation](docs/QUALITY-CARDS.md).
-
-## Practical limits of this build
-
-- One base sequence of videos, images and color cards, with additional audio,
-  text, image, and video layers. At least one base scene is required for
-  preview/export. Overlay/caption timing stays absolute when base clips move
-  or change length; check it after rearranging the story.
-- Live playback computes effects as it plays. CPU-heavy compositions can
-  stutter, and deep seeks may need catch-up decoding. This is not a GPU/NLE engine.
-- Live playback keeps bounded frame/audio buffers, a disposable Fast/HD video
-  cache and temporary visual sprites;
-  optional rendered previews and exports also need disk space for video files.
-- No animated title/caption presets, motion paths, template/stock library, or
-  caption translation yet. Imported animated GIFs are not supported as moving layers.
-- Keep backups of valuable source media and project files.
-
-## Remove the app
-
-Use Ubuntu's installed-app controls, or run `sudo apt remove clipcanvas`.
-Your original media, saved projects, and exported videos are separate files.
-
-## Run or rebuild the source
-
-The source archive is included for inspection and changes. It uses Python's
-standard library plus Ubuntu's GTK/GStreamer bindings and FFmpeg.
-
-Install the same dependencies listed by the Debian package, then from the source
-folder run:
+ClipCanvas uses Ubuntu's system Python (`/usr/bin/python3`) with GTK 3, GStreamer, and FFmpeg (see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the exact `apt` dependency list and test instructions).
 
 ```sh
+# Run directly from the repository
 /usr/bin/python3 -m clipcanvas
-```
 
-To create a new installer and source archive without administrator privileges:
-
-```sh
+# Build a .deb installer and source archive (no sudo required)
 /usr/bin/python3 build_deb.py --output-dir ./dist
 ```
 
-Package-building requires `dpkg-deb`. No network access is used during building.
-The small installer does not bundle speech models or their optional runtime.
-The software is released under the MIT license in `packaging/copyright`.
+Released under the MIT License ([`LICENSE`](LICENSE)).
 
-## Installer targets
+---
 
-| Platform | Status | Format |
-|---|---|---|
-| Ubuntu 24.04 | Current baseline; native GTK app and build recipe | `.deb` |
-| Windows | Planned portability and packaging work; no download yet | Installer format to be selected after runtime validation |
+## Documentation
 
-The rendering engine will be retained as we evaluate Windows deployment and
-the selected overhaul features. See the development plan for the concrete
-Windows prerequisites and release checks.
+- **Release history & roadmap:** [Changelog](CHANGELOG.md) · [Feature status](docs/CANVA-FEATURES.md) · [Development plan](docs/DEVELOPMENT-PLAN.md) · [Contributing](CONTRIBUTING.md)
+- **Editing guides:** [Workflow & shortcuts](docs/EDITOR-WORKFLOW.md) · [Image clips](docs/IMAGE-CLIPS.md) · [Transitions & animations](docs/EFFECTS.md) · [Color grading](docs/COLOR-GRADING.md) · [Desaturation](docs/DESATURATION.md) · [Captions](docs/CAPTIONS.md) · [Audio lanes](docs/AUDIO-LANES.md) · [Voice effects](docs/VOICE-EFFECTS.md)
+- **Preview & export details:** [Live preview & cropping](docs/LIVE-PREVIEW.md) · [Preview buffering & cache](docs/PREVIEW-BUFFERING.md) · [Quality & color cards](docs/QUALITY-CARDS.md) · [Export speed](docs/EXPORT-SPEED.md) · [Hardware encoding (VAAPI)](docs/HARDWARE-EXPORT.md) · [Export memory](docs/EXPORT-MEMORY.md) · [Source color range](docs/COLOR-RANGE.md)
