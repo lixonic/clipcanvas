@@ -2134,12 +2134,34 @@ class DesktopWorkflowTests(unittest.TestCase):
             w.select_modified('clips',1,Gdk.ModifierType.CONTROL_MASK)
             menu=w.context_menu('clips',1)
             command=next(i for i in menu_items(menu) if i.get_label()=='Remove watermark from selected clips (2)')
+            self.assertTrue(command.get_sensitive())
             menu.popdown()
-            with mock.patch('clipcanvas.watermark.detect',return_value={'template':'720','offset':120}) as detect:
+            first={'template':'720','offset':144}
+            second={'template':'2026-48','offset_x':111,'offset_y':115}
+            with mock.patch('clipcanvas.watermark.detect',return_value=first) as detect:
                 command.activate()
                 self.pump(lambda:not w.busy)
                 self.assertEqual(detect.call_count,2)
-            self.assertEqual(['sparkle_patch' in c for c in w.project['clips']],[True,True,False])
+            self.assertEqual([c.get('sparkle_patch') for c in w.project['clips']],[first,first,None])
+            # Context menu must stay enabled after clearing the first sparkle so a second sparkle can be removed.
+            menu=w.context_menu('clips',1)
+            command=next(i for i in menu_items(menu) if i.get_label()=='Remove watermark from selected clips (2)')
+            self.assertTrue(command.get_sensitive())
+            menu.popdown()
+            with mock.patch('clipcanvas.watermark.detect',return_value=second) as detect:
+                command.activate()
+                self.pump(lambda:not w.busy)
+                self.assertEqual(detect.call_count,2)
+            self.assertEqual([c.get('sparkle_patch') for c in w.project['clips']],[[first,second],[first,second],None])
+            history_len=len(w.history)
+            with mock.patch('clipcanvas.watermark.detect',return_value=None) as detect:
+                w.remove_watermarks()
+                self.pump(lambda:not w.busy)
+                self.assertEqual(detect.call_count,2)
+            self.assertEqual(len(w.history),history_len)
+            self.assertEqual([c.get('sparkle_patch') for c in w.project['clips']],[[first,second],[first,second],None])
+            w.undo()
+            self.assertEqual([c.get('sparkle_patch') for c in w.project['clips']],[first,first,None])
             w.undo()
             self.assertFalse(any('sparkle_patch' in c for c in w.project['clips']))
         finally:w.cleanup();w.destroy()

@@ -1580,7 +1580,7 @@ class ClipCanvasWindow(Gtk.Window):
             videos=[clip for _,_,clip in self.selected_picture_items() if not model.is_still(clip)]
             if videos:
                 title='Remove watermark' if len(videos)==1 else f'Remove watermark from selected clips ({len(videos)})'
-                action(menu,title,self.remove_watermarks,any('sparkle_patch' not in clip for clip in videos))
+                action(menu,title,self.remove_watermarks)
             picture=group('Picture')
             picture_items=self.selected_picture_items();picture_count=len(picture_items)
             action(picture,'Picture…',lambda:self.open_properties('Picture'))
@@ -1696,8 +1696,7 @@ class ClipCanvasWindow(Gtk.Window):
     def remove_watermarks(self):
         from . import watermark
         if self.busy:return
-        clips=[clip for _,_,clip in self.selected_picture_items()
-               if not model.is_still(clip) and 'sparkle_patch' not in clip]
+        clips=[clip for _,_,clip in self.selected_picture_items() if not model.is_still(clip)]
         if not clips:return
         self.canvas.pause();self.update_play_button(False)
         self.set_busy(True)
@@ -1722,13 +1721,15 @@ class ClipCanvasWindow(Gtk.Window):
             if matches:
                 at=self.playhead
                 self.checkpoint()
-                for clip,patch in matches:clip['sparkle_patch']=patch
+                for clip,patch in matches:
+                    clip['sparkle_patch']=watermark.merge_patches(clip.get('sparkle_patch'),patch)
                 self.changed();self.seek(at)
             skipped=len(clips)-len(matches)-len(failed)
-            message=f'Watermark removed from {len(matches)} clip(s).'
-            if skipped:message+=f' No matching Gemini sparkle on {skipped} clip(s).'
-            if failed:message+=' Could not scan: '+', '.join(failed)
-            self.set_status(message)
+            parts=[]
+            if matches:parts.append(f'Watermark removed from {len(matches)} clip(s).')
+            if skipped:parts.append(f'No matching Gemini sparkle on {skipped} clip(s).')
+            if failed:parts.append('Could not scan: '+', '.join(failed))
+            self.set_status(' '.join(parts))
             return False
         def work():
             matches=[];failed=[]

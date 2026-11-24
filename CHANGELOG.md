@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.1 — 2026-11-24
+
+- Keep **Remove watermark** enabled on video clips after clearing a sparkle so clips with two visible Gemini sparkles can be scanned and patched again.
+- Scan already-patched clips after applying their existing mask, detect shifted secondary sparkles in the bottom-right corner, and combine multiple patches into a single inpainting mask with per-pass Undo and `.clip` save/reopen support.
+
 ## 0.22.0 — 2026-11-24
 
 - Apply voice effects and color grading to all eligible selected timeline items by default. Undo restores the whole batch.

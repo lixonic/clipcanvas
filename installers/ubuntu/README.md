@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.22.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.22.1_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.22.0_all.deb
+sudo apt install ./clipcanvas_0.22.1_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -26,6 +26,11 @@ runtime/model, then run offline. See [caption setup](../../docs/CAPTIONS.md).
 See [workflow validation](../../docs/EDITOR-WORKFLOW.md). Build with
 `/usr/bin/python3 build_deb.py --output-dir dist`; GitHub Actions provides temporary
 artifacts. Windows and external provider/API/MCP work remain pending.
+
+Version 0.22.1 keeps **Remove watermark** enabled after clearing a sparkle so
+clips with two visible Gemini sparkles can be scanned and patched again,
+including shifted secondary sparkles in the bottom-right corner. Save and reopen
+the app after upgrading.
 
 Version 0.21.3 fixes a native crash after editing a generated caption and then
 saving or starting playback. Reopen the app after upgrading. If the prior
