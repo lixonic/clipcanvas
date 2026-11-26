@@ -735,6 +735,28 @@ def _bounded_image_motion(clip, sw, sh, width, height, fps, seek, remaining):
             f'd={math.ceil(remaining*fps)}:s={width}x{height}:fps={_fmt(fps)}')
 
 
+def _with_grading(repair, framing, clip, scratch, prefix):
+    """Order primary and crayon grading around framing for fast live previews.
+
+    Spatial crayon styling runs after scaling to preview/output size so HD/4K
+    footage avoids preview buffering, while remaining before black fit/offset
+    padding and before still-image zoompan so borders stay black and stills
+    stylize once.
+    """
+    grade = color_grading.filters(clip, scratch, prefix=prefix)
+    if not grade:
+        return ','.join(repair + [framing])
+    if not color_grading.crayon_active(clip):
+        return ','.join(repair + grade + [framing])
+    if ',drawbox=color=black:t=fill:replace=1' in framing:
+        return ','.join(repair + [framing])
+    for marker in (',pad=', ',zoompan='):
+        if marker in framing:
+            before, after = framing.split(marker, 1)
+            return ','.join(repair + [before] + grade) + marker + after
+    return ','.join(repair + [framing] + grade)
+
+
 def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None, proxies=None):
     if any(clip.get('transition')=='match_move' for clip in project['clips']):
         from . import animations
@@ -846,8 +868,12 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         repair = []
         if clip.get('sparkle_patch') and not audio_only:
             from . import watermark
-            repair = watermark.removal_filter(clip['sparkle_patch'], metadata, scratch)
-        preparation = ','.join(repair + color_grading.filters(clip, scratch) + [framing])
+            repair = watermark.removal_filter(
+                clip['sparkle_patch'], metadata, scratch,
+                source_start=clip.get('in', 0) + seek * speed,
+                source_end=clip['out'],
+            )
+        preparation = _with_grading(repair, framing, clip, scratch, f'cg{index}_')
         picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]

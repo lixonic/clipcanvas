@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.0 — 2026-11-26
+
+- Detect and remove disappearing and drifting visible Gemini sparkles (common in image-to-video clips where the sparkle fades out partway through or moves with camera motion). Tracked patches generate time-bounded `removelogo` masks that follow the sparkle while visible, leave clean frames untouched once it vanishes, and stay aligned across seeks, trims and splits.
+- Add the **Crayon drawing** color grading preset and adjustable **Crayon drawing** slider (0–100%), combining Pixar-inspired warm shading with edge-preserving wax smoothing, sketchy outlines and static textured paper across video, photo, card previews and exports.
+
 ## 0.22.1 — 2026-11-24
 
 - Keep **Remove watermark** enabled on video clips after clearing a sparkle so clips with two visible Gemini sparkles can be scanned and patched again.

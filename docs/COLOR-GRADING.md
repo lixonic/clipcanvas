@@ -13,18 +13,23 @@ and choose **Color grading…**. Choose a starting look:
 | Preset | Starting appearance |
 |---|---|
 | Pixar-inspired animation | Bright, rich color, warm midtones, gentle highlights |
+| Crayon drawing | Bright, Pixar-inspired crayon colors, luminous shading, sketchy outlines and textured paper |
 | Horror | Dark, desaturated, cold and slightly green |
 | Adventure | Crisp contrast, warm sunlight, vivid color |
 | Romantic | Soft contrast, lifted shadows, warm rosy color |
 | Mystery | Cool, muted color, deeper shadows, restrained highlights |
 
 Neutral, Warm, Cool, Soft and Punchy are also available. These are creative
-starting looks rather than studio LUTs; grading alone does not turn live-action
-footage into animation. Source lighting, exposure and color influence the result.
+starting looks rather than studio LUTs; primary tone grading alone does not turn
+live-action footage into animation, while **Crayon drawing** adds edge-preserving
+wax smoothing, sketchy outlines and static textured drawing paper. Source
+lighting, exposure and color influence the result.
 
-**Look strength** blends each primary adjustment toward its neutral value from
-0–100%; 0% shows original color. Adjust exposure (−3 to +3 stops), contrast,
-midtones/gamma, shadows, highlights, temperature, tint and saturation (0–200%).
+**Look strength** blends every adjustment (including **Crayon drawing**) toward
+its neutral value from 0–100%; 0% shows original color. Adjust crayon drawing
+(0–100%), exposure (−3 to +3 stops), contrast, midtones/gamma, shadows,
+highlights, temperature, tint and saturation (0–200%). Setting saturation to 0%
+with crayon drawing enabled produces a charcoal/graphite crayon sketch.
 The preview updates after a short pause while dragging, without committing an
 edit. The composition includes transitions and overlays at the chosen clip time.
 **Compare with original color** temporarily removes that clip's color adjustments;

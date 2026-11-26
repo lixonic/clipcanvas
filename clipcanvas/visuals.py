@@ -8,6 +8,8 @@ multiline titles, and subtitle wording remain plain text.
 from functools import lru_cache
 import math
 from pathlib import Path
+import random
+import struct
 
 import cairo
 import gi
@@ -257,6 +259,84 @@ def saturated_rgb(color, saturation=1):
     return tuple(min(1,max(0,gray+(channel-gray)*saturation)) for channel in (red, green, blue))
 
 
+@lru_cache(maxsize=1)
+def _crayon_tiles():
+    """Precompute seamless diagonal wax-stroke and paper-tooth Cairo tiles."""
+    size = 64
+    rng = random.Random(17)
+    base = [[rng.uniform(-1, 1) for _ in range(size)] for _ in range(size)]
+    tooth = random.Random(43)
+    overlay_buf = bytearray(size * size * 4)
+    skip_buf = bytearray(size * size * 4)
+    weights = ((-3, 3, 2), (-2, 2, 4), (-1, 1, 6), (0, 0, 7), (1, -1, 6), (2, -2, 4), (3, -3, 2))
+    offset = 0
+    for y in range(size):
+        for x in range(size):
+            streak = sum(base[(y + dy) % size][(x + dx) % size] * w for dx, dy, w in weights) / 31
+            grain = 128 + streak * 92 + tooth.uniform(-40, 40)
+            r = min(255, max(0, round(128 + (grain - 128) * 2.05 + 6)))
+            g = min(255, max(0, round(128 + (grain - 128) * 2.05 + 3)))
+            b = min(255, max(0, round(128 + (grain - 128) * 2.05 - 3)))
+            struct.pack_into('=I', overlay_buf, offset, (255 << 24) | (r << 16) | (g << 8) | b)
+            peak = max(0.0, grain - 154.0)
+            sr = min(180, round(peak * 2.7))
+            sg = min(172, round(peak * 2.6))
+            sb = min(152, round(peak * 2.2))
+            struct.pack_into('=I', skip_buf, offset, (255 << 24) | (sr << 16) | (sg << 8) | sb)
+            offset += 4
+    stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_ARGB32, size)
+    return (
+        cairo.ImageSurface.create_for_data(overlay_buf, cairo.FORMAT_ARGB32, size, size, stride),
+        cairo.ImageSurface.create_for_data(skip_buf, cairo.FORMAT_ARGB32, size, size, stride),
+    )
+
+
+def _crayon_picture(pixbuf, amount):
+    """Apply fast native wax-crayon texture to thumbnails/stills, preserving alpha and padding."""
+    width, height = pixbuf.get_width(), pixbuf.get_height()
+    channels, stride = pixbuf.get_n_channels(), pixbuf.get_rowstride()
+    has_alpha = pixbuf.get_has_alpha()
+    source = pixbuf.get_pixels()
+    # Build an opaque RGB copy with warm wax tonal lift before Cairo compositing
+    # so translucent source pixels are never premultiplied by alpha.
+    wax_tables = tuple(
+        bytes(min(248, max(0, round(v + (16 + .93 * v + 8 * math.sin(v * .0123) - v) * amount))) for v in range(256))
+        for _ in range(3)
+    )
+    rgb = bytearray(width * height * 3)
+    for row in range(height):
+        src_start, src_end = row * stride, row * stride + width * channels
+        dst_start, dst_end = row * width * 3, (row + 1) * width * 3
+        for channel in range(3):
+            rgb[dst_start + channel:dst_end:3] = source[src_start + channel:src_end:channels].translate(wax_tables[channel])
+    opaque = GdkPixbuf.Pixbuf.new_from_bytes(
+        GLib.Bytes.new(bytes(rgb)), GdkPixbuf.Colorspace.RGB, False, 8, width, height, width * 3)
+    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, width, height)
+    cr = cairo.Context(surface)
+    Gdk.cairo_set_source_pixbuf(cr, opaque, 0, 0)
+    cr.paint()
+    overlay_tile, skip_tile = _crayon_tiles()
+    for tile, op, alpha in ((overlay_tile, cairo.OPERATOR_OVERLAY, .50 * amount),
+                            (skip_tile, cairo.OPERATOR_SCREEN, .66 * amount)):
+        pattern = cairo.SurfacePattern(tile)
+        pattern.set_extend(cairo.EXTEND_REPEAT)
+        cr.set_operator(op)
+        cr.set_source(pattern)
+        cr.paint_with_alpha(alpha)
+    textured = Gdk.pixbuf_get_from_surface(surface, 0, 0, width, height)
+    textured = saturated_picture(textured, 1 + .14 * amount)
+    tex_pixels = textured.get_pixels()
+    tex_channels, tex_stride = textured.get_n_channels(), textured.get_rowstride()
+    result = bytearray(source)
+    for row in range(height):
+        dst_start, dst_end = row * stride, row * stride + width * channels
+        src_start, src_end = row * tex_stride, row * tex_stride + width * tex_channels
+        for channel in range(3):
+            result[dst_start + channel:dst_end:channels] = tex_pixels[src_start + channel:src_end:tex_channels]
+    return GdkPixbuf.Pixbuf.new_from_bytes(
+        GLib.Bytes.new(bytes(result)), GdkPixbuf.Colorspace.RGB, has_alpha, 8, width, height, stride)
+
+
 def graded_picture(pixbuf, clip):
     """Translate channel bytes in native code, preserving alpha and row padding."""
     if color_grading.rgb_active(clip):
@@ -271,6 +351,9 @@ def graded_picture(pixbuf, clip):
                 result[start+channel:end:channels] = source[start+channel:end:channels].translate(tables[channel])
         pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(bytes(result)),
             GdkPixbuf.Colorspace.RGB, pixbuf.get_has_alpha(), 8, width, height, stride)
+    crayon = color_grading.crayon_amount(clip)
+    if crayon > 0:
+        pixbuf = _crayon_picture(pixbuf, crayon)
     return saturated_picture(pixbuf, color_grading.saturation(clip))
 
 
@@ -279,6 +362,13 @@ def graded_rgb(clip):
     if color_grading.rgb_active(clip):
         tables = color_grading.tables(clip)
         color = '#'+''.join(f'{table[int(color[1+index*2:3+index*2],16)]:02x}' for index,table in enumerate(tables))
+    crayon = color_grading.crayon_amount(clip)
+    if crayon > 0:
+        red, green, blue = rgba(color)[:3]
+        lifted = tuple(min(248/255, max(0, v + ((16 + .93*(v*255) + 8*math.sin(v*255*.0123))/255 - v)*crayon))
+                       for v in (red, green, blue))
+        color = '#'+''.join(f'{round(c*255):02x}' for c in lifted)
+        return saturated_rgb(color, (1 + .14 * crayon) * color_grading.saturation(clip))
     return saturated_rgb(color, color_grading.saturation(clip))
 
 

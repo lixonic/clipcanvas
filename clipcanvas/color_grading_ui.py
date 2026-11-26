@@ -70,6 +70,7 @@ class ColorGradingDialog(Gtk.Dialog):
         controls.pack_start(self.look_hint, False, False, 0)
         for key, title, low, high, step, mult in (
                 ('strength', 'Look strength (%)', 0, 100, 1, 100),
+                ('crayon', 'Crayon drawing (%)', 0, 100, 1, 100),
                 ('exposure', 'Exposure (stops)', -3, 3, .05, 1),
                 ('contrast', 'Contrast (%)', 25, 200, 1, 100),
                 ('gamma', 'Midtones / gamma', .25, 3, .05, 1),

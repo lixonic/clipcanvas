@@ -160,7 +160,8 @@ class ColorGradingTests(unittest.TestCase):
         loaded = model.load_project(path)
         self.assertTrue(all(not grading.active(clip) for clip in loaded['clips']))
         for value in (None, [], {'enabled':1}, {'temperature':float('nan')}, {'contrast':True},
-                      {'gamma':0}, {'exposure':4}, {'unexpected':1}, {'tint':'1'}):
+                      {'gamma':0}, {'exposure':4}, {'unexpected':1}, {'tint':'1'},
+                      {'crayon':-0.1}, {'crayon':1.2}, {'crayon':True}, {'crayon':'1'}, {'crayon':float('nan')}):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 invalid=copy.deepcopy(p);invalid['clips'][0]['color_grade']=value
                 model.validate_project(invalid,check_files=False)
@@ -170,11 +171,13 @@ class ColorGradingTests(unittest.TestCase):
         # Three RGBA pixels plus row padding: alpha must never be graded.
         data = bytes([30,60,90,40,100,120,150,80,200,210,220,120,0,0,0,0]*2)
         source = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(data),GdkPixbuf.Colorspace.RGB,True,8,3,2,16)
-        clip = {'color_grade':{'temperature':.5,'gamma':1.2}}
-        picture = visuals.graded_picture(source,clip)
-        self.assertEqual(bytes(source.get_pixels()), data[:28])
-        self.assertNotEqual(bytes(picture.get_pixels()),bytes(source.get_pixels()))
-        self.assertEqual(bytes(picture.get_pixels())[3::4],bytes(source.get_pixels())[3::4])
+        for clip in ({'color_grade':{'temperature':.5,'gamma':1.2}},
+                     {'color_grade':{'crayon':1.0}}):
+            with self.subTest(clip=clip):
+                picture = visuals.graded_picture(source,clip)
+                self.assertEqual(bytes(source.get_pixels()), data[:28])
+                self.assertNotEqual(bytes(picture.get_pixels()),bytes(source.get_pixels()))
+                self.assertEqual(bytes(picture.get_pixels())[3::4],bytes(source.get_pixels())[3::4])
 
     def test_cinematic_presets_produce_distinct_editable_looks(self):
         pictures = {}
@@ -185,13 +188,89 @@ class ColorGradingTests(unittest.TestCase):
                 p['clips'][0].update(color_grade=grade, saturation=grading.PRESET_SATURATION[name])
                 model.validate_project(p)
                 pictures[name] = engine.preview_frame(p, .4)['pixels']
-        self.assertEqual(len({hashlib.sha256(data).digest() for data in pictures.values()}),5)
+        self.assertEqual(len({hashlib.sha256(data).digest() for data in pictures.values()}),
+                         len(grading.PRESET_DESCRIPTIONS))
         animated = mean_rgb(pictures['Pixar-inspired animation'])
         horror = mean_rgb(pictures['Horror'])
         self.assertGreater(sum(animated)/3, sum(horror)/3+20)
         def chroma(data):
             return sum(max(pixel)-min(pixel) for pixel in zip(data[::3],data[1::3],data[2::3]))/(len(data)//3)
         self.assertGreater(chroma(pictures['Pixar-inspired animation']),chroma(pictures['Horror'])+20)
+
+    def test_crayon_drawing_preset_controls_multiclip_borders_and_agreement(self):
+        p = self.project()
+        original = engine.preview_frame(p, .4)['pixels']
+        preset_grade = {**grading.defaults(), **grading.PRESETS['Crayon drawing']}
+        # Compare crayon look against the same primary grade without crayon stylization.
+        primary_only = {**preset_grade, 'crayon': 0.}
+        p['clips'][0].update(color_grade=primary_only, saturation=grading.PRESET_SATURATION['Crayon drawing'])
+        without_crayon = engine.preview_frame(p, .4)['pixels']
+        p['clips'][0].update(color_grade=copy.deepcopy(preset_grade), saturation=grading.PRESET_SATURATION['Crayon drawing'])
+        full = engine.preview_frame(p, .4)['pixels']
+        self.assertGreater(difference(original, full), 8)
+        self.assertGreater(difference(without_crayon, full), 6)
+
+        # Strength 0% and bypass must match original exactly; partial strength blends monotonically.
+        p['clips'][0]['color_grade']['strength'] = 0.
+        self.assertEqual(engine.preview_frame(p, .4)['pixels'], original)
+        p['clips'][0]['color_grade']['strength'] = .2
+        low = engine.preview_frame(p, .4)['pixels']
+        p['clips'][0]['color_grade']['strength'] = .8
+        high = engine.preview_frame(p, .4)['pixels']
+        self.assertGreater(difference(low, original), 1)
+        self.assertLess(difference(low, original), difference(high, original))
+        self.assertLess(difference(high, original), difference(full, original))
+        p['clips'][0]['color_grade'].update(strength=1., enabled=False)
+        self.assertEqual(engine.preview_frame(p, .4)['pixels'], original)
+
+        # Pixar-bright crayon look stays brighter and more vivid than dark grades.
+        self.assertGreater(sum(mean_rgb(full))/3, sum(mean_rgb(original))/3)
+
+        # ScrubSession, live stream, and lossless export all agree with preview_frame.
+        p['clips'][0]['color_grade'].update(enabled=True, strength=1.)
+        session = ScrubSession()
+        try:
+            scrubbed = session.frame(p, .4)['pixels']
+            self.assertEqual(session.last_backend, 'composition')
+            self.assertEqual(scrubbed, full)
+        finally:
+            session.close()
+        out = self.root/'crayon.mkv'
+        engine.render(p, out, quality='lossless')
+        self.assertLess(difference(full, self.pixels(out, .4)), 1)
+        live = self.root/'crayon-live.mkv'
+        with live.open('wb') as stream:
+            for chunk in engine.live_stream(p, .2): stream.write(chunk)
+        self.assertLess(difference(engine.preview_frame(p, .6)['pixels'], self.pixels(live, .4)), 3)
+
+        # Desaturating a crayon grade yields a clean monochrome charcoal/crayon sketch.
+        p['clips'][0]['saturation'] = 0
+        charcoal = engine.preview_frame(p, .4)['pixels']
+        max_chroma = max(max(r, g, b) - min(r, g, b) for r, g, b in zip(charcoal[::3], charcoal[1::3], charcoal[2::3]))
+        self.assertLessEqual(max_chroma, 4)
+
+        # Multiple crayon clips with a transition must use distinct filtergraph labels,
+        # and overlays on top must keep crisp un-styled colors.
+        multi = model.new_project(320, 180)
+        c1 = model.new_image(self.photo, 1.0)
+        c1.update(color_grade=copy.deepcopy(preset_grade), saturation=1.22, transition='fade', transition_duration=.4)
+        c2 = model.new_card('#3366aa', 1.0)
+        c2.update(color_grade={'crayon': 1.0})
+        multi['clips'] = [c1, c2]
+        multi['layers'] = [model.new_text('TITLE', 0, 1.6)]
+        multi['layers'][0].update(color='#ff0000', font_size=55)
+        frame_first = engine.preview_frame(multi, .3)['pixels']
+        frame_second = engine.preview_frame(multi, 1.2)['pixels']
+        self.assertGreater(sum(r > 200 and g < 50 and b < 50
+                               for r, g, b in zip(frame_first[::3], frame_first[1::3], frame_first[2::3])), 100)
+        # Even a flat color card gains visible paper/crayon texture variance.
+        card_vals = frame_second[0::3]
+        self.assertGreater(max(card_vals) - min(card_vals), 20)
+
+        # Black fit borders must stay pure black even with full crayon active.
+        fit_proj = self.project(); fit_proj['width'], fit_proj['height'] = 180, 320
+        fit_proj['clips'][0].update(fit='fit', color_grade=copy.deepcopy(preset_grade), saturation=1.22)
+        self.assertLess(max(engine.preview_frame(fit_proj, .4)['pixels'][:180*30*3]), 4)
 
     def test_precomputed_luts_preserve_every_byte_level_and_escaped_paths(self):
         # Exercise all 256 levels in every channel, including clipping and
