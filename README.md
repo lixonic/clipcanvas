@@ -1,4 +1,4 @@
-# ClipCanvas 0.25.0
+# ClipCanvas 0.25.1
 
 A fast, offline desktop video editor for Ubuntu. Pick a canvas, arrange clips, add transitions, captions, color grades, and audio layers, and export—with no account, cloud upload, subscription, or watermark.
 
@@ -10,12 +10,12 @@ A fast, offline desktop video editor for Ubuntu. Pick a canvas, arrange clips, a
 
 ## Install on Ubuntu
 
-1. Download [`clipcanvas_0.25.0_all.deb`](installers/ubuntu/clipcanvas_0.25.0_all.deb) ([SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt)). On GitHub, use **Download raw file**.
+1. Download [`clipcanvas_0.25.1_all.deb`](installers/ubuntu/clipcanvas_0.25.1_all.deb) ([SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt)). On GitHub, use **Download raw file**.
    *(Recent CI builds are also available under [GitHub Actions artifacts](https://github.com/lixonic/clipcanvas/actions) for 14 days.)*
 2. Double-click the `.deb` file in your software installer, or run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.25.0_all.deb
+   sudo apt install ./clipcanvas_0.25.1_all.deb
    ```
 
 3. Launch **ClipCanvas** from the Ubuntu applications menu (or run `clipcanvas`).

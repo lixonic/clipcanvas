@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 — 2026-11-28
+
+- Fix sustained playback lag and audio/video drift on full-resolution timelines with effects (color grading, tracked watermark removal, and short faded cards):
+  - Allow multi-threaded decoding and filtering (`video_threads <= 2`, `filter_complex_threads <= 4`) inside bounded video preview windows.
+  - Pack steady-state video windows up to 10–16 s (up to 6 clips) instead of creating sub-second micro-windows around short faded cards.
+  - Add a bounded asynchronous frame lookahead buffer between video windows and scale `multiqueue` byte capacity to hold the full 1.5 s buffer at 1080p+.
+  - Pace `audio_source` within 80 ms of `video_source` so `multiqueue` waits for both streams before starting the clock and pauses both streams together if video ever falls behind.
+
 ## 0.25.0 — 2026-11-28
 
 - Extend bounded picture windowing to composed timelines (transitions including dissolves, wipes, Flow and Match & Move, image clips with slow zoom, static/animated layers, and word-highlight captions) and time-slice long single clips when distant overlays or captions exist.

@@ -957,7 +957,7 @@ def _with_grading(repair, framing, clip, scratch, prefix):
 
 def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False,
            preview_edge=640, picture_start=None, proxies=None, clip_origin=None, window_end=None,
-           prepared_layers=False, global_rows=None, frame_range=None):
+           prepared_layers=False, global_rows=None, frame_range=None, video_threads=1):
     if not prepared_layers and any(clip.get('transition')=='match_move' for clip in project['clips']):
         from . import animations
         project=copy.deepcopy(project)
@@ -1024,7 +1024,8 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             if not metadata["has_video"]:
                 raise RenderError(f"{Path(clip['path']).name} has no video stream.")
             proxy = (proxies or {}).get(clip['path']) if preview and not audio_only and not watermark.active(clip) else None
-            args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", proxy or clip["path"]]
+            decode_threads = str(max(1, int(video_threads)))
+            args += ["-threads", decode_threads, "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", proxy or clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
         rotation = clip.get("rotation", 0)

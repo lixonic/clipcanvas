@@ -224,6 +224,7 @@ class StreamPlayer:
         self.total = model.project_duration(project)
         self.start = max(0, min(start, max(0, self.total - 1 / project['fps'])))
         self.cancel = threading.Event()
+        self._av_cond = threading.Condition()
         self.ended = False
         self.last_position = self.start
         self.buffering = True
@@ -237,10 +238,13 @@ class StreamPlayer:
             from fractions import Fraction
             width, height = engine.preview_dimensions(project, preview_edge)
             rate = Fraction(project['fps']).limit_denominator(100000)
+            frame_bytes = width * height * 3 // 2
+            mq_bytes = max(67108864, min(201326592, frame_bytes * math.ceil(project['fps'] * 1.6) + 4 * 1024 * 1024))
+            description = description.replace('max-size-bytes=67108864', f'max-size-bytes={mq_bytes}')
             description = description.replace(
                 'appsrc name=source block=true max-bytes=1048576 caps=video/x-matroska ! matroskademux name=demux ', '')
             description = description.replace('demux.video_0 ! buffer.sink_0',
-                f'appsrc name=video_source block=true max-bytes={width*height*3//2} format=time '
+                f'appsrc name=video_source block=true max-bytes={frame_bytes} format=time '
                 f'caps="video/x-raw,format=I420,width={width},height={height},framerate={rate.numerator}/{rate.denominator},pixel-aspect-ratio=1/1" ! buffer.sink_0')
             description = description.replace('demux.audio_0 ! buffer.sink_1',
                 'appsrc name=audio_source block=true max-bytes=16384 format=time '
@@ -292,6 +296,9 @@ class StreamPlayer:
             return
         width, height = engine.preview_dimensions(self.project, self.preview_edge)
         needs_row_pad = bool(width % 8)
+        av_cond = self._av_cond
+        av_state = {'video_pts': -1.0, 'video_done': False}
+        audio_max_lead = 0.08
 
         def feed(kind, stream):
             source = self.pipeline.get_by_name(kind + '_source')
@@ -305,12 +312,24 @@ class StreamPlayer:
                     units = 1 if kind == 'video' else len(data) // 4
                     if kind == 'video' and needs_row_pad:
                         data = _pack_i420_rows(data, width, height)
-                    elif kind == 'audio' and count == 0:
-                        self.metrics.mark_audio_produced()
+                    elif kind == 'audio':
+                        if count == 0:
+                            self.metrics.mark_audio_produced()
+                        audio_pts = count / rate
+                        with av_cond:
+                            while (not self.cancel.is_set() and not av_state['video_done']
+                                   and (av_state['video_pts'] < 0.0 or audio_pts > av_state['video_pts'] + audio_max_lead)):
+                                av_cond.wait(timeout=0.05)
+                        if self.cancel.is_set():
+                            break
                     buffer = Gst.Buffer.new_wrapped(data)
                     buffer.pts = round((offset + count / rate) * Gst.SECOND)
                     buffer.duration = round((offset + (count + units) / rate) * Gst.SECOND) - buffer.pts
                     count += units
+                    if kind == 'video':
+                        with av_cond:
+                            av_state['video_pts'] = offset + count / rate
+                            av_cond.notify_all()
                     if source.emit('push-buffer', buffer) != Gst.FlowReturn.OK:
                         break
                 if not self.cancel.is_set():
@@ -318,6 +337,10 @@ class StreamPlayer:
             except Exception as problem:
                 GLib.idle_add(self._report, error, str(problem))
             finally:
+                if kind == 'video':
+                    with av_cond:
+                        av_state['video_done'] = True
+                        av_cond.notify_all()
                 stream.close()
 
         audio = threading.Thread(
@@ -388,6 +411,8 @@ class StreamPlayer:
             return
         stopping = time.monotonic()
         self.cancel.set()
+        with self._av_cond:
+            self._av_cond.notify_all()
         # NULL releases a worker blocked by appsrc backpressure. The worker
         # closes its generator, reaps FFmpeg and deletes its private sprites.
         self.pipeline.set_state(Gst.State.NULL)

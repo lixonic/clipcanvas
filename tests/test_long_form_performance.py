@@ -310,6 +310,105 @@ class LongFormPerformanceTests(unittest.TestCase):
             per_draw_ms = (time.monotonic() - t0) * 100.0
             self.assertLess(per_draw_ms, 20.0)
 
+    def test_window_planner_avoids_micro_windows_around_short_faded_cards(self):
+        p = model.new_project(1920, 1080)
+        p['fps'] = 24.0
+        for i in range(10):
+            clip = model.new_card('#224466', 6.0)
+            clip.update(transition='fade', transition_duration=0.5)
+            card = model.new_card('#000000', 1.0)
+            card.update(transition='fade', transition_duration=0.5)
+            p['clips'].extend([clip, card])
+        p['clips'][-1]['transition'] = 'none'
+        index = lazy_preview._TimelineIndex(p)
+        windows = list(lazy_preview._plan_video_windows(index, 0, index.total_frames))
+        self.assertGreaterEqual(len(windows), 4)
+        self.assertLessEqual(len(windows), 8)
+        for win_first, win_stop, c_start, c_end in windows[:-1]:
+            self.assertGreaterEqual((win_stop - win_first) / index.fps, 2.0)
+            # Never split strictly inside any transition overlap.
+            for j in range(len(index.clips) - 1):
+                if index.rows[j]['overlap'] > 0:
+                    ov_begin = index.clip_frames[j + 1]
+                    ov_end = index.clip_end_frames[j]
+                    self.assertFalse(ov_begin < win_stop < ov_end)
+
+    def test_windowed_playback_paces_audio_and_buffers_both_streams_on_slow_video(self):
+        p = model.new_project(160, 90)
+        p['fps'] = 24.0
+        p['clips'] = [model.new_card('#112233', 2.0) for _ in range(4)]
+        frame_bytes = 160 * 90 * 3 // 2
+        blank_frame = bytes(frame_bytes)
+        audio_chunk = bytes(4096)
+        gate = threading.Event()
+        stalled = threading.Event()
+        states, pictures, errors, ended = [], [], [], []
+
+        def slow_video(project, start, edge, cancel, metrics=None):
+            for i in range(int(8.0 * 24)):
+                if cancel.is_set():
+                    return
+                if i == 0:
+                    time.sleep(0.08)
+                if i == 42:
+                    stalled.set()
+                    while not gate.wait(0.01):
+                        if cancel.is_set():
+                            return
+                yield blank_frame
+
+        def fast_audio(project, start, cancel, metrics=None):
+            total_bytes = int(8.0 * 48000 * 4)
+            sent = 0
+            while sent < total_bytes and not cancel.is_set():
+                chunk = audio_chunk[:min(len(audio_chunk), total_bytes - sent)]
+                sent += len(chunk)
+                yield chunk
+
+        description = live_player.pipeline_description
+        with mock.patch.object(lazy_preview, 'video', side_effect=slow_video), \
+             mock.patch.object(lazy_preview, 'audio', side_effect=fast_audio), \
+             mock.patch.object(live_player, 'pipeline_description', side_effect=lambda: description('fakesink sync=true')):
+            player = live_player.StreamPlayer(
+                p, 0.0, True,
+                lambda sample: (pictures.append(sample.get_buffer().pts), Gst.FlowReturn.OK)[1],
+                errors.append, lambda: ended.append(True), preview_edge=0,
+                buffering=lambda active, msg: states.append(active),
+            )
+            context = GLib.MainContext.default()
+            try:
+                deadline = time.monotonic() + 10.0
+                while time.monotonic() < deadline and not (stalled.is_set() and False in states) and not errors:
+                    while context.pending():
+                        context.iteration(False)
+                    time.sleep(0.005)
+                self.assertFalse(errors)
+                snap = player.metrics.snapshot()
+                self.assertIsNotNone(snap['first_picture_ms'])
+                self.assertIsNotNone(snap['clock_start_ms'])
+                # Audio alone must not start the clock before the first picture arrives.
+                self.assertGreaterEqual(snap['clock_start_ms'], snap['first_picture_ms'])
+                # While video stalls, coordinated pacing must pause both streams to re-buffer.
+                deadline = time.monotonic() + 10.0
+                while time.monotonic() < deadline and not (player.buffering and len(states) > 2 and states[-1]) and not errors:
+                    while context.pending():
+                        context.iteration(False)
+                    time.sleep(0.005)
+                self.assertTrue(player.buffering, f'Expected re-buffering when video stalls, states={states}')
+                gate.set()
+                deadline = time.monotonic() + 10.0
+                while time.monotonic() < deadline and player.buffering and not errors:
+                    while context.pending():
+                        context.iteration(False)
+                    time.sleep(0.005)
+                self.assertFalse(player.buffering)
+                self.assertFalse(errors)
+            finally:
+                gate.set()
+                player.stop()
+                player.thread.join(5)
+                self.assertFalse(player.thread.is_alive())
+
 
 if __name__ == '__main__':
     unittest.main()

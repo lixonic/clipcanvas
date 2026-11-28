@@ -5,8 +5,10 @@ around the playhead, keeping a bounded horizon even on multi-hour timelines.
 Audio windows open only active clips/soundtracks/element cues and use exact
 filter-aware preroll on deep seeks so minute 179 starts as fast as minute 0.
 """
+from collections import deque
 import copy
 import math
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -21,9 +23,24 @@ BYTES_PER_SAMPLE_FRAME = CHANNELS * 2
 
 FIRST_COMPOSED_VIDEO_WINDOW_SECONDS = 8.0
 COMPOSED_VIDEO_WINDOW_SECONDS = 16.0
+MIN_STARTUP_VIDEO_WINDOW_SECONDS = 2.0
+MIN_STEADY_VIDEO_WINDOW_SECONDS = 10.0
+MAX_STARTUP_WINDOW_CLIPS = 4
+MAX_STEADY_WINDOW_CLIPS = 6
+PREFETCH_MAX_BYTES = 96 * 1024 * 1024
+PREFETCH_MIN_FRAMES = 12
+PREFETCH_MAX_FRAMES = 48
 FIRST_AUDIO_WINDOW_SECONDS = 12.0
 AUDIO_WINDOW_SECONDS = 30.0
 MIX_PREROLL_SECONDS = 0.25
+
+
+def _video_decode_threads():
+    return min(2, os.cpu_count() or 1)
+
+
+def _video_filter_threads():
+    return min(4, os.cpu_count() or 1)
 
 
 def route_reason(project):
@@ -105,13 +122,13 @@ class _TimelineIndex:
         return window
 
 
-def _read(arguments, scratch, cancel, block, on_launch=None):
+def _read(arguments, scratch, cancel, block, on_launch=None, filter_threads=1):
     if cancel.is_set():
         return
     binary, env = engine._tool('ffmpeg')
     with open(Path(scratch) / 'decoder.log', 'wb') as log:
         process = subprocess.Popen(
-            [binary, '-nostdin', '-v', 'error', '-filter_complex_threads', '1'] + arguments,
+            [binary, '-nostdin', '-v', 'error', '-filter_complex_threads', str(max(1, int(filter_threads)))] + arguments,
             stdout=subprocess.PIPE, stderr=log, stdin=subprocess.DEVNULL, env=env,
         )
         if on_launch is not None:
@@ -142,12 +159,20 @@ def _read(arguments, scratch, cancel, block, on_launch=None):
             watcher.join()
 
 
+def _stop_for_end(index, c_end, last):
+    if c_end >= len(index.clips):
+        return last
+    return min(last, index.clip_frames[c_end])
+
+
 def _plan_video_windows(index, first, last):
     """Yield ``(win_first, win_stop, clip_start, clip_end)`` on clean boundaries.
 
     No window boundary ever splits strictly inside a transition overlap, so
-    every transition sees both adjacent clips. Long clips with overlays or
-    captions are time-sliced so distant sprites never block first-frame startup.
+    every transition sees both adjacent clips. Startup opens minimal clips for
+    fast first-frame latency, steady-state packs short clips/cards to avoid
+    micro-window restarts, and long clips with distant overlays or captions are
+    time-sliced so distant sprites never block startup.
     """
     n_clips = len(index.clips)
     fps = index.fps
@@ -157,25 +182,27 @@ def _plan_video_windows(index, first, last):
         c_start = next((i for i in range(n_clips) if index.clip_end_frames[i] > cursor), n_clips)
         if c_start >= n_clips:
             break
-        # Keep startup windows tight (<= 2 clips); expand only if needed to clear an overlap.
-        c_end = min(n_clips, c_start + 2)
-        while True:
-            if c_end >= n_clips:
-                natural_stop = last
-                break
-            if index.rows[c_end - 1]['overlap'] > 0:
-                # Stop right before the outgoing transition of clips[c_end - 1].
-                overlap_begin = index.clip_frames[c_end]
-                if overlap_begin > cursor:
-                    natural_stop = min(last, overlap_begin)
+        c_end = min(n_clips, c_start + 1)
+        while c_end < n_clips and _stop_for_end(index, c_end, last) <= cursor:
+            c_end += 1
+
+        if window_number == 0:
+            while c_end < n_clips and (c_end - c_start) < MAX_STARTUP_WINDOW_CLIPS:
+                cur_dur = (_stop_for_end(index, c_end, last) - cursor) / fps
+                if cur_dur >= MIN_STARTUP_VIDEO_WINDOW_SECONDS:
                     break
                 c_end += 1
-            else:
-                natural_stop = min(last, index.clip_frames[c_end])
-                if natural_stop > cursor:
+        else:
+            while c_end < n_clips and (c_end - c_start) < MAX_STEADY_WINDOW_CLIPS:
+                cur_dur = (_stop_for_end(index, c_end, last) - cursor) / fps
+                if cur_dur >= MIN_STEADY_VIDEO_WINDOW_SECONDS:
+                    break
+                next_dur = (_stop_for_end(index, c_end + 1, last) - cursor) / fps
+                if cur_dur >= 4.0 and next_dur > COMPOSED_VIDEO_WINDOW_SECONDS + 2.0:
                     break
                 c_end += 1
 
+        natural_stop = _stop_for_end(index, c_end, last)
         win_stop = natural_stop
         # Time-slice long windows when overlays/captions or drifting sparkles exist beyond the horizon.
         max_seconds = FIRST_COMPOSED_VIDEO_WINDOW_SECONDS if window_number == 0 else COMPOSED_VIDEO_WINDOW_SECONDS
@@ -215,6 +242,17 @@ def _plan_video_windows(index, first, last):
         window_number += 1
 
 
+class _CompositeCancel:
+    """Cancel signal active when either external cancel or local close fires."""
+
+    def __init__(self, external, local):
+        self._external = external
+        self._local = local
+
+    def is_set(self):
+        return self._local.is_set() or self._external.is_set()
+
+
 def video(project, start, edge, cancel, metrics=None):
     index = _TimelineIndex(project)
     fps = index.fps
@@ -224,49 +262,102 @@ def video(project, start, edge, cancel, metrics=None):
     last = index.total_frames
     if first >= last or not index.clips:
         return
-    for win_idx, (win_first, win_stop, c_start, c_end) in enumerate(_plan_video_windows(index, first, last)):
-        if cancel.is_set():
-            break
-        prep_start = time.monotonic()
-        t_first = win_first / fps
-        t_stop = win_stop / fps
-        clip_origin = index.clip_frames[c_start] / fps
-        window = index.window_project(c_start, c_end, t_first, t_stop)
-        slice_rows = index.rows[c_start:c_end]
-        with tempfile.TemporaryDirectory(prefix='clipcanvas-lazy-video-') as scratch:
-            proxies = {}
-            if edge:
-                for clip in window['clips']:
-                    if not model.is_still(clip):
-                        proxy = preview_cache.lease_available(clip['path'], edge, scratch)
-                        if proxy:
-                            proxies[clip['path']] = proxy
-            args, graph, _ = engine._graph(
-                window, True, scratch, video_only=True,
-                cancel=cancel, preview_edge=edge, picture_start=t_first,
-                proxies=proxies, clip_origin=clip_origin, window_end=t_stop,
-                prepared_layers=True, global_rows=slice_rows,
-                frame_range=(win_first, win_stop),
-            )
-            path = Path(scratch) / 'filters.txt'
-            path.write_text(graph, encoding='utf-8')
-            if metrics is not None:
-                metrics.record_video_window(win_idx, (time.monotonic() - prep_start) * 1000.0)
-            delivered = 0
-            expected = win_stop - win_first
-            on_launch = (lambda: metrics.mark_video_ffmpeg()) if (metrics is not None and win_idx == 0) else None
-            for data in _read(
-                args + ['-filter_complex_script', str(path),
-                        '-map', '[outvideo]', '-an', '-frames:v', str(expected), '-threads', '1',
-                        '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-f', 'rawvideo', 'pipe:1'],
-                scratch, cancel, size, on_launch=on_launch,
-            ):
-                if len(data) != size:
-                    raise engine.RenderError('Incomplete preview picture.')
-                delivered += 1
-                yield data
-            if not cancel.is_set() and delivered != expected:
-                raise engine.RenderError('Preview window ended before its final picture.')
+
+    decode_threads = _video_decode_threads()
+    filter_threads = _video_filter_threads()
+    max_queued = max(PREFETCH_MIN_FRAMES, min(PREFETCH_MAX_FRAMES, PREFETCH_MAX_BYTES // max(1, size)))
+    stop_local = threading.Event()
+    effective_cancel = _CompositeCancel(cancel, stop_local)
+    buffer = deque()
+    cond = threading.Condition()
+    state = {'done': False, 'error': None}
+
+    def produce():
+        try:
+            for win_idx, (win_first, win_stop, c_start, c_end) in enumerate(_plan_video_windows(index, first, last)):
+                if effective_cancel.is_set():
+                    break
+                prep_start = time.monotonic()
+                t_first = win_first / fps
+                t_stop = win_stop / fps
+                clip_origin = index.clip_frames[c_start] / fps
+                window = index.window_project(c_start, c_end, t_first, t_stop)
+                slice_rows = index.rows[c_start:c_end]
+                with tempfile.TemporaryDirectory(prefix='clipcanvas-lazy-video-') as scratch:
+                    proxies = {}
+                    if edge:
+                        for clip in window['clips']:
+                            if not model.is_still(clip):
+                                proxy = preview_cache.lease_available(clip['path'], edge, scratch)
+                                if proxy:
+                                    proxies[clip['path']] = proxy
+                    args, graph, _ = engine._graph(
+                        window, True, scratch, video_only=True,
+                        cancel=effective_cancel, preview_edge=edge, picture_start=t_first,
+                        proxies=proxies, clip_origin=clip_origin, window_end=t_stop,
+                        prepared_layers=True, global_rows=slice_rows,
+                        frame_range=(win_first, win_stop),
+                        video_threads=decode_threads,
+                    )
+                    path = Path(scratch) / 'filters.txt'
+                    path.write_text(graph, encoding='utf-8')
+                    if metrics is not None:
+                        metrics.record_video_window(win_idx, (time.monotonic() - prep_start) * 1000.0)
+                    delivered = 0
+                    expected = win_stop - win_first
+                    on_launch = (lambda: metrics.mark_video_ffmpeg()) if (metrics is not None and win_idx == 0) else None
+                    for data in _read(
+                        args + ['-filter_complex_script', str(path),
+                                '-map', '[outvideo]', '-an', '-frames:v', str(expected),
+                                '-threads', str(decode_threads),
+                                '-c:v', 'rawvideo', '-pix_fmt', 'yuv420p', '-f', 'rawvideo', 'pipe:1'],
+                        scratch, effective_cancel, size, on_launch=on_launch,
+                        filter_threads=filter_threads,
+                    ):
+                        if len(data) != size:
+                            raise engine.RenderError('Incomplete preview picture.')
+                        delivered += 1
+                        with cond:
+                            while len(buffer) >= max_queued and not effective_cancel.is_set():
+                                cond.wait(timeout=0.05)
+                            if effective_cancel.is_set():
+                                break
+                            buffer.append(data)
+                            cond.notify()
+                    if not effective_cancel.is_set() and delivered != expected:
+                        raise engine.RenderError('Preview window ended before its final picture.')
+        except Exception as problem:
+            with cond:
+                state['error'] = problem
+                cond.notify_all()
+        finally:
+            with cond:
+                state['done'] = True
+                cond.notify_all()
+
+    worker = threading.Thread(target=produce, daemon=True)
+    worker.start()
+    try:
+        while True:
+            with cond:
+                while not buffer and not state['done'] and not effective_cancel.is_set():
+                    cond.wait(timeout=0.05)
+                if effective_cancel.is_set():
+                    break
+                if buffer:
+                    frame = buffer.popleft()
+                    cond.notify()
+                elif state['error'] is not None:
+                    raise state['error']
+                else:
+                    break
+            yield frame
+    finally:
+        stop_local.set()
+        with cond:
+            buffer.clear()
+            cond.notify_all()
+        worker.join()
 
 
 def _audio_preroll(item):
