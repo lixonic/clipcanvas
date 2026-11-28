@@ -53,3 +53,33 @@ class SoundPremixTests(unittest.TestCase):
             samples=array.array('f');samples.frombytes(subprocess.run([binary,'-v','error','-i',str(path),'-f','f32le','pipe:1'],env=env,capture_output=True,check=True).stdout)
             self.assertGreater(max(samples),1)
             self.assertFalse(any(samples[round(.3*48000)*2:]))
+
+    def test_interval_mix_skips_distant_cues_and_matches_full_mix(self):
+        import array
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            p=model.new_project(160,90);p['clips']=[model.new_card('#123456',120)]
+            late=model.new_text('Late',105.0,106.0);late['sound_effect'].update(preset='pop',volume=.5,trigger='enter')
+            p['layers'].append(late)
+            early_dir=root/'early';early_dir.mkdir()
+            with mock.patch.object(sound_mix,'_decode',side_effect=AssertionError('Cue-free window must not decode')):
+                self.assertIsNone(sound_mix.mix(p,early_dir,start=0.0,end=12.0))
+            self.assertEqual(list(early_dir.iterdir()),[])
+            active_dir=root/'active';active_dir.mkdir()
+            bounded=sound_mix.mix(p,active_dir,start=104.0,end=108.0)
+            self.assertIsNotNone(bounded)
+            self.assertAlmostEqual(engine.probe(bounded)['duration'],4.0,places=3)
+            self.assertLess(Path(bounded).stat().st_size,2*1024*1024)
+            # Compare sample-for-sample with a shorter full mix shifted identically.
+            p_short=model.new_project(160,90);p_short['clips']=[model.new_card('#123456',6)]
+            cue=model.new_text('Cue',1.0,2.0);cue['sound_effect'].update(preset='pop',volume=.5,trigger='enter')
+            p_short['layers'].append(cue)
+            full_dir=root/'full';full_dir.mkdir()
+            win_dir=root/'win';win_dir.mkdir()
+            full_wav=sound_mix.mix(p_short,full_dir)
+            win_wav=sound_mix.mix(p_short,win_dir,start=0.5,end=3.5)
+            binary,env=engine._tool('ffmpeg')
+            full_pcm=subprocess.check_output([binary,'-v','error','-i',str(full_wav),'-f','f32le','pipe:1'],env=env)
+            win_pcm=subprocess.check_output([binary,'-v','error','-i',str(win_wav),'-f','f32le','pipe:1'],env=env)
+            s0,s1=round(0.5*48000)*8,round(3.5*48000)*8
+            self.assertEqual(win_pcm,full_pcm[s0:s1])

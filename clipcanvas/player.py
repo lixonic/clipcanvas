@@ -40,6 +40,8 @@ class VideoCanvas(Gtk.DrawingArea):
         self.aspect_width = 16
         self.aspect_height = 9
         self.frame = None
+        self._frame_surface = None
+        self._frame_surface_source = None
         self.fit = "fit"
         self.position_x = 0.5
         self.position_y = 0.5
@@ -334,6 +336,7 @@ class VideoCanvas(Gtk.DrawingArea):
         self._loaded = False
         with self._frame_lock:
             self._latest_frame = None
+        self._frame_surface = self._frame_surface_source = None
         self._last_position = 0.0
         self._last_duration = 0.0
         self._pending_seek = None
@@ -436,6 +439,8 @@ class VideoCanvas(Gtk.DrawingArea):
         # Startup ends when GTK commits the current generation's picture,
         # rather than when a streaming thread merely receives its preroll.
         self._live_frame_ready = True
+        if self._live is not None and hasattr(self._live, 'metrics'):
+            self._live.metrics.mark_gtk_frame()
         self._set_loading(bool(self._live and getattr(self._live, 'buffering', False)))
         self.queue_draw()
         return GLib.SOURCE_REMOVE
@@ -525,6 +530,9 @@ class VideoCanvas(Gtk.DrawingArea):
         cr.paint()
         if self.frame is not None:
             cr.save()
+            if self._frame_surface_source is not self.frame:
+                self._frame_surface = Gdk.cairo_surface_create_from_pixbuf(self.frame, 1, None)
+                self._frame_surface_source = self.frame
             fw, fh = self.frame.get_width(), self.frame.get_height()
             factor = (min if self.fit == "fit" else max)(cw / fw, ch / fh)*self.clip_zoom
             align_x = self.position_x if fw*factor > cw else 0.5
@@ -533,11 +541,12 @@ class VideoCanvas(Gtk.DrawingArea):
             dy = cy + (ch - fh * factor) * align_y + self.offset_y*ch
             cr.translate(dx, dy)
             cr.scale(factor, factor)
-            Gdk.cairo_set_source_pixbuf(cr, self.frame, 0, 0)
+            cr.set_source_surface(self._frame_surface, 0, 0)
             cr.get_source().set_filter(cairo.FILTER_BILINEAR)
             cr.paint()
             cr.restore()
         elif not self.hide_placeholder:
+            self._frame_surface = self._frame_surface_source = None
             icon_size = min(54, cw * 0.18, ch * 0.25)
             center_x, center_y = cx + cw / 2, cy + ch / 2 - 35
             cr.set_source_rgb(0.943, 0.914, 1.0)
@@ -572,6 +581,7 @@ class VideoCanvas(Gtk.DrawingArea):
             self._timer_id = 0
         with self._frame_lock:
             self._latest_frame = None
+        self._frame_surface = self._frame_surface_source = None
         self._sink.disconnect(self._sample_handler)
         self._sink.disconnect(self._preroll_handler)
         self._bus.disconnect(self._bus_handler)

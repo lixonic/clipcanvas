@@ -66,3 +66,34 @@ The startup harness stops after both native sinks receive data. Use the bufferin
 - Does one edit invalidate unrelated sprites, proxies, timeline geometry or processed audio? Exercise batch apply, undo and rapid seeks with cold and warm caches.
 - What history or lookahead does the effect need at a seek or window boundary? Test a seek into the effect, a seam inside it, overlapping effects and the final frame/sample.
 - Does the feature add per-frame GTK work, cross-process copies or background CPU/disk contention? Record Full and Fast playback, worst-frame time, peak resources and cancellation alongside the feature's correctness tests.
+
+## Implemented in 0.25.0
+
+All five stages above were implemented while keeping Python for orchestration, FFmpeg for decode/filtering, and GStreamer for playback clocking:
+
+1. **Instrumentation (`live_player.PlaybackMetrics`, `tools/benchmark_long_preview.py`):** Records route selection, validation, first-window preparation and FFmpeg launch, first decoded picture/audio, first GTK presentation, buffer refills, frame counts, and stop latency. Setting `CLIPCANVAS_PERF_LOG=/path/to/log.jsonl` writes one JSON summary per playback session without modifying projects.
+2. **Composed picture windows (`lazy_preview.py`, `engine.py`, `element_render.py`):** Precomputes one immutable timeline index per session (no per-window `copy.deepcopy`), extends windowed playback to transitions (dissolves, wipes, Flow, Match & Move), image clips, layers and captions, time-slices long clips when distant overlays/captions exist, and trims windows on exact integer frames (`trim=start_frame`) with microsecond-aligned transition offsets.
+3. **Bounded audio windows & interval cue mixing (`lazy_preview.py`, `sound_mix.py`, `engine.py`):** Streams audio in bounded windows opening only active clips, tracks and element cues, applies filter-aware preroll (AAC priming, `aecho`, `acompressor`, `atempo`, `alimiter`) for deep seeks, skips no-op `atempo=1` on 1.0x items, normalizes `amix` inputs with `asetnsamples=n=1024:p=0`, and mixes element sound effects only over `[start, end)` instead of writing timeline-length WAV files.
+4. **Bounded preparation & GTK timeline indexing (`engine.py`, `app.py`):** Adds a 32 MB / 512-entry hard-linked LRU caption sprite cache, caches `Timeline` layout/hit/snap indices by edit revision, and uses `bisect` range queries for viewport drawing, playhead strip redraws, hover hit-testing, and snap-mark lookups.
+5. **Frame transport & display (`live_player.py`, `player.py`):** Pre-computes preview dimensions once per stream, packs unaligned I420 rows with `memoryview` slice copies, orders background proxy warmup from the playhead forward (skipping watermark-patched clips), and caches `Gdk.cairo_surface_create_from_pixbuf` on `VideoCanvas`.
+
+### Measured before vs. after (reference machine)
+
+Reference environment: **Intel Core i3-10110U @ 2.10 GHz (4 threads)**, Ubuntu 24.04 (kernel 7.0.0), FFmpeg 6.1.1, GStreamer 1.24.2, 1920×1080 24 fps H.264/AAC sources, warm 640 px Fast preview unless noted.
+
+| Scenario | Before (0.24.0) | After (0.25.0) |
+|---|---:|---:|
+| 3.5 min cuts, `start=180 s` (first picture / audio) | 89 ms / 1,138 ms | 118 ms / 221 ms |
+| 3.5 min + dissolve at end, `start=0` | 416 ms / 493 ms | 72 ms / 88 ms |
+| 3.5 min + 50 word-highlight captions, `start=0` | 1,844 ms / 1,946 ms | 176 ms / 176 ms |
+| 3.5 min + 50 word-highlight captions, `start=180 s` | 2,024 ms / 2,092 ms | 166 ms / 166 ms |
+| 3.5 min + layer sound at end, `start=0` | 612 ms / 698 ms | 111 ms / 151 ms |
+| 60 min (180 clips) cuts, `start=0` | 145 ms / 1,532 ms | 135 ms / 143 ms |
+| 60 min (180 clips) cuts, `start=3540 s` | pic only / **>45,000 ms timeout** | 106 ms / 132 ms |
+| 60 min + dissolve at end, `start=0` | 4,774 ms / 5,668 ms | 112 ms / 112 ms |
+| 60 min + 200 word-highlight captions, `start=0` | 10,072 ms / 11,779 ms | 103 ms / 104 ms |
+| 180 min + dissolve + 2,000 captions + layer sound, `start=0` | — | 130 ms / 130 ms |
+| 180 min + dissolve + 2,000 captions + layer sound, `start=10740 s` | — | 204 ms / 311 ms |
+| `sound_mix` 180 min cue-free `[0..12 s]` / active `[10740..10752 s]` | ~4,150 MB WAV | 0.26 ms (0 MB) / 70.6 ms (4.39 MB) |
+| Dense 180 min timeline playhead-strip `draw()` (median / p95) | 3.60 ms / 11.70 ms | 0.21 ms / 0.31 ms |
+| Dense 180 min timeline viewport `draw()` (median / p95) | 4.90 ms / 7.00 ms | 0.20 ms / 0.26 ms |

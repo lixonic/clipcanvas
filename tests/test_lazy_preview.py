@@ -79,9 +79,15 @@ class LazyPreviewTests(unittest.TestCase):
             player.stop();player.thread.join(5)
             self.assertFalse(player.thread.is_alive())
 
-    def test_transitions_and_layers_use_existing_player(self):
+    def test_route_selection_windows_composed_and_long_timelines(self):
         p=model.new_project();p['clips']=[model.new_card(duration=2) for _ in range(4)]
         self.assertTrue(lazy_preview.supported(p))
-        p['clips'][0]['transition']='fade';self.assertFalse(lazy_preview.supported(p))
+        p['clips'][0]['transition']='fade';self.assertTrue(lazy_preview.supported(p))
         p['clips'][0]['transition']='none';p['layers']=[model.new_text('Title',0,2)]
-        self.assertFalse(lazy_preview.supported(p))
+        self.assertTrue(lazy_preview.supported(p))
+        p['captions']=[model.new_caption('Caption',0,2)]
+        self.assertTrue(lazy_preview.supported(p))
+        short=model.new_project();short['clips']=[model.new_card(duration=4)]
+        self.assertFalse(lazy_preview.supported(short))
+        long_single=model.new_project();long_single['clips']=[model.new_card(duration=60)]
+        self.assertTrue(lazy_preview.supported(long_single))

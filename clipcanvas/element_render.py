@@ -44,10 +44,11 @@ def _frames(items, start, length, fps, cancel=None):
 
 
 def append(filters, source, output, item, width, height, fps, length, scratch,
-           blurred=None, cues=None, project=None, cancel=None):
+           blurred=None, cues=None, project=None, cancel=None, stream_start=None):
     """Apply opacity/wipe/blur without copying RGB through interpreted geq."""
     from .engine import _fmt, RenderCancelled
-    start = 0. if cues is not None else float(item.get('start', 0))
+    start = ((0. if cues is not None else float(item.get('start', 0)))
+             if stream_start is None else float(stream_start))
     items = ([visuals.caption_item(project, cue['text'], cue) for cue in cues]
              if cues is not None else [item])
     if item['kind'] == 'video':

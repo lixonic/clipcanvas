@@ -1,6 +1,6 @@
 # Ubuntu installers
 
-`clipcanvas_0.24.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
+`clipcanvas_0.25.0_all.deb` is the current native Ubuntu 24.04 prototype. It adds a
 saved media library, group selection/clipboard/Delete, Ctrl+wheel timeline zoom,
 remembered folders/audio settings, visible project controls and a bigger Play
 button. Group volume and Mute selected videos/audio are included in 0.9.1.
@@ -16,7 +16,7 @@ into the active source. Earlier installers remain for historical reference.
 Download the `.deb` and `SHA256SUMS.txt`; on GitHub choose **Download raw file**.
 
 ```sh
-sudo apt install ./clipcanvas_0.24.0_all.deb
+sudo apt install ./clipcanvas_0.25.0_all.deb
 ```
 
 Save and reopen an already-running ClipCanvas session after upgrading. Installation
@@ -26,6 +26,11 @@ runtime/model, then run offline. See [caption setup](../../docs/CAPTIONS.md).
 See [workflow validation](../../docs/EDITOR-WORKFLOW.md). Build with
 `/usr/bin/python3 build_deb.py --output-dir dist`; GitHub Actions provides temporary
 artifacts. Windows and external provider/API/MCP work remain pending.
+
+Version 0.25.0 adds bounded picture and audio preview windowing for composed
+timelines (transitions, layers, captions and attached sound cues), interval-bounded
+cue mixing, caption sprite caching, and O(log N) timeline layout indexing for
+responsive 60-minute to 3-hour edits. See [long-form performance](../../docs/LONG-FORM-PERFORMANCE.md).
 
 Version 0.23.0 adds tracked detection and time-bounded removal for disappearing
 and drifting visible Gemini sparkles, plus the **Crayon drawing** color grading

@@ -7,8 +7,10 @@ the destination only after success. It never rewrites source media.
 from __future__ import annotations
 
 import array
+from collections import OrderedDict
 import copy
 from functools import lru_cache
+import hashlib
 import json
 import math
 import os
@@ -177,6 +179,8 @@ def _fmt(number):
 def _tempo(speed):
     """Pitch-preserving tempo changes, including FFmpeg versions limited to 2x."""
     remaining = float(speed)
+    if abs(remaining - 1.0) < 1e-9:
+        return []
     filters = []
     while remaining < .5:
         filters.append("atempo=0.5")
@@ -327,24 +331,116 @@ def _execute(arguments, seconds, progress, cancel, log_path, *, background=False
             process.stdout.close()
 
 
-def _word_stream(project, item, scratch, width, height, prefix, soften=False, cancel=None):
+MAX_CAPTION_CACHE_BYTES = 32 * 1024 * 1024
+MAX_CAPTION_CACHE_ENTRIES = 512
+_CAPTION_CACHE_LOCK = threading.Lock()
+_CAPTION_CACHE_DIR = None
+_CAPTION_CACHE = OrderedDict()
+_CAPTION_CACHE_BYTES = 0
+
+
+def _caption_cache_key(project, width, height, left, top, sw, sh, animated, soft, state):
+    payload = (
+        int(project.get('width', width)), int(project.get('height', height)),
+        int(width), int(height), int(left), int(top), int(sw), int(sh),
+        bool(animated), bool(soft), project.get('caption_style', {}), state,
+    )
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode('utf-8')).hexdigest()
+
+
+def _caption_cache_lease(cache_key, target):
+    with _CAPTION_CACHE_LOCK:
+        entry = _CAPTION_CACHE.get(cache_key)
+        if entry is None:
+            return False
+        source, size = entry
+        if not source.is_file():
+            _CAPTION_CACHE.pop(cache_key, None)
+            return False
+        _CAPTION_CACHE.move_to_end(cache_key)
+        try:
+            try:
+                os.link(source, target)
+            except OSError:
+                shutil.copyfile(source, target)
+            return True
+        except OSError:
+            return False
+
+
+def _caption_cache_store(cache_key, source):
+    global _CAPTION_CACHE_DIR, _CAPTION_CACHE_BYTES
+    try:
+        size = source.stat().st_size
+    except OSError:
+        return
+    if size > MAX_CAPTION_CACHE_BYTES // 4:
+        return
+    with _CAPTION_CACHE_LOCK:
+        if cache_key in _CAPTION_CACHE:
+            _CAPTION_CACHE.move_to_end(cache_key)
+            return
+        if _CAPTION_CACHE_DIR is None:
+            _CAPTION_CACHE_DIR = tempfile.TemporaryDirectory(prefix='clipcanvas-caption-cache-')
+        cached_path = Path(_CAPTION_CACHE_DIR.name) / f'{cache_key}.png'
+        try:
+            if not cached_path.exists():
+                try:
+                    os.link(source, cached_path)
+                except OSError:
+                    shutil.copyfile(source, cached_path)
+        except OSError:
+            return
+        _CAPTION_CACHE[cache_key] = (cached_path, size)
+        _CAPTION_CACHE_BYTES += size
+        while len(_CAPTION_CACHE) > MAX_CAPTION_CACHE_ENTRIES or _CAPTION_CACHE_BYTES > MAX_CAPTION_CACHE_BYTES:
+            _, (old_path, old_size) = _CAPTION_CACHE.popitem(last=False)
+            _CAPTION_CACHE_BYTES = max(0, _CAPTION_CACHE_BYTES - old_size)
+            old_path.unlink(missing_ok=True)
+
+
+def _word_stream(project, item, scratch, width, height, prefix, soften=False, cancel=None,
+                 window_start=None, window_end=None):
     """One decoder, one bounded sprite per word state, never a canvas PNG movie."""
     from . import animations, visuals
     import cairo
-    length = float(item['end'])-float(item['start'])
+    item_start = float(item['start'])
+    item_end = float(item['end'])
+    length = item_end - item_start
     steps = max(1, animations.text_steps(item))
+    step_length = length / steps
+    ws = item_start if window_start is None else max(item_start, float(window_start))
+    we = item_end if window_end is None else min(item_end, float(window_end))
     sequence = ['ffconcat version 1.0']
     plain = dict(item, rotation=0, opacity=1)
+    last_path = None
     for step in range(steps):
         if cancel is not None and cancel.is_set():
             raise RenderCancelled('Export cancelled.')
+        seg_start = item_start + step * step_length
+        seg_end = item_start + (step + 1) * step_length
+        if seg_end <= ws + 1e-9 or seg_start >= we - 1e-9:
+            continue
+        clipped_start = max(ws, seg_start)
+        clipped_end = min(we, seg_end)
+        if clipped_end <= clipped_start + 1e-9:
+            continue
         sprite = dict(plain, _text_effect=animations.normalise(item.get('animation'))['text_effect'], _text_step=step)
         path = Path(scratch)/f'{prefix}-{step}.png'
         visuals.rasterize(project, sprite, path, (width, height))
         if soften:
             visuals.soften(cairo.ImageSurface.create_from_png(str(path))).write_to_png(str(path))
-        sequence += [f"file '{path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(length/steps)}']
-    sequence += [f"file '{path.as_posix()}'", 'option framerate 1000']
+        sequence += [f"file '{path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(clipped_end - clipped_start)}']
+        last_path = path
+    if last_path is None:
+        step = min(steps - 1, max(0, int((ws - item_start) / max(1e-9, step_length))))
+        sprite = dict(plain, _text_effect=animations.normalise(item.get('animation'))['text_effect'], _text_step=step)
+        last_path = Path(scratch)/f'{prefix}-{step}.png'
+        visuals.rasterize(project, sprite, last_path, (width, height))
+        if soften:
+            visuals.soften(cairo.ImageSurface.create_from_png(str(last_path))).write_to_png(str(last_path))
+        sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(max(0.01, we - ws))}']
+    sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000']
     target = Path(scratch)/f'{prefix}.ffconcat'
     target.write_text('\n'.join(sequence)+'\n', encoding='utf-8')
     return target
@@ -377,14 +473,18 @@ def _cue_expressions(project, variable='t'):
 
 
 def _element_motion(filters, source, output, item, width, height, values=None, blurred=None, caption=False,
-                    fps=30, length=None, scratch=None, cues=None, project=None, cancel=None):
+                    fps=30, length=None, scratch=None, cues=None, project=None, cancel=None, stream_start=None):
     """Animate a sprite with global-time expressions; preserve source resolution."""
     from . import animations
     values = values or animations.expressions(item)
     placement = animations.placement_expressions(item)
     from . import element_render
-    current = element_render.append(filters,source,output+'native',item,width,height,fps,length,scratch,
-                                    blurred,cues,project,cancel)
+    if stream_start is not None:
+        current = element_render.append(filters,source,output+'native',item,width,height,fps,length,scratch,
+                                        blurred,cues,project,cancel,stream_start=stream_start)
+    else:
+        current = element_render.append(filters,source,output+'native',item,width,height,fps,length,scratch,
+                                        blurred,cues,project,cancel)
     parts = [f'[{current}]format=rgba']
     motion_scale = values['scale']
     ratio_w, ratio_h = '1', '1'
@@ -415,10 +515,17 @@ def _wipe_mask(item, progress):
             else f'lt({axis},{extent}*({progress}))')
 
 
-def _animated_visual(project, item, number, args, filters, width, height, fps, length, scratch, cancel=None):
+def _animated_visual(project, item, number, args, filters, width, height, fps, length, scratch, cancel=None,
+                     stream_start=None, stream_end=None):
     from . import animations, visuals
     import cairo
-    start = float(item['start'])
+    item_start = float(item['start'])
+    item_end = item_start + float(length)
+    eff_start = item_start if stream_start is None else max(item_start, float(stream_start))
+    eff_end = item_end if stream_end is None else min(item_end, float(stream_end))
+    if eff_end <= eff_start:
+        eff_start, eff_end = item_start, item_end
+    eff_length = max(1 / fps, eff_end - eff_start)
     animation = animations.normalise(item.get('animation'))
     blur = animation['enter'] == 'blur' or animation['exit'] == 'blur'
     source = f'motionbase{number}'
@@ -429,31 +536,44 @@ def _animated_visual(project, item, number, args, filters, width, height, fps, l
             index = args.count('-i')
             prefix = f'layer-{number}'+('-soft' if soft else '')
             if item['kind'] == 'text' and animation['text_effect'] != 'none':
-                path = _word_stream(project, plain, scratch, width, height, prefix, soft, cancel)
+                path = _word_stream(project, plain, scratch, width, height, prefix, soft, cancel,
+                                    window_start=eff_start if stream_start is not None else None,
+                                    window_end=eff_end if stream_end is not None else None)
                 args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(path)]
-                preparation = f'fps={_fmt(fps)},trim=duration={_fmt(length)}'
+                preparation = f'fps={_fmt(fps)},trim=duration={_fmt(eff_length)}'
             else:
                 path = Path(scratch)/f'{prefix}.png'
                 visuals.rasterize(project, plain, path, (width, height))
                 if soft:
                     visuals.soften(cairo.ImageSurface.create_from_png(str(path))).write_to_png(str(path))
-                args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(length), '-i', str(path)]
+                args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(eff_length), '-i', str(path)]
                 preparation = 'null'
             label = source+('soft' if soft else '')
-            filters.append(f'[{index}:v]{preparation},format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[{label}]')
+            filters.append(f'[{index}:v]{preparation},format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(eff_start)}/TB[{label}]')
             inputs.append(label)
     else:
         index = args.count('-i')
         metadata = probe(item['path'])
         if not metadata['has_video']:
             raise RenderError(f"{Path(item['path']).name} has no video to use as an overlay.")
-        available = min(metadata['duration']-item.get('in', 0), length*item.get('speed', 1))
-        args += ['-threads', '1', '-ss', _fmt(item.get('in', 0)), '-t', _fmt(available), '-i', item['path']]
+        speed = float(item.get('speed', 1))
+        seek_offset = max(0.0, eff_start - item_start)
+        if seek_offset <= 1.0:
+            eff_start = item_start
+            eff_length = max(1 / fps, eff_end - eff_start)
+            seek_offset = 0.0
+        source_in = float(item.get('in', 0)) + seek_offset * speed
+        if source_in < metadata['duration'] - 0.05:
+            available = min(metadata['duration'] - source_in, eff_length * speed)
+        else:
+            source_in = max(0.0, metadata['duration'] - 0.1)
+            available = min(metadata['duration'] - source_in, 0.1)
+        args += ['-threads', '1', '-ss', _fmt(source_in), '-t', _fmt(available), '-i', item['path']]
         bw, bh = max(1, round(width*item['width'])), max(1, round(height*item['height']))
         fit = 'decrease' if item.get('fit', 'fit') == 'fit' else 'increase'
         framing = f'scale=trunc(iw*sar/2)*2:ih,setsar=1,format=rgba,scale={bw}:{bh}:force_original_aspect_ratio={fit}'
         framing += (f',pad={bw}:{bh}:(ow-iw)/2:(oh-ih)/2:color=0x00000000' if fit == 'decrease' else f',crop={bw}:{bh}:(iw-ow)/2:(ih-oh)/2')
-        filters.append(f'[{index}:{metadata["video_index"]}]{framing},setpts=(PTS-STARTPTS)/{_fmt(item.get("speed",1))},fps={_fmt(fps)},tpad=stop_mode=clone:stop_duration={_fmt(length)},trim=duration={_fmt(length)},settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[{source}]')
+        filters.append(f'[{index}:{metadata["video_index"]}]{framing},setpts=(PTS-STARTPTS)/{_fmt(speed)},fps={_fmt(fps)},tpad=stop_mode=clone:stop_duration={_fmt(eff_length)},trim=duration={_fmt(eff_length)},settb=AVTB,setpts=PTS-STARTPTS+{_fmt(eff_start)}/TB[{source}]')
         if blur:
             sharp = source+'sharp'
             filters.append(f'[{source}]split=2[{sharp}][{source}blurinput]')
@@ -462,37 +582,49 @@ def _animated_visual(project, item, number, args, filters, width, height, fps, l
         else:
             inputs = [source]
     placement = _element_motion(filters, inputs[0], f'visual{number}', item, width, height,
-                                blurred=inputs[1] if blur else None,fps=fps,length=length,scratch=scratch,
-                                project=project,cancel=cancel)
+                                blurred=inputs[1] if blur else None,fps=fps,length=eff_length,scratch=scratch,
+                                project=project,cancel=cancel,
+                                stream_start=eff_start if eff_start != item_start else None)
     return placement
 
 
-def _caption_stream(project, scratch, width, height, total, cancel=None, prefix="captions", animated=False, soft=False):
-    """Make one variable-duration PNG stream for all captions, including gaps.
+def _caption_stream(project, scratch, width, height, total, cancel=None, prefix="captions", animated=False, soft=False,
+                    window_start=0.0, window_end=None):
+    """Make one variable-duration PNG stream for captions in [window_start, window_end].
 
     Only one decoder is used even for thousands of cues. PNG sprites share the
-    caption box and are reused when the visible wording repeats. Overlapping cues
-    follow list order, just as they do in the native preview.
+    caption box, are reused across windows via a bounded LRU cache, and follow
+    list order for overlapping cues just as they do in the native preview.
     """
     from . import visuals, animations
     import cairo
-    cues = [c for c in project.get('captions', []) if c['start'] < total and c['end'] > 0]
+    ws = max(0.0, float(window_start))
+    we = float(total) if window_end is None else min(float(total), float(window_end))
+    if we <= ws:
+        return None
+    cues = [c for c in project.get('captions', []) if c['start'] < we and c['end'] > ws]
     if not cues:
         return None
     item = visuals.caption_item(project, '')
     if animated: item.update(rotation=0, opacity=1)
     left, top, sw, sh = visuals.sprite_geometry(project, item, (width, height))
     events = {}
+    active = set()
     for index, cue in enumerate(cues):
-        for key, entering in (('start', True), ('end', False)):
-            boundary = max(0.0, min(total, float(cue[key])))
-            events.setdefault(boundary, []).append((index, entering))
+        c_start = max(0.0, float(cue['start']))
+        c_end = min(float(total), float(cue['end']))
+        if c_start <= ws:
+            active.add(index)
+        elif c_start < we:
+            events.setdefault(c_start, []).append((index, True))
+        if ws < c_end < we:
+            events.setdefault(c_end, []).append((index, False))
         styled = visuals.caption_item(project, cue['text'], cue)
         if animations.normalise(styled.get('animation'))['text_effect'] != 'none':
             for boundary in animations.text_boundaries(styled):
-                if 0 < boundary < total: events.setdefault(boundary, [])
-    boundaries = sorted({0.0, total} | set(events))
-    active = set()
+                if ws < boundary < we:
+                    events.setdefault(boundary, [])
+    boundaries = sorted({ws, we} | set(events))
     cached = {}
     sequence = ['ffconcat version 1.0']
     last_path = None
@@ -506,24 +638,40 @@ def _caption_stream(project, scratch, width, height, total, cancel=None, prefix=
                 active.add(index)
             else:
                 active.discard(index)
-        text = tuple((cues[index]['text'], animations.text_step(visuals.caption_item(project, cues[index]['text'], cues[index]), begin+1e-8),
-                      str(cues[index].get('animation', project.get('caption_style', {}).get('animation')))) for index in sorted(active))
-        if text not in cached:
+        state = []
+        sprites = []
+        for index in sorted(active):
+            cue = cues[index]
+            sprite = visuals.caption_item(project, cue['text'], cue)
+            effect = animations.normalise(sprite.get('animation'))['text_effect']
+            step = animations.text_step(sprite, begin+1e-8)
+            word_range = animations.text_word_range(sprite, step) if effect != 'none' else None
+            sprite['_text_effect'] = effect
+            sprite['_text_step'] = step
+            if animated:
+                sprite.update(rotation=0, opacity=1)
+            sprites.append(sprite)
+            state.append((cue['text'], effect, step, word_range,
+                          cue.get('animation', project.get('caption_style', {}).get('animation'))))
+        state_key = tuple(
+            (text, effect, step, word_range, json.dumps(anim, sort_keys=True, default=str))
+            for text, effect, step, word_range, anim in state
+        )
+        if state_key not in cached:
             path = Path(scratch)/f'{prefix}-{len(cached)}.png'
-            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
-            cr = cairo.Context(surface)
-            cr.translate(-left, -top)
-            for index in sorted(active):
-                cue = cues[index]
-                sprite = visuals.caption_item(project, cue['text'], cue)
-                sprite['_text_effect'] = animations.normalise(sprite.get('animation'))['text_effect']
-                sprite['_text_step'] = animations.text_step(sprite, begin+1e-8)
-                if animated: sprite.update(rotation=0, opacity=1)
-                visuals._paint(cr, project, sprite, (0, 0, width, height))
-            if soft: surface = visuals.soften(surface)
-            surface.write_to_png(str(path))
-            cached[text] = path
-        last_path = cached[text]
+            global_key = _caption_cache_key(project, width, height, left, top, sw, sh, animated, soft, state_key)
+            if not _caption_cache_lease(global_key, path):
+                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
+                cr = cairo.Context(surface)
+                cr.translate(-left, -top)
+                for sprite in sprites:
+                    visuals._paint(cr, project, sprite, (0, 0, width, height))
+                if soft:
+                    surface = visuals.soften(surface)
+                surface.write_to_png(str(path))
+                _caption_cache_store(global_key, path)
+            cached[state_key] = path
+        last_path = cached[state_key]
         # The image demuxer's fine timebase retains sub-frame cue boundaries;
         # the main canvas frame rate decides which frame displays each cue.
         sequence += [f"file '{last_path.as_posix()}'", 'option framerate 1000', f'duration {_fmt(end-begin)}']
@@ -533,23 +681,43 @@ def _caption_stream(project, scratch, width, height, total, cancel=None, prefix=
     return sequence_path, left, top
 
 
-def _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel=None):
+def _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel=None,
+                  window_start=0.0, window_end=None):
     """Append ordered transparent layers without interpreting user text as code."""
-    layers = [item for item in project.get('layers', []) if item['start'] < total and item['end'] > 0]
-    if not layers and not project.get('captions'):
+    windowed = window_start > 0 or window_end is not None
+    ws = max(0.0, float(window_start))
+    we = float(total) if window_end is None else min(float(total), float(window_end))
+    layers = [item for item in project.get('layers', [])
+              if item['start'] < we and item['end'] > ws and float(item.get('_suppress_until', 0)) < we]
+    active_captions = [c for c in project.get('captions', []) if c['start'] < we and c['end'] > ws]
+    if not layers and not active_captions:
         return video
     if scratch is None:
         raise RenderError('Visual rendering needs a temporary working folder.')
     from . import visuals, animations
     next_input = args.count('-i')
+    aligned_ws = max(0.0, math.floor(ws * fps) / fps) if windowed else 0.0
+    aligned_we = min(float(total), we + 2 / fps) if windowed else float(total)
     for number, item in enumerate(layers):
         if cancel is not None and cancel.is_set():
             raise RenderCancelled('Export cancelled.')
         start, end = max(0.0, float(item['start'])), min(total, float(item['end']))
         length = end-start
+        if windowed:
+            eff_start = aligned_ws if start < aligned_ws - 2 / fps else start
+            eff_end = min(end, aligned_we)
+            if eff_end <= eff_start:
+                eff_start, eff_end = start, end
+            eff_length = max(1 / fps, eff_end - eff_start)
+        else:
+            eff_start, eff_end, eff_length = start, end, length
         if animations.animated(item) or item.get('_match_from'):
             try:
-                placement = _animated_visual(project, item, number, args, filters, width, height, fps, length, scratch, cancel)
+                placement = _animated_visual(
+                    project, item, number, args, filters, width, height, fps, length, scratch, cancel,
+                    stream_start=eff_start if windowed else None,
+                    stream_end=eff_end if windowed else None,
+                )
             except RenderCancelled: raise
             except Exception as error:
                 raise RenderError(f'Could not animate visual layer {number+1}: {error}') from error
@@ -559,15 +727,26 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
                 x, y = visuals.rasterize(project, item, path, (width, height))
             except Exception as error:
                 raise RenderError(f"Could not read or draw visual layer {number+1}: {error}") from error
-            args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(length), '-i', str(path)]
-            filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(start)}/TB[visual{number}]')
+            args += ['-threads', '1', '-loop', '1', '-framerate', _fmt(fps), '-t', _fmt(eff_length), '-i', str(path)]
+            filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS+{_fmt(eff_start)}/TB[visual{number}]')
             placement = f'x={x}:y={y}'
         else:
             metadata = probe(item['path'])
             if not metadata['has_video']:
                 raise RenderError(f"{Path(item['path']).name} has no video to use as an overlay.")
-            available = min(metadata['duration']-item.get('in', 0), length*item.get('speed', 1))
-            args += ['-threads', '1', '-ss', _fmt(item.get('in', 0)), '-t', _fmt(available), '-i', item['path']]
+            speed = float(item.get('speed', 1))
+            seek_offset = max(0.0, eff_start - start)
+            if seek_offset <= 1.0:
+                eff_start = start
+                eff_length = max(1 / fps, eff_end - eff_start)
+                seek_offset = 0.0
+            source_in = float(item.get('in', 0)) + seek_offset * speed
+            if source_in < metadata['duration'] - 0.05:
+                available = min(metadata['duration'] - source_in, eff_length * speed)
+            else:
+                source_in = max(0.0, metadata['duration'] - 0.1)
+                available = min(metadata['duration'] - source_in, 0.1)
+            args += ['-threads', '1', '-ss', _fmt(source_in), '-t', _fmt(available), '-i', item['path']]
             bw = max(1, round(width*item['width']));bh = max(1, round(height*item['height']))
             fit = 'decrease' if item.get('fit', 'fit') == 'fit' else 'increase'
             framing = f'scale=trunc(iw*sar/2)*2:ih,setsar=1,format=rgba,scale={bw}:{bh}:force_original_aspect_ratio={fit}'
@@ -576,14 +755,14 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
             else:
                 framing += f',crop={bw}:{bh}:(iw-ow)/2:(ih-oh)/2'
             parts = [f'[{next_input}:{metadata["video_index"]}]{framing}',
-                     f'setpts=(PTS-STARTPTS)/{_fmt(item.get("speed", 1))}', f'fps={_fmt(fps)}',
-                     f'tpad=stop_mode=clone:stop_duration={_fmt(length)}', f'trim=duration={_fmt(length)}']
+                     f'setpts=(PTS-STARTPTS)/{_fmt(speed)}', f'fps={_fmt(fps)}',
+                     f'tpad=stop_mode=clone:stop_duration={_fmt(eff_length)}', f'trim=duration={_fmt(eff_length)}']
             angle = math.radians(item.get('rotation', 0))
             if angle:
                 a = _fmt(angle)
                 parts.append(f'rotate={a}:ow=rotw({a}):oh=roth({a}):c=0x00000000')
             parts += [f'colorchannelmixer=aa={_fmt(item.get("opacity", 1))}', 'settb=AVTB',
-                      f'setpts=PTS-STARTPTS+{_fmt(start)}/TB']
+                      f'setpts=PTS-STARTPTS+{_fmt(eff_start)}/TB']
             filters.append(','.join(parts)+f'[visual{number}]')
             placement = f'x={_fmt(width*item["x"])}-overlay_w/2:y={_fmt(height*item["y"])}-overlay_h/2'
         start = max(start, float(item.get('_suppress_until', 0)))
@@ -591,30 +770,48 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
         filters.append(f"[{video}][visual{number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto:enable='gte(t,{_fmt(start)})*lt(t,{_fmt(end)})'[{label}]")
         video = label
         next_input = args.count('-i')
-    animated_captions = any(animations.animated(visuals.caption_item(project, cue['text'], cue)) for cue in project.get('captions', []))
+    if not active_captions:
+        return video
+    # Keep static ffconcat caption windows on exact integer milliseconds so
+    # option framerate 1000 never rounds cue entry boundaries past a frame.
+    cap_ws = (math.floor(aligned_ws * 1000) / 1000) if windowed else 0.0
+    cap_we = aligned_we if windowed else float(total)
+    pts_shift = f'+{_fmt(cap_ws)}/TB' if cap_ws > 0 else ''
+    animated_captions = any(animations.animated(visuals.caption_item(project, cue['text'], cue)) for cue in active_captions)
     if animated_captions:
-        for lane_number, cues in enumerate(_caption_lanes(project)):
+        anim_ws = aligned_ws if windowed else 0.0
+        anim_pts_shift = f'+{_fmt(anim_ws)}/TB' if anim_ws > 0 else ''
+        window_captions = dict(project, captions=active_captions)
+        for lane_number, cues in enumerate(_caption_lanes(window_captions)):
             caption_project = dict(project, captions=cues)
             values = _cue_expressions(caption_project)
             inputs = []
             blur = values['blur'] != '0'
             for soft in ((False, True) if blur else (False,)):
                 prefix = f'captions-{lane_number}'+('-soft' if soft else '')
-                sequence, _, _ = _caption_stream(caption_project, scratch, width, height, total, cancel, prefix, True, soft)
+                stream = _caption_stream(caption_project, scratch, width, height, total, cancel, prefix, True, soft,
+                                         window_start=anim_ws, window_end=cap_we)
+                if stream is None:
+                    break
+                sequence, _, _ = stream
                 index = args.count('-i')
                 args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(sequence)]
                 source = f'captionbase{lane_number}'+('soft' if soft else '')
-                filters.append(f'[{index}:v]fps={_fmt(fps)},format=rgba,settb=AVTB,setpts=PTS-STARTPTS[{source}]')
+                filters.append(f'[{index}:v]fps={_fmt(fps)},format=rgba,settb=AVTB,setpts=PTS-STARTPTS{anim_pts_shift}[{source}]')
                 inputs.append(source)
+            if not inputs:
+                continue
             item = visuals.caption_item(project, '')
             placement = _element_motion(filters, inputs[0], f'captionmotion{lane_number}', item, width, height, values, inputs[1] if blur else None,
-                                        fps=fps,length=total,scratch=scratch,cues=cues,project=project,cancel=cancel)
+                                        fps=fps,length=max(1 / fps, cap_we - anim_ws),scratch=scratch,cues=cues,project=project,cancel=cancel,
+                                        stream_start=anim_ws if anim_ws > 0 else None)
             label = f'captioned{lane_number}'
             filters.append(f'[{video}][captionmotion{lane_number}]overlay={placement}:eof_action=pass:repeatlast=0:format=auto[{label}]')
             video = label
         return video
     try:
-        captions = _caption_stream(project, scratch, width, height, total, cancel)
+        captions = _caption_stream(dict(project, captions=active_captions), scratch, width, height, total, cancel,
+                                   window_start=cap_ws, window_end=cap_we)
     except RenderCancelled:
         raise
     except Exception as error:
@@ -622,7 +819,7 @@ def _visual_graph(project, args, filters, video, width, height, fps, total, scra
     if captions:
         sequence, x, y = captions
         args += ['-threads', '1', '-f', 'concat', '-safe', '0', '-i', str(sequence)]
-        filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS[captionpicture]')
+        filters.append(f'[{next_input}:v]format=rgba,settb=AVTB,setpts=PTS-STARTPTS{pts_shift}[captionpicture]')
         filters.append(f'[{video}][captionpicture]overlay=x={x}:y={y}:eof_action=pass:repeatlast=0:format=auto[captioned]')
         video = 'captioned'
     return video
@@ -758,8 +955,10 @@ def _with_grading(repair, framing, clip, scratch, prefix):
     return ','.join(repair + [framing] + grade)
 
 
-def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False, preview_edge=640, picture_start=None, proxies=None):
-    if any(clip.get('transition')=='match_move' for clip in project['clips']):
+def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, origin=0, video_only=False,
+           preview_edge=640, picture_start=None, proxies=None, clip_origin=None, window_end=None,
+           prepared_layers=False, global_rows=None, frame_range=None):
+    if not prepared_layers and any(clip.get('transition')=='match_move' for clip in project['clips']):
         from . import animations
         project=copy.deepcopy(project)
         project['layers']=animations.prepare_layers(project)
@@ -777,7 +976,9 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             if path is not None:project['audio'].append(new_audio(path))
     # For live seeking, omit completed main clips. Keep the original global
     # timestamps for music, captions and overlays, including effect history.
-    if origin:
+    if clip_origin is not None:
+        origin = float(clip_origin)
+    elif origin:
         project = copy.deepcopy(project)
         project['clips'] = [clip for clip, row in zip(project['clips'], timeline(project))
                             if row['start'] >= origin-0.0000001]
@@ -868,10 +1069,15 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         picture_index = 0 if proxy else metadata['video_index']
         repair = []
         if clip.get('sparkle_patch') and not audio_only:
+            source_start = clip.get('in', 0) + seek * speed
+            source_end = clip['out']
+            if window_end is not None:
+                clip_start = (global_rows[index]['start'] if global_rows is not None else origin + rows[index]['start'])
+                source_end = min(source_end, clip.get('in', 0) + max(0.05, window_end - clip_start + 2 / fps) * speed)
             repair = watermark.removal_filter(
                 clip['sparkle_patch'], metadata, scratch,
-                source_start=clip.get('in', 0) + seek * speed,
-                source_end=clip['out'],
+                source_start=source_start,
+                source_end=source_end,
             )
         if clip.get('watermark_region') and not audio_only:
             repair.extend(watermark.region_filters(clip['watermark_region'], metadata))
@@ -879,14 +1085,16 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
                    f"trim=duration={_fmt(remaining)}", f"fps={_fmt(fps)}", "settb=AVTB"]
-        if seek:picture.append(f"setpts=PTS+{_fmt(seek)}/TB")
         picture_fade_in = min(float(clip.get("video_fade_in", 0)), duration)
         picture_fade_out = min(float(clip.get("video_fade_out", 0)), duration)
-        if picture_fade_in > 0:
-            picture.append(f"fade=t=in:st=0:d={_fmt(picture_fade_in)}")
-        if picture_fade_out > 0:
-            picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
-        if seek:picture.append(f"setpts=PTS-{_fmt(seek)}/TB")
+        if picture_fade_in > 0 or picture_fade_out > 0:
+            seek_us = round(seek * 1000000)
+            if seek_us:picture.append(f"setpts=PTS+{seek_us}")
+            if picture_fade_in > 0:
+                picture.append(f"fade=t=in:st=0:d={_fmt(picture_fade_in)}")
+            if picture_fade_out > 0:
+                picture.append(f"fade=t=out:st={_fmt(duration-picture_fade_out)}:d={_fmt(picture_fade_out)}")
+            if seek_us:picture.append(f"setpts=PTS-{seek_us}")
         if not audio_only:
             filters.append(",".join(picture) + f"[v{index}]")
         if video_only:
@@ -915,12 +1123,22 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         if overlap:
             if not audio_only:
                 from . import transition_render
+                if global_rows is not None or origin or skip:
+                    full_offset = (global_rows[index]['start'] if global_rows is not None
+                                   else origin + skip + running_duration - overlap)
+                    first_full = transition_render._first_frame(full_offset, fps)
+                    start_frame = round((origin + skip) * fps)
+                    local_first = max(0, first_full - start_frame)
+                    delta_us = math.floor(full_offset * 1000000 + 1e-6) - transition_render._frame_us(first_full, fps)
+                    join_offset = max(0.0, (transition_render._frame_us(local_first, fps) + delta_us) / 1000000)
+                else:
+                    join_offset = running_duration - overlap
                 transition_render.append(args,filters,video,f'v{index}',clips[index-1],
-                                         overlap,running_duration-overlap,width,height,fps,
+                                         overlap,join_offset,width,height,fps,
                                          rows[index]['duration'],scratch,index,cancel,
                                          with_alpha=bool(project.get('layers') or project.get('captions')),
                                          left_frames=running_frames)
-                running_frames = transition_render._first_frame(running_duration-overlap,fps)+round(rows[index]['duration']*fps)
+                running_frames = transition_render._first_frame(join_offset,fps)+round(rows[index]['duration']*fps)
             if not video_only:
                 filters.append(f"[{audio}][a{index}]acrossfade=d={_fmt(overlap)}:c1=tri:c2=tri[joina{index}]")
         else:
@@ -964,10 +1182,29 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         filters.append(",".join(parts) + f"[music{offset}]")
         mix_labels.append(f"music{offset}")
     if not video_only:
-        filters.append("".join(f"[{label}]" for label in mix_labels) + f"amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)}[outaudio]")
+        norm_labels = []
+        for idx, label in enumerate(mix_labels):
+            norm = f'amixin{idx}'
+            filters.append(f'[{label}]asetnsamples=n=1024:p=0[{norm}]')
+            norm_labels.append(norm)
+        filters.append("".join(f"[{label}]" for label in norm_labels) + f"amix=inputs={len(norm_labels)}:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1,apad,atrim=duration={_fmt(total)},asetnsamples=n=1024:p=0[outaudio]")
     if not audio_only:
-        video = _visual_graph(project, args, filters, video, width, height, fps, total, scratch, cancel)
-        filters.append(f"[{video}]format=yuv420p[outvideo]")
+        vis_start = 0.0
+        vis_end = None
+        vis_total = total
+        if window_end is not None or clip_origin is not None:
+            vis_start = max(0.0, (picture_start if picture_start is not None else origin) - 2 / fps)
+            vis_total = max(total, float(window_end)) if window_end is not None else total
+            vis_end = vis_total if window_end is None else min(vis_total, float(window_end))
+        video = _visual_graph(project, args, filters, video, width, height, fps, vis_total, scratch, cancel,
+                              window_start=vis_start, window_end=vis_end)
+        if frame_range is not None:
+            start_frame = round((origin + skip) * fps) if (origin or skip) else 0
+            drop = max(0, int(frame_range[0]) - start_frame)
+            end_f = max(drop, int(frame_range[1]) - start_frame)
+            filters.append(f"[{video}]trim=start_frame={drop}:end_frame={end_f},setpts=PTS-STARTPTS,format=yuv420p[outvideo]")
+        else:
+            filters.append(f"[{video}]format=yuv420p[outvideo]")
     return args, ";\n".join(filters), total
 
 
@@ -989,13 +1226,16 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
     # FFmpeg's output seek chooses the next frame on the composition grid.
     # Include cues/overlays entering on that frame, even just after the pointer.
     seconds = math.ceil(seconds*project['fps']-1e-7)/project['fps']
-    active = [(i, row) for i, row in enumerate(timeline(project))
+    all_rows = timeline(project)
+    active = [(i, row) for i, row in enumerate(all_rows)
               if row['start'] <= seconds < row['start']+row['duration']]
-    origin = active[0][1]['start']
+    first_idx, origin = active[0][0], active[0][1]['start']
+    end_idx = min(len(project['clips']), active[-1][0]+2)
     # Only the active scenes and their immediate successor can affect this
     # picture. Retain that join for color negotiation, but avoid decoding and
     # rasterizing an entire project's future scenes for every pointer move.
-    project['clips'] = project['clips'][:min(len(project['clips']), active[-1][0]+2)]
+    project['clips'] = project['clips'][first_idx:end_idx]
+    slice_rows = all_rows[first_idx:end_idx]
     project['audio'] = []
     for group in ('layers', 'captions'):
         project[group] = [item for item in project[group] if item['start'] <= seconds < item['end']]
@@ -1007,7 +1247,12 @@ def preview_frame(project, seconds, cancel=None, preview_edge=640):
             if not is_still(clip):
                 proxy = preview_cache.lease_available(clip['path'], preview_edge, scratch)
                 if proxy:proxies[clip['path']] = proxy
-        args, graph, _ = _graph(project, True, scratch, cancel=cancel, origin=origin, video_only=True, preview_edge=preview_edge, picture_start=seconds, proxies=proxies)
+        args, graph, _ = _graph(
+            project, True, scratch, cancel=cancel, video_only=True,
+            preview_edge=preview_edge, picture_start=seconds, proxies=proxies,
+            clip_origin=origin, window_end=seconds + 2 / project['fps'],
+            prepared_layers=True, global_rows=slice_rows,
+        )
         graph_path = Path(scratch)/'filters.txt'
         graph_path.write_text(graph, encoding='utf-8')
         picture = Path(scratch)/'picture.rgb'

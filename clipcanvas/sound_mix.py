@@ -75,20 +75,26 @@ def _decode(source, target, frames, cancel):
     return available
 
 
-def _cues(project, directory, cancel):
+def _cues(project, directory, cancel, window_start=0, window_end=None):
     """Cache equal sound/timing templates, retaining the events API's rules."""
     from .model import project_duration
     total = round(project_duration(project) * RATE)
+    win_start = max(0, int(window_start))
+    win_end = total if window_end is None else min(total, int(window_end))
+    if win_end <= win_start:
+        return total, []
     cues = []
     templates = {}
     durations = {}
+    min_sec = win_start / RATE
+    max_sec = win_end / RATE
     for item in project.get('layers', []) + project.get('captions', []):
         _cancelled(cancel)
         config = item.get('sound_effect', {})
         if config.get('preset', 'none') == 'none' or config.get('volume', .5) <= 0:
             continue
         item_start, item_end = float(item['start']), float(item['end'])
-        if item_start * RATE >= total or item_end <= 0:
+        if item_start >= max_sec or item_end <= min_sec or item_start * RATE >= total or item_end <= 0:
             continue
         # Relative templates avoid repeated ffprobe calls when multiple cues
         # use the same custom sound and duration, without global monkeypatches.
@@ -101,33 +107,42 @@ def _cues(project, directory, cancel):
         for at, path, volume in templates[key]:
             begin = max(0, round((item_start + at) * RATE))
             end = min(total, round(item_end * RATE))
-            if end > begin:
+            if end > begin and end > win_start and begin < win_end:
                 cues.append((begin, end, Path(path).resolve(), float(volume)))
     return total, cues
 
 
-def mix(project, scratch, cancel=None):
+def mix(project, scratch, cancel=None, *, start=0.0, end=None):
     """Return one timed 48 kHz stereo float WAV, or None for no audible cues.
 
     Temporary files live only in the caller-owned scratch folder. Original
     paths are read, never modified. Entry and exit sounds stop at the element
-    end and the project end. The caller skips this for silent picture requests
-    and for original-video speech extraction.
+    end and the project end. When ``start``/``end`` are supplied, only cues
+    intersecting ``[start, end)`` are decoded and mixed into a bounded WAV
+    covering that exact sample interval. The caller skips this for silent
+    picture requests and for original-video speech extraction.
     """
+    from .model import project_duration
     directory = Path(scratch)
-    total, cues = _cues(project, directory, cancel)
+    total = round(project_duration(project) * RATE)
+    win_start = max(0, round(float(start) * RATE))
+    win_end = total if end is None else min(total, round(float(end) * RATE))
+    if win_end <= win_start:
+        return None
+    total, cues = _cues(project, directory, cancel, win_start, win_end)
     if not cues:
         return None
     needed = {}
-    for begin, end, source, volume in cues:
-        needed[source] = max(needed.get(source, 0), end - begin)
+    for begin, cue_end, source, volume in cues:
+        needed[source] = max(needed.get(source, 0), min(cue_end, win_end) - begin)
     decoded = {}
     for index, (source, frames) in enumerate(needed.items()):
         _cancelled(cancel)
         path = directory / f'element-sound-source-{index}.f32'
         decoded[source] = path, _decode(source, path, frames, cancel)
-    events = sorted((begin, min(end, begin + decoded[source][1]), source, volume)
-                    for begin, end, source, volume in cues if decoded[source][1])
+    events = sorted((begin, min(cue_end, begin + decoded[source][1]), source, volume)
+                    for begin, cue_end, source, volume in cues
+                    if decoded[source][1] and min(cue_end, begin + decoded[source][1]) > win_start)
     if not events:
         return None
     target = directory / 'element-sounds.wav'
@@ -135,20 +150,20 @@ def mix(project, scratch, cancel=None):
         with contextlib.ExitStack() as files:
             readers = {source: files.enter_context(path.open('rb')) for source, (path, frames) in decoded.items()}
             output = files.enter_context(target.open('wb'))
-            _header(output, total)
+            _header(output, win_end - win_start)
             active = []
             next_event = 0
-            for block_start in range(0, total, BLOCK_FRAMES):
+            for block_start in range(win_start, win_end, BLOCK_FRAMES):
                 _cancelled(cancel)
-                block_end = min(total, block_start + BLOCK_FRAMES)
+                block_end = min(win_end, block_start + BLOCK_FRAMES)
                 while next_event < len(events) and events[next_event][0] < block_end:
                     active.append(events[next_event])
                     next_event += 1
                 active = [event for event in active if event[1] > block_start]
                 result = array.array('f', [0.]) * ((block_end - block_start) * CHANNELS)
-                for begin, end, source, volume in active:
+                for begin, cue_end, source, volume in active:
                     _cancelled(cancel)
-                    first, last = max(begin, block_start), min(end, block_end)
+                    first, last = max(begin, block_start), min(cue_end, block_end)
                     if last <= first:
                         continue
                     reader = readers[source]

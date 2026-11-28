@@ -49,6 +49,7 @@ def measure(project, start, edge, timeout=180):
         if errors or not pictures or not audio:
             raise RuntimeError('; '.join(errors) or 'Preview did not start before timeout.')
         result = {'preview_edge':edge, 'start_seconds':start,
+            'route':player.metrics.route, 'route_reason':player.metrics.route_reason,
             'first_picture_ms':round(pictures[0]*1000,2),
             'first_audio_ms':round(audio[0]*1000,2),
             'events':[[round(at,3),active,message] for at,active,message in events]}
@@ -59,6 +60,7 @@ def measure(project, start, edge, timeout=180):
         remaining = [thread.name for thread in threading.enumerate() if thread not in threads_before]
         if remaining:raise RuntimeError('Preview left Python workers running: '+', '.join(remaining))
     result['stop_ms'] = round((time.monotonic()-stopping)*1000,2)
+    result['metrics'] = player.metrics.snapshot()
     return result
 
 
@@ -73,6 +75,10 @@ def main():
     parser.add_argument('--start',type=float,default=0)
     parser.add_argument('--edge',type=int,default=640)
     parser.add_argument('--repeats',type=int,default=1)
+    parser.add_argument('--dissolve-last',action='store_true',help='Add a 0.5 s dissolve at the final join')
+    parser.add_argument('--captions',type=int,default=0,help='Distribute N word-highlight captions across the timeline')
+    parser.add_argument('--layer-sound',action='store_true',help='Add a distant layer sound effect near the end')
+    parser.add_argument('--reuse-source',action='store_true',help='Reuse one generated source file across clips (for 60m/180m runs)')
     parser.add_argument('--output',type=Path)
     args = parser.parse_args();Gst.init(None)
     if args.clips<1 or args.clip_seconds<=0 or args.repeats<1:parser.error('Clip count, duration and repeats must be positive.')
@@ -89,13 +95,29 @@ def main():
                 env=env,check=True)
             project = model.new_project(args.width,args.height)
             for index in range(args.clips):
-                target = root/f'clip-{index:02}.mp4'
-                shutil.copyfile(source,target)
+                if args.reuse_source:
+                    target = source
+                else:
+                    target = root/f'clip-{index:02}.mp4'
+                    shutil.copyfile(source,target)
                 clip = model.new_clip(target)
                 if args.grade:
                     clip.update(color_grade=color_grading.PRESETS[args.grade],
                                 saturation=color_grading.PRESET_SATURATION.get(args.grade,1))
                 project['clips'].append(clip)
+            if args.dissolve_last and len(project['clips']) >= 2:
+                project['clips'][-2].update(transition='dissolve', transition_duration=0.5)
+            total = model.project_duration(project)
+            if args.captions > 0:
+                step = total / args.captions
+                for i in range(args.captions):
+                    cue = model.new_caption(f'Caption line {i} benchmark text', i * step, min(total - 0.1, i * step + min(2.0, step * 0.8)))
+                    cue['animation']['text_effect'] = 'highlight'
+                    project['captions'].append(cue)
+            if args.layer_sound and total > 2:
+                item = model.new_text('Ping', max(0.0, total - 10.0), max(1.0, total - 9.0))
+                item['sound_effect'].update(preset='pop', volume=0.5, trigger='enter')
+                project['layers'].append(item)
         # Match the application after media import, including for saved projects.
         for clip in project['clips']:
             if not model.is_still(clip):engine.probe(clip['path'])

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0 — 2026-11-28
+
+- Extend bounded picture windowing to composed timelines (transitions including dissolves, wipes, Flow and Match & Move, image clips with slow zoom, static/animated layers, and word-highlight captions) and time-slice long single clips when distant overlays or captions exist.
+- Add bounded audio windowing and filter-aware deep-seek preroll (preserving echo, compressor, speed, fades and `acrossfade` continuity), skip no-op `atempo=1` processing on 1.0x tracks, and mix attached layer/caption sound effects only over the active playback interval instead of writing full-timeline WAV files.
+- Add a bounded LRU caption sprite cache, optimize I420 row repacking and Cairo canvas frame surface reuse, and cache Timeline layout/hit/snap indices with binary-search viewport drawing so playhead updates stay sub-millisecond on dense multi-hour timelines.
+- Add lightweight playback telemetry (`StreamPlayer.metrics` and optional `CLIPCANVAS_PERF_LOG` JSONL output) and extend `tools/benchmark_long_preview.py` for long-form composed fixtures.
+
 ## 0.24.0 — 2026-11-28
 
 - Mark a stationary watermark directly on a source frame, compare the repair and apply it to preview and export. Reopen the tool to adjust or clear the region.

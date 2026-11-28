@@ -1,4 +1,5 @@
 """ClipCanvas: a small, local-first desktop video maker."""
+import bisect
 import copy
 import hashlib
 import json
@@ -157,11 +158,19 @@ class FormatArt(Gtk.DrawingArea):
         cr.move_to(x+w*.45,y+h*.36); cr.line_to(x+w*.45,y+h*.64); cr.line_to(x+w*.62,y+h*.50)
         cr.close_path(); rgb(cr,'#ffffff'); cr.fill()
 
+def _range_indices(starts, max_ends, lo, hi):
+    """Return index range of x-sorted intervals intersecting ``[lo, hi]``."""
+    end = bisect.bisect_right(starts, hi)
+    start = bisect.bisect_left(max_ends, lo, 0, end)
+    return range(start, end)
+
+
 class Timeline(Gtk.DrawingArea):
     def __init__(self, owner):
         super().__init__()
         self.owner=owner; self.scale=28.; self.hit=[]; self.join_hits=[];self.fade_hits=[];self.add_hit=None;self.drag=None;self.drag_scroll_timer=0;self.hover_join=None
         self.saturation_thumbs={}
+        self._layout=None; self._layout_key=None; self._layout_revision=0
         self.connect('destroy',lambda _:self.stop_drag_scroll())
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
         self.connect('draw',self.draw)
@@ -175,21 +184,168 @@ class Timeline(Gtk.DrawingArea):
         self.set_has_tooltip(True);self.connect('query-tooltip',self.query_tooltip)
         self.connect('style-updated',lambda _:self.queue_draw())
 
+    def invalidate_layout(self):
+        self._layout_revision += 1
+        self._layout = None
+        self._layout_key = None
+
     def refresh(self):
         self.saturation_thumbs.clear()
-        duration=max([model.project_duration(self.owner.project)]+[a['start']+model.clip_duration(a) for a in self.owner.project['audio']])
-        visuals=self.owner.project.get('layers',[]);captions=self.owner.project.get('captions',[])
+        self.invalidate_layout()
+        p=self.owner.project
+        duration=max([model.project_duration(p)]+[a['start']+model.clip_duration(a) for a in p['audio']])
+        visuals=p.get('layers',[]);captions=p.get('captions',[])
         duration=max([duration]+[i['end'] for i in visuals+captions])
-        height=max(y+h+18 for _,_,_,y,h in track_layout.rows(self.owner.project))
-        if self.owner.project['audio']:height+=60
+        height=max(y+h+18 for _,_,_,y,h in track_layout.rows(p))
+        if p['audio']:height+=60
         self.set_size_request(max(800,int(duration*self.scale+170)),max(220,height))
         self.queue_draw()
+
+    def _selection_key(self):
+        selection = getattr(self.owner, 'selection', None)
+        if selection is not None:
+            return (self.owner.selected, frozenset(selection))
+        return (self.owner.selected, None)
+
+    def _ensure_layout(self):
+        """Cache static timeline geometry and x-sorted search indices by edit revision."""
+        p = self.owner.project
+        key = (
+            self._layout_revision, id(p), len(p['clips']), len(p['audio']),
+            len(p.get('layers', [])), len(p.get('captions', [])),
+            self.scale, self._selection_key(),
+        )
+        if self._layout is not None and self._layout_key == key:
+            return self._layout
+
+        scale = self.scale
+        timings = model.timeline(p)
+        duration = timings[-1]['start'] + timings[-1]['duration'] if timings else 0.0
+        rows = track_layout.rows(p)
+        positions = {(kind, index): (y, h) for _, kind, index, y, h in rows}
+        audio_positions = {rkey: (y, h) for rkey, kind, _, y, h in rows if kind == 'audio'}
+        for i, item in enumerate(p['audio']):
+            positions[('audio', i)] = audio_positions[track_layout.key_for('audio', item)]
+        video_y, video_h = positions[('clips', None)]
+        new_audio_y = max(y + h + 12 for _, _, _, y, h in rows)
+
+        hit = []
+        clip_items = []
+        clip_starts = []
+        clip_max_ends = []
+        running_max = -1e18
+        for i, timing in enumerate(timings):
+            x = 100.0 + timing['start'] * scale
+            w = max(12.0, timing['duration'] * scale - 3.0)
+            entry = ('clips', i, x, video_y, w, video_h)
+            hit.append(entry)
+            clip_items.append(entry)
+            clip_starts.append(x)
+            running_max = max(running_max, x + w)
+            clip_max_ends.append(running_max)
+
+        audio_raw = []
+        fade_hits = []
+        for i, audio in enumerate(p['audio']):
+            y, _ = positions[('audio', i)]
+            x = 100.0 + audio['start'] * scale
+            visible = model.clip_duration(audio)
+            w = max(12.0, visible * scale)
+            audible = max(0.0, min(visible, duration - audio['start']))
+            fade_end = x + audible * scale
+            entry = ('audio', i, x, y, w, 42)
+            hit.append(entry)
+            audio_raw.append((x, i, y, w, visible, audible, fade_end, entry))
+            if self.owner.is_selected('audio', i) and audible > 0:
+                for fkey, edge in (('fade_in', 'in'), ('fade_out', 'out')):
+                    fade = min(audio.get(fkey, 0), audible) * scale
+                    hx = x + fade if edge == 'in' else fade_end - fade
+                    fade_hits.append((i, edge, hx, y + 4, 7))
+        audio_raw.sort(key=lambda item: item[0])
+        audio_starts = [item[0] for item in audio_raw]
+        audio_max_ends = []
+        running_max = -1e18
+        for item in audio_raw:
+            running_max = max(running_max, item[0] + item[3])
+            audio_max_ends.append(running_max)
+
+        group_indices = {}
+        for group in ('layers', 'captions'):
+            raw = []
+            for index, item in enumerate(p.get(group, [])):
+                y, h = positions[(group, index if group == 'layers' else None)]
+                x = 100.0 + item['start'] * scale
+                w = max(12.0, (item['end'] - item['start']) * scale)
+                entry = (group, index, x, y, w, h)
+                hit.append(entry)
+                raw.append((x, index, y, w, h, entry))
+            raw.sort(key=lambda item: item[0])
+            starts = [item[0] for item in raw]
+            max_ends = []
+            running_max = -1e18
+            for item in raw:
+                running_max = max(running_max, item[0] + item[3])
+                max_ends.append(running_max)
+            group_indices[group] = (raw, starts, max_ends)
+
+        join_hits = []
+        join_xs = []
+        for i, row in enumerate(timings[:-1]):
+            cx = 100.0 + (row['start'] + row['duration'] - row['overlap'] / 2.0) * scale
+            cy = video_y + 40
+            join_hits.append((i, cx, cy, 15))
+            join_xs.append(cx)
+
+        add_hit = None
+        if p['clips']:
+            end = 100.0 + duration * scale
+            add_hit = (end + 12.0, video_y + 15, 44, 44)
+
+        snap_marks = []
+        for row in timings:
+            snap_marks.append((row['start'], 'clips', -1))
+            snap_marks.append((row['start'] + row['duration'], 'clips', -1))
+        for i, item in enumerate(p['audio']):
+            snap_marks.append((item['start'], 'audio', i))
+            snap_marks.append((item['start'] + model.clip_duration(item), 'audio', i))
+        for group in ('layers', 'captions'):
+            for i, item in enumerate(p.get(group, [])):
+                snap_marks.append((item['start'], group, i))
+                snap_marks.append((item['end'], group, i))
+        snap_marks.sort(key=lambda item: item[0])
+        snap_times = [item[0] for item in snap_marks]
+
+        cached = {
+            'duration': duration,
+            'rows': rows,
+            'positions': positions,
+            'video_y': video_y,
+            'video_h': video_h,
+            'new_audio_y': new_audio_y,
+            'timings': timings,
+            'hit': hit,
+            'clip_items': clip_items,
+            'clip_starts': clip_starts,
+            'clip_max_ends': clip_max_ends,
+            'audio_raw': audio_raw,
+            'audio_starts': audio_starts,
+            'audio_max_ends': audio_max_ends,
+            'group_indices': group_indices,
+            'join_hits': join_hits,
+            'join_xs': join_xs,
+            'fade_hits': fade_hits,
+            'add_hit': add_hit,
+            'snap_marks': snap_marks,
+            'snap_times': snap_times,
+        }
+        self._layout = cached
+        self._layout_key = key
+        return cached
 
     def redraw_playhead(self,old,new):
         """Invalidate only the old/new line, retaining native GTK clipping.
 
-        Item geometry and interaction targets are still rebuilt during draw;
-        the expensive thumbnail and waveform painting follows its dirty area.
+        Cached geometry and bisect viewport queries keep playhead redraws O(log N).
         Active item drags retain their full overlay repaint.
         """
         if self.drag and self.drag.get('mode')!='seek':
@@ -207,18 +363,31 @@ class Timeline(Gtk.DrawingArea):
         return False
 
     def draw(self, widget, cr):
-        a=self.get_allocation(); p=self.owner.project; self.hit=[];self.join_hits=[];self.fade_hits=[];self.add_hit=None
+        a=self.get_allocation(); p=self.owner.project
+        cached=self._ensure_layout()
         left,top,right,bottom=cr.clip_extents()
         def intersects(x,y,width,height,padding=3):
             return x+width+padding>=left and x-padding<=right and y+height+padding>=top and y-padding<=bottom
         colors=ui_theme.palette(self)
         rgb(cr,colors['background']); cr.paint()
-        duration=model.project_duration(p)
-        layout=track_layout.rows(p)
-        positions={(kind,index):(y,h) for _,kind,index,y,h in layout}
-        audio_positions={key:(y,h) for key,kind,_,y,h in layout if kind=='audio'}
-        for i,item in enumerate(p['audio']):positions[('audio',i)]=audio_positions[track_layout.key_for('audio',item)]
-        video_y,video_h=positions[('clips',None)]
+        duration=cached['duration']
+        layout=cached['rows']
+        positions=cached['positions']
+        video_y,video_h=cached['video_y'],cached['video_h']
+        timings=cached['timings']
+        moving=bool(self.drag and self.drag.get('active') and self.drag.get('kind')=='clips' and not self.drag.get('edge'))
+        audio_moving=bool(self.drag and self.drag.get('active') and self.drag.get('kind')=='audio' and not self.drag.get('edge'))
+        layer_dragging=bool(self.drag and self.drag.get('active') and self.drag.get('kind') in ('layers','captions'))
+        fade_dragging=bool(self.drag and self.drag.get('mode')=='fade')
+
+        if not (moving or audio_moving or layer_dragging or fade_dragging):
+            self.hit=cached['hit']
+            self.join_hits=cached['join_hits']
+            self.fade_hits=cached['fade_hits']
+            self.add_hit=cached['add_hit']
+        else:
+            self.hit=[];self.join_hits=[];self.fade_hits=[];self.add_hit=None
+
         step=1 if self.scale>65 else 5 if self.scale>15 else 10
         first=max(0,math.floor((left-170)/self.scale/step)*step)
         last=min(int(max(duration,(a.width-100)/self.scale))+step,math.ceil((right-100)/self.scale/step)*step+step)
@@ -230,33 +399,38 @@ class Timeline(Gtk.DrawingArea):
         if not p['clips']:
             rounded(cr,105,video_y+2,max(300,a.width-130),75); rgb(cr,colors['surface']);cr.fill()
             draw_text(cr,'Import clips to start your story',128,video_y+45,colors['muted'],14)
-        timings=model.timeline(p)
-        moving=self.drag and self.drag.get('active') and self.drag.get('kind')=='clips' and not self.drag.get('edge')
-        order=list(range(len(p['clips'])))
         if moving:
+            order=list(range(len(p['clips'])))
             index=order.pop(self.drag['index']);order.insert(self.drag['target'],index)
             candidate={**p,'clips':[p['clips'][i] for i in order]}
             display_timings=model.timeline(candidate)
-        else:display_timings=timings
-        for slot,(i,timing) in enumerate(zip(order,display_timings)):
-            clip=p['clips'][i]
-            x=100+timing['start']*self.scale; y=video_y; w=max(12,timing['duration']*self.scale-3);h=video_h
-            self.hit.append(('clips',i,x,y,w,h))
-            if not intersects(x,y,w,h,24):continue
-            if moving and i==self.drag['index']:
-                rounded(cr,x,y,w,h);rgb(cr,colors['accent'],.12);cr.fill_preserve()
-                cr.set_dash([5,4]);rgb(cr,colors['accent']);cr.set_line_width(2);cr.stroke();cr.set_dash([])
-                rgb(cr,colors['accent']);cr.set_line_width(3);cr.move_to(x,y-5);cr.line_to(x,y+h+5);cr.stroke()
-                draw_text(cr,'Drop here',x+8,y-7,colors['accent'],11,True)
-            else:self.paint_clip(cr,clip,i,x,y,w,h,self.owner.is_selected('clips',i))
-        for number,(key,_,_,y,h) in enumerate((row for row in layout if row[1]=='audio'),1):
+            for i,timing in zip(order,display_timings):
+                clip=p['clips'][i]
+                x=100+timing['start']*self.scale; y=video_y; w=max(12,timing['duration']*self.scale-3);h=video_h
+                self.hit.append(('clips',i,x,y,w,h))
+                if not intersects(x,y,w,h,24):continue
+                if i==self.drag['index']:
+                    rounded(cr,x,y,w,h);rgb(cr,colors['accent'],.12);cr.fill_preserve()
+                    cr.set_dash([5,4]);rgb(cr,colors['accent']);cr.set_line_width(2);cr.stroke();cr.set_dash([])
+                    rgb(cr,colors['accent']);cr.set_line_width(3);cr.move_to(x,y-5);cr.line_to(x,y+h+5);cr.stroke()
+                    draw_text(cr,'Drop here',x+8,y-7,colors['accent'],11,True)
+                else:self.paint_clip(cr,clip,i,x,y,w,h,self.owner.is_selected('clips',i))
+        else:
+            if audio_moving or layer_dragging or fade_dragging:
+                self.hit.extend(cached['clip_items'])
+            for idx in _range_indices(cached['clip_starts'], cached['clip_max_ends'], left - 24, right + 24):
+                _,i,x,y,w,h=cached['clip_items'][idx]
+                if not intersects(x,y,w,h,24):continue
+                self.paint_clip(cr,p['clips'][i],i,x,y,w,h,self.owner.is_selected('clips',i))
+
+        for number,(rkey,_,_,y,h) in enumerate((row for row in layout if row[1]=='audio'),1):
             if intersects(12,y+13,82,20):draw_text(cr,f'AUDIO {number}',12,y+26,colors['muted'],size=10,bold=True)
-        audio_moving=self.drag and self.drag.get('active') and self.drag.get('kind')=='audio' and not self.drag.get('edge')
         if p['audio']:
-            new_y=self.new_audio_row_y()
-            rounded(cr,100,new_y,max(300,a.width-115),42,7);rgb(cr,colors['surface'],.5);cr.fill_preserve()
-            rgb(cr,colors['border']);cr.set_dash([5,4]);cr.set_line_width(1);cr.stroke();cr.set_dash([])
-            draw_text(cr,'Drag audio here for a new lane',112,new_y+26,colors['muted'],11)
+            new_y=cached['new_audio_y']
+            if intersects(100,new_y,max(300,a.width-115),42,6):
+                rounded(cr,100,new_y,max(300,a.width-115),42,7);rgb(cr,colors['surface'],.5);cr.fill_preserve()
+                rgb(cr,colors['border']);cr.set_dash([5,4]);cr.set_line_width(1);cr.stroke();cr.set_dash([])
+                draw_text(cr,'Drag audio here for a new lane',112,new_y+26,colors['muted'],11)
         if audio_moving:
             d=self.drag;item=p['audio'][d['index']];drop_y=d.get('drop_y')
             if drop_y is not None:
@@ -266,23 +440,14 @@ class Timeline(Gtk.DrawingArea):
                 rounded(cr,drop_x,drop_y,drop_w,42,7);rgb(cr,color,.2);cr.fill_preserve()
                 cr.set_dash([5,4]);cr.set_line_width(2);rgb(cr,color);cr.stroke();cr.set_dash([])
                 draw_text(cr,'Drop here' if d.get('drop_valid') else 'Overlap · choose a gap',drop_x+7,drop_y-6,color,11,True)
-        audio_order=list(range(len(p['audio'])))
-        if audio_moving:audio_order.remove(self.drag['index']);audio_order.append(self.drag['index'])
-        for i in audio_order:
+
+        def paint_audio_item(i, x, y, w, audible, fade_end, lifted):
             audio=p['audio'][i]
-            y,_=positions[('audio',i)];x=100+audio['start']*self.scale
-            lifted=audio_moving and self.drag['index']==i
-            if lifted:
-                x=100+self.audio_drag_start(self.drag)*self.scale
-                y=self.drag['pointer_y']-self.drag['grab_y']-5
-            visible=model.clip_duration(audio)
-            w=max(12,visible*self.scale)
-            paint=intersects(x,y,w,42,12)
-            if lifted and paint:rounded(cr,x+4,y+6,w,42,7);rgb(cr,'#000000',.35);cr.fill()
+            if lifted:rounded(cr,x+4,y+6,w,42,7);rgb(cr,'#000000',.35);cr.fill()
             cr.save();rounded(cr,x,y,w,42,7);cr.clip()
-            if paint:rgb(cr,'#8150c6');cr.paint()
+            rgb(cr,'#8150c6');cr.paint()
             values=self.owner.waves.get(audio['path'],[])
-            if values and paint:
+            if values:
                 first_bar=max(0,math.floor((left-x-2)/3)*3)
                 last_bar=min(int(w),math.ceil(right-x))
                 for xx in range(first_bar,last_bar,3):
@@ -290,76 +455,134 @@ class Timeline(Gtk.DrawingArea):
                     # cached point. Keep narrow pulses when zooming out.
                     source_start=audio['in']+xx/self.scale*audio.get('speed',1)
                     source_end=min(audio['out'],source_start+3/self.scale*audio.get('speed',1))
-                    first=max(0,math.floor(source_start/audio['duration']*len(values)))
-                    last=min(len(values),math.ceil(source_end/audio['duration']*len(values)))
-                    amp=max(values[first:last],default=0)
+                    first_pt=max(0,math.floor(source_start/audio['duration']*len(values)))
+                    last_pt=min(len(values),math.ceil(source_end/audio['duration']*len(values)))
+                    amp=max(values[first_pt:last_pt],default=0)
                     hh=max(1,amp*22);rgb(cr,'#c5a7f0',.8);cr.rectangle(x+xx,y+30-hh/2,2,hh);cr.fill()
-            if paint:
-                rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,('FX · ' if audio_effects.active(audio) else '')+Path(audio['path']).name,x+7,y+13,'#ffffff',10)
-            audible=max(0,min(visible,duration-(self.audio_drag_start(self.drag) if lifted else audio['start'])))
-            fade_end=x+audible*self.scale
-            for key,edge in [('fade_in','in'),('fade_out','out')]:
-                value=audio.get(key,0)
-                if self.drag and self.drag['mode']=='fade' and self.drag['index']==i and self.drag['edge']==edge:
+            rgb(cr,'#592899',.7);cr.rectangle(x,y,w,18);cr.fill();draw_text(cr,('FX · ' if audio_effects.active(audio) else '')+Path(audio['path']).name,x+7,y+13,'#ffffff',10)
+            for fkey,edge in (('fade_in','in'),('fade_out','out')):
+                value=audio.get(fkey,0)
+                if fade_dragging and self.drag['index']==i and self.drag['edge']==edge:
                     value=self.drag.get('preview',self.drag['value'])
                 fade=min(value,audible)*self.scale
-                if fade>0 and paint:
+                if fade>0:
                     cr.move_to(x,y+42) if edge=='in' else cr.move_to(fade_end-fade,y)
                     cr.line_to(x+fade,y) if edge=='in' else cr.line_to(fade_end,y+42)
                     cr.line_to(x,y) if edge=='in' else cr.line_to(fade_end,y)
                     cr.close_path();rgb(cr,'#ffffff',.22);cr.fill()
                 if self.owner.is_selected('audio',i) and audible>0 and not lifted:
                     hx=x+fade if edge=='in' else fade_end-fade
-                    if paint:cr.arc(hx,y+4,4,0,math.tau);rgb(cr,'#ffffff');cr.fill()
-                    self.fade_hits.append((i,edge,hx,y+4,7))
+                    cr.arc(hx,y+4,4,0,math.tau);rgb(cr,'#ffffff');cr.fill()
             cutoff=max(x,100+duration*self.scale)
-            if cutoff<x+w and paint:
+            if cutoff<x+w:
                 rgb(cr,colors['background'],.7);cr.rectangle(cutoff,y,x+w-cutoff,42);cr.fill()
             cr.restore()
-            if paint and self.owner.is_selected('audio',i):
+            if self.owner.is_selected('audio',i):
                 rounded(cr,x,y,w,42,7);rgb(cr,'#e45b5b' if lifted and not self.drag.get('drop_valid') else colors['accent']);cr.set_line_width(3);cr.stroke()
-            self.hit.append(('audio',i,x,y,w,42))
-            if paint and self.owner.is_selected('audio',i) and w >= 24:
+            if self.owner.is_selected('audio',i) and w >= 24:
                 for edge in (x+3,x+w-5):
                     rgb(cr,'#ffffff');cr.rectangle(edge,y+10,2,22);cr.fill()
-        for group,items in [('layers',p.get('layers',[])),('captions',p.get('captions',[]))]:
-            for index,item in enumerate(items):
-                if self.drag and self.drag.get('active') and self.drag.get('kind')==group and self.drag['index']==index:
-                    item=self.dragged_layer(item)
-                y,h=positions[(group,index if group=='layers' else None)];x=100+item['start']*self.scale;w=max(12,(item['end']-item['start'])*self.scale)
-                self.hit.append((group,index,x,y,w,h))
-                if (group=='layers' or index==0) and intersects(12,y+9,82,20):draw_text(cr,f'LAYER {index+1}' if group=='layers' else 'CAPTIONS',12,y+22,colors['muted'],10,True)
-                if not intersects(x,y,w,h):continue
-                cr.save();rounded(cr,x,y,w,h,6);cr.clip();rgb(cr,'#267aab' if group=='layers' else '#33864b');cr.paint()
-                title=item.get('text') or Path(item.get('path','')).name
-                draw_text(cr,title.replace('\n',' '),x+7,y+22,'#ffffff',11);cr.restore()
-                if self.owner.is_selected(group,index):
-                    rounded(cr,x,y,w,h,6);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
-                    for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
+
+        if audio_moving or fade_dragging:
+            audio_order=list(range(len(p['audio'])))
+            if audio_moving:audio_order.remove(self.drag['index']);audio_order.append(self.drag['index'])
+            for i in audio_order:
+                audio=p['audio'][i]
+                y,_=positions[('audio',i)];x=100+audio['start']*self.scale
+                lifted=audio_moving and self.drag['index']==i
+                if lifted:
+                    x=100+self.audio_drag_start(self.drag)*self.scale
+                    y=self.drag['pointer_y']-self.drag['grab_y']-5
+                visible=model.clip_duration(audio)
+                w=max(12,visible*self.scale)
+                audible=max(0,min(visible,duration-(self.audio_drag_start(self.drag) if lifted else audio['start'])))
+                fade_end=x+audible*self.scale
+                if self.owner.is_selected('audio',i) and audible>0 and not lifted:
+                    for fkey,edge in (('fade_in','in'),('fade_out','out')):
+                        value=audio.get(fkey,0)
+                        if fade_dragging and self.drag['index']==i and self.drag['edge']==edge:
+                            value=self.drag.get('preview',self.drag['value'])
+                        fade=min(value,audible)*self.scale
+                        hx=x+fade if edge=='in' else fade_end-fade
+                        self.fade_hits.append((i,edge,hx,y+4,7))
+                self.hit.append(('audio',i,x,y,w,42))
+                if intersects(x,y,w,42,12):
+                    paint_audio_item(i,x,y,w,audible,fade_end,lifted)
+        else:
+            if moving or layer_dragging:
+                self.hit.extend(item[7] for item in cached['audio_raw'])
+                self.fade_hits=list(cached['fade_hits'])
+            for idx in _range_indices(cached['audio_starts'], cached['audio_max_ends'], left - 12, right + 12):
+                x,i,y,w,_,audible,fade_end,_=cached['audio_raw'][idx]
+                if not intersects(x,y,w,42,12):continue
+                paint_audio_item(i,x,y,w,audible,fade_end,False)
+
+        for group in ('layers','captions'):
+            items=p.get(group,[])
+            if group=='captions' and items:
+                cy,ch=positions[('captions',None)]
+                if intersects(12,cy+9,82,20):draw_text(cr,'CAPTIONS',12,cy+22,colors['muted'],10,True)
+            elif group=='layers':
+                for index in range(len(items)):
+                    ly,lh=positions[('layers',index)]
+                    if intersects(12,ly+9,82,20):draw_text(cr,f'LAYER {index+1}',12,ly+22,colors['muted'],10,True)
+            if layer_dragging and self.drag.get('kind')==group:
+                for index,item in enumerate(items):
+                    if self.drag['index']==index:item=self.dragged_layer(item)
+                    y,h=positions[(group,index if group=='layers' else None)];x=100+item['start']*self.scale;w=max(12,(item['end']-item['start'])*self.scale)
+                    self.hit.append((group,index,x,y,w,h))
+                    if not intersects(x,y,w,h):continue
+                    cr.save();rounded(cr,x,y,w,h,6);cr.clip();rgb(cr,'#267aab' if group=='layers' else '#33864b');cr.paint()
+                    title=item.get('text') or Path(item.get('path','')).name
+                    draw_text(cr,title.replace('\n',' '),x+7,y+22,'#ffffff',11);cr.restore()
+                    if self.owner.is_selected(group,index):
+                        rounded(cr,x,y,w,h,6);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
+                        for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
+            else:
+                raw,starts,max_ends=cached['group_indices'][group]
+                if moving or audio_moving or layer_dragging or fade_dragging:
+                    self.hit.extend(item[5] for item in raw)
+                for idx in _range_indices(starts, max_ends, left - 4, right + 4):
+                    x,index,y,w,h,_=raw[idx]
+                    if not intersects(x,y,w,h):continue
+                    item=items[index]
+                    cr.save();rounded(cr,x,y,w,h,6);cr.clip();rgb(cr,'#267aab' if group=='layers' else '#33864b');cr.paint()
+                    title=item.get('text') or Path(item.get('path','')).name
+                    draw_text(cr,title.replace('\n',' '),x+7,y+22,'#ffffff',11);cr.restore()
+                    if self.owner.is_selected(group,index):
+                        rounded(cr,x,y,w,h,6);rgb(cr,colors['accent']);cr.set_line_width(3);cr.stroke()
+                        for edge in (x+3,x+w-5):rgb(cr,'#ffffff');cr.rectangle(edge,y+8,2,18);cr.fill()
+
         # Paint joins after every thumbnail so their hit targets remain visible
         # even when transition overlaps make the clip rectangles overlap.
-        for i,row in enumerate([] if moving else timings[:-1]):
-            cx=100+(row['start']+row['duration']-row['overlap']/2)*self.scale;cy=video_y+40
-            self.join_hits.append((i,cx,cy,15))
-            if not intersects(cx-15,cy-15,30,30):continue
-            applied=p['clips'][i]['transition']!='none'
-            if not applied and self.hover_join!=i:continue
-            cr.new_sub_path()
-            cr.arc(cx,cy,14,0,math.tau);rgb(cr,'#ffffff');cr.fill()
-            rgb(cr,'#242424');cr.set_line_width(1.5)
-            if applied:
-                for sign in (-1,1):
-                    cr.move_to(cx,cy);cr.line_to(cx+sign*6,cy-4);cr.line_to(cx+sign*6,cy+4);cr.close_path();cr.stroke()
-            else:
-                cr.move_to(cx-6,cy);cr.line_to(cx+6,cy);cr.move_to(cx,cy-6);cr.line_to(cx,cy+6);cr.stroke()
+        if not moving:
+            if audio_moving or layer_dragging or fade_dragging:
+                self.join_hits=list(cached['join_hits'])
+            j_lo=bisect.bisect_left(cached['join_xs'], left - 18)
+            j_hi=bisect.bisect_right(cached['join_xs'], right + 18)
+            for idx in range(j_lo, j_hi):
+                i,cx,cy,_=cached['join_hits'][idx]
+                if not intersects(cx-15,cy-15,30,30):continue
+                applied=p['clips'][i]['transition']!='none'
+                if not applied and self.hover_join!=i:continue
+                cr.new_sub_path()
+                cr.arc(cx,cy,14,0,math.tau);rgb(cr,'#ffffff');cr.fill()
+                rgb(cr,'#242424');cr.set_line_width(1.5)
+                if applied:
+                    for sign in (-1,1):
+                        cr.move_to(cx,cy);cr.line_to(cx+sign*6,cy-4);cr.line_to(cx+sign*6,cy+4);cr.close_path();cr.stroke()
+                else:
+                    cr.move_to(cx-6,cy);cr.line_to(cx+6,cy);cr.move_to(cx,cy-6);cr.line_to(cx,cy+6);cr.stroke()
         if p['clips'] and not moving:
+            if audio_moving or layer_dragging or fade_dragging:
+                self.add_hit=cached['add_hit']
             end=100+duration*self.scale
-            rgb(cr,colors['border']);cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
-            draw_text(cr,'Video ends',end+6,36,colors['muted'],10)
-            x=end+12;y=video_y+15;size=44
-            rounded(cr,x,y,size,size,9);rgb(cr,colors['surface']);cr.fill_preserve();rgb(cr,colors['border']);cr.set_line_width(1);cr.stroke()
-            rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(x+12,y+22);cr.line_to(x+32,y+22);cr.move_to(x+22,y+12);cr.line_to(x+22,y+32);cr.stroke()
-            self.add_hit=(x,y,size,size)
+            if intersects(end-4,30,120,a.height):
+                rgb(cr,colors['border']);cr.set_dash([4,4]);cr.move_to(end,30);cr.line_to(end,a.height);cr.stroke();cr.set_dash([])
+                draw_text(cr,'Video ends',end+6,36,colors['muted'],10)
+                x=end+12;y=video_y+15;size=44
+                rounded(cr,x,y,size,size,9);rgb(cr,colors['surface']);cr.fill_preserve();rgb(cr,colors['border']);cr.set_line_width(1);cr.stroke()
+                rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(x+12,y+22);cr.line_to(x+32,y+22);cr.move_to(x+22,y+12);cr.line_to(x+22,y+32);cr.stroke()
         px=100+self.owner.playhead*self.scale
         rgb(cr,colors['text']);cr.set_line_width(2);cr.move_to(px,27);cr.line_to(px,a.height);cr.stroke()
         cr.move_to(px-5,27);cr.line_to(px+5,27);cr.line_to(px,34);cr.close_path();cr.fill()
@@ -384,6 +607,26 @@ class Timeline(Gtk.DrawingArea):
         return None
 
     def item_at(self,x,y):
+        if self._layout is not None and self.hit is self._layout['hit']:
+            cached=self._layout
+            candidates=[]
+            for group in ('captions','layers'):
+                raw,starts,max_ends=cached['group_indices'][group]
+                for idx in reversed(_range_indices(starts, max_ends, x, x)):
+                    hit=raw[idx][5]
+                    if hit[2]<=x<=hit[2]+hit[4] and hit[3]<=y<=hit[3]+hit[5]:
+                        candidates.append(hit)
+            for idx in reversed(_range_indices(cached['audio_starts'], cached['audio_max_ends'], x, x)):
+                hit=cached['audio_raw'][idx][7]
+                if hit[2]<=x<=hit[2]+hit[4] and hit[3]<=y<=hit[3]+hit[5]:
+                    candidates.append(hit)
+            for idx in reversed(_range_indices(cached['clip_starts'], cached['clip_max_ends'], x, x)):
+                hit=cached['clip_items'][idx]
+                if hit[2]<=x<=hit[2]+hit[4] and hit[3]<=y<=hit[3]+hit[5]:
+                    candidates.append(hit)
+            selected=next((hit for hit in candidates if hit[:2]==self.owner.selected and self.item_edge(hit,x,y)),None)
+            if selected:return selected
+            return candidates[0] if candidates else None
         hits=list(reversed(self.hit))
         # Keep a selected outgoing edge reachable when clips overlap.
         selected=next((hit for hit in hits if hit[:2]==self.owner.selected and self.item_edge(hit,x,y)),None)
@@ -578,7 +821,17 @@ class Timeline(Gtk.DrawingArea):
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(),'ew-resize' if self.drag['edge'] else 'grabbing'))
             self.queue_draw()
         elif self.get_window():
-            hovered=next((index for index,cx,cy,r in self.join_hits if abs(event.x-cx)<=r and abs(event.y-cy)<=r),None)
+            hovered=None
+            if self._layout is not None and self.join_hits is self._layout['join_hits']:
+                j_xs=self._layout['join_xs']
+                j_lo=bisect.bisect_left(j_xs, event.x - 16)
+                j_hi=bisect.bisect_right(j_xs, event.x + 16)
+                for idx in range(j_lo, j_hi):
+                    index,cx,cy,r=self.join_hits[idx]
+                    if abs(event.x-cx)<=r and abs(event.y-cy)<=r:
+                        hovered=index;break
+            else:
+                hovered=next((index for index,cx,cy,r in self.join_hits if abs(event.x-cx)<=r and abs(event.y-cy)<=r),None)
             self.set_hover_join(hovered)
             near=event.y>=27 and abs(event.x-(100+self.owner.playhead*self.scale))<=6
             hit=self.item_at(event.x,event.y);edge=self.item_edge(hit,event.x,event.y) if hit else None
@@ -588,7 +841,8 @@ class Timeline(Gtk.DrawingArea):
     def fade_value(self,x):
         d=self.drag;item=self.owner.project['audio'][d['index']]
         sign=1 if d['edge']=='in' else -1
-        audible=max(0,min(model.clip_duration(item),model.project_duration(self.owner.project)-item['start']))
+        cached=self._ensure_layout()
+        audible=max(0,min(model.clip_duration(item),cached['duration']-item['start']))
         return max(0,min(audible,d['value']+sign*(x-d['x'])/self.scale))
 
     def drag_delta(self,x):
@@ -600,18 +854,18 @@ class Timeline(Gtk.DrawingArea):
         else:return delta
         value=at+delta
         if self.owner.snap_check.get_active():
-            marks=[0,self.owner.playhead]
-            for row in model.timeline(self.owner.project):marks.extend((row['start'],row['start']+row['duration']))
-            for i,item in enumerate(self.owner.project['audio']):
-                if d['kind']=='audio' and i==d['index']:continue
-                marks.extend((item['start'],item['start']+model.clip_duration(item)))
-            for kind in ('layers','captions'):
-                for i,item in enumerate(self.owner.project.get(kind,[])):
-                    if d['kind']==kind and i==d['index']:continue
-                    marks.extend((item['start'],item['end']))
-            marks=[m for m in marks if abs(m-at)>1e-6]
-            if marks:
-                nearest=min(marks,key=lambda m:abs(m-value))
+            cached=self._ensure_layout()
+            window=8.0/self.scale+1e-6
+            times=cached['snap_times'];marks_all=cached['snap_marks']
+            lo=bisect.bisect_left(times, value-window)
+            hi=bisect.bisect_right(times, value+window)
+            candidates=[m for m in (0,self.owner.playhead) if abs(m-at)>1e-6 and abs(m-value)<=window]
+            for idx in range(lo, hi):
+                mark,kind,index=marks_all[idx]
+                if kind==d['kind'] and index==d['index']:continue
+                if abs(mark-at)>1e-6:candidates.append(mark)
+            if candidates:
+                nearest=min(candidates,key=lambda m:abs(m-value))
                 if abs(nearest-value)*self.scale<=8:
                     value=nearest
                     # Keep exact soundtrack joins and layer endpoints even
@@ -2018,7 +2272,8 @@ class ClipCanvasWindow(Gtk.Window):
             if abs(seconds-self._position_target)>.15 and GLib.get_monotonic_time()<self._position_target_until:return
             self._position_target=None
         before=self.playhead;self.playhead=seconds
-        text=f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}'
+        total=self.timeline._ensure_layout()['duration']
+        text=f'{time_text(seconds)} / {time_text(total)}'
         if self.clock_label.get_text()!=text:self.clock_label.set_text(text)
         self.timeline.redraw_playhead(before,seconds)
 
@@ -2048,8 +2303,10 @@ class ClipCanvasWindow(Gtk.Window):
         # A new seek supersedes a paused-frame request, including one started
         # by selection or a quality change. Its callback must not stop playback.
         if self._scrub_settling and not self._drag_scrubbing:self.cancel_scrub()
-        seconds=max(0,min(seconds,max(0,model.project_duration(self.project)-1/self.project['fps'])))
-        self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(model.project_duration(self.project))}');self.timeline.queue_draw();self.canvas.queue_draw()
+        total=self.timeline._ensure_layout()['duration']
+        seconds=max(0,min(seconds,max(0,total-1/self.project['fps'])))
+        before=self.playhead
+        self.playhead=seconds;self.clock_label.set_text(f'{time_text(seconds)} / {time_text(total)}');self.timeline.redraw_playhead(before,seconds);self.canvas.queue_draw()
         self._position_target=seconds
         self._position_target_until=GLib.get_monotonic_time()+1000000
         if not self.canvas.playing and not self.preview_key:self.preview_label.set_text('Seeking…')
