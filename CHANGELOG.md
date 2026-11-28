@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.0 — 2026-11-28
+
+- Mark a stationary watermark directly on a source frame, compare the repair and apply it to preview and export. Reopen the tool to adjust or clear the region.
+
 ## 0.23.0 — 2026-11-26
 
 - Detect and remove disappearing and drifting visible Gemini sparkles (common in image-to-video clips where the sparkle fades out partway through or moves with camera motion). Tracked patches generate time-bounded `removelogo` masks that follow the sparkle while visible, leave clean frames untouched once it vanishes, and stay aligned across seeks, trims and splits.

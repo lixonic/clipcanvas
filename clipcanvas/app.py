@@ -21,6 +21,7 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 import cairo
 
+from . import watermark
 from . import model, engine, storage, track_layout, audio_effects, workflow, transitions, visuals, color_grading
 from .preferences import Preferences
 from . import __version__
@@ -1581,6 +1582,9 @@ class ClipCanvasWindow(Gtk.Window):
             if videos:
                 title='Remove watermark' if len(videos)==1 else f'Remove watermark from selected clips ({len(videos)})'
                 action(menu,title,self.remove_watermarks)
+            if not still:
+                from .watermark_ui import edit_region
+                action(menu, 'Mark watermark region…', lambda: edit_region(self, index))
             picture=group('Picture')
             picture_items=self.selected_picture_items();picture_count=len(picture_items)
             action(picture,'Picture…',lambda:self.open_properties('Picture'))
@@ -2133,7 +2137,7 @@ class ClipCanvasWindow(Gtk.Window):
         if self.closed or serial!=self.scrub_serial:return False
         candidates=[(c,t) for c,t in zip(self.project['clips'],model.timeline(self.project)) if t['start']<=seconds<t['start']+t['duration']]
         if not candidates:return False
-        if any(model.is_image(item) or item.get('sparkle_patch') for item,_ in candidates):
+        if any(model.is_image(item) or watermark.active(item) for item,_ in candidates):
             return self.scrub_frame(serial,seconds)
         if model.is_card(candidates[-1][0]):
             pix=GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB,False,8,64,64)

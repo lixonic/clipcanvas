@@ -832,3 +832,33 @@ def removal_filter(patch, metadata, scratch, source_start=0.0, source_end=None):
             filters.append(f"{spec}:enable='gte(t,{rel_start:.4f})*lt(t,{rel_end:.4f})'")
     return filters
 
+
+def validate_region(region):
+    """Validate normalized left, top, right and bottom source coordinates."""
+    if (not isinstance(region, (list, tuple)) or len(region) != 4 or
+            any(type(v) not in (int, float) or not 0 <= v <= 1 for v in region) or
+            region[0] >= region[2] or region[1] >= region[3]):
+        raise ValueError('Select a rectangular watermark region inside the source frame.')
+
+
+def region_filters(region, metadata):
+    """Interpolate from the edges of the marked source rectangle."""
+    from math import floor, ceil
+    validate_region(region)
+    width, height = metadata['width'], metadata['height']
+    left, top, right, bottom = region
+    x, y = floor(left * width), floor(top * height)
+    w, h = ceil(right * width) - x, ceil(bottom * height) - y
+    # delogo needs a sampling border. Extend edge pixels for marks that
+    # touch the frame, then restore the exact input dimensions.
+    border = x < 2 or y < 2 or x+w > width-2 or y+h > height-2
+    offset = 2 if border else 0
+    repair = f'delogo=x={x+offset}:y={y+offset}:w={w}:h={h}'
+    if border:
+        return ['pad=iw+4:ih+4:2:2', 'fillborders=2:2:2:2:smear', repair,
+                f'crop={width}:{height}:2:2:exact=1']
+    return [repair]
+
+
+def active(clip):
+    return bool(clip.get('sparkle_patch') or clip.get('watermark_region'))

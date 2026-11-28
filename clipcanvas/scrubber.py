@@ -16,6 +16,7 @@ gi.require_version('Gdk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gst, Gdk, GdkPixbuf, GLib
 
+from . import watermark
 from . import color_grading, engine, model, visuals
 
 Gst.init(None)
@@ -192,7 +193,7 @@ class ScrubSession:
         video_overlay = any(item.get('kind') == 'video' and item['start'] <= seconds < item['end']
                             for item in project.get('layers', []))
         if (len(active) != 1 or video_overlay or model.is_image(active[0][0])
-                or active[0][0].get('sparkle_patch') or color_grading.crayon_active(active[0][0])):
+                or watermark.active(active[0][0]) or color_grading.crayon_active(active[0][0])):
             self.last_backend = 'composition'
             return engine.preview_frame(project, seconds, cancel, preview_edge)
         clip, row = active[0]

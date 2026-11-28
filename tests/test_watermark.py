@@ -237,3 +237,35 @@ class WatermarkTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 watermark.validate(bad)
 
+    def test_manual_region_preview_export_and_persistence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            binary, env = engine._tool('ffmpeg')
+            source = root/'source.mp4'
+            subprocess.run([binary, '-v', 'error', '-f', 'lavfi', '-i',
+                            'color=gray:s=320x180:d=0.4,drawbox=x=40:y=60:w=20:h=12:c=white:t=fill',
+                            '-threads', '1', str(source)], check=True, env=env)
+            clip = model.new_clip(source)
+            clip['watermark_region'] = [36/320, 56/180, 64/320, 76/180]
+            project = model.new_project(320, 180)
+            project['clips'] = [clip]
+            path = root/'edit.clip'
+            model.save_project(project, path)
+            project = model.load_project(path)
+            self.assertEqual(project['clips'][0]['watermark_region'], clip['watermark_region'])
+            target = root/'export.mp4'
+            engine.render(project, target)
+            exported = model.new_project(320, 180)
+            exported['clips'] = [model.new_clip(target)]
+            for timeline in (project, exported):
+                pixels = engine.preview_frame(timeline, .1, preview_edge=0)['pixels']
+                center = pixels[3*(66*320+50)]
+                background = pixels[3*(66*320+20)]
+                self.assertLess(abs(center-background), 5)
+            engine.thumbnail(source, root/'edge.png', watermark_region=[0, 0, .2, .2])
+
+    def test_invalid_manual_regions(self):
+        for region in ([0, 0, 0, .1], [0, 0, 2, 1], [False, 0, 1, 1],
+                       [0, float('nan'), .5, .5], 'invalid'):
+            with self.assertRaises(ValueError):
+                watermark.validate_region(region)

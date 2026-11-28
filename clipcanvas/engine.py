@@ -22,6 +22,7 @@ import threading
 import time
 
 from .model import adapt_frame_rate, clip_duration, media_items, project_duration, timeline, validate_project, is_card, is_image, is_still
+from . import watermark
 from . import audio_effects, transitions, color_grading
 
 
@@ -821,7 +822,7 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
             metadata = probe(clip["path"])
             if not metadata["has_video"]:
                 raise RenderError(f"{Path(clip['path']).name} has no video stream.")
-            proxy = (proxies or {}).get(clip['path']) if preview and not audio_only and not clip.get('sparkle_patch') else None
+            proxy = (proxies or {}).get(clip['path']) if preview and not audio_only and not watermark.active(clip) else None
             args += ["-threads", "1", "-ss", _fmt(clip.get("in", 0)+seek*speed), "-t", _fmt(clip["out"] - clip["in"]-seek*speed), "-i", proxy or clip["path"]]
         # Correct non-square source pixels before placing them in a square-pixel canvas.
         framing = "scale=trunc(iw*sar/2)*2:ih,setsar=1,"
@@ -867,12 +868,13 @@ def _graph(project, preview=False, scratch=None, audio_only=False, cancel=None, 
         picture_index = 0 if proxy else metadata['video_index']
         repair = []
         if clip.get('sparkle_patch') and not audio_only:
-            from . import watermark
             repair = watermark.removal_filter(
                 clip['sparkle_patch'], metadata, scratch,
                 source_start=clip.get('in', 0) + seek * speed,
                 source_end=clip['out'],
             )
+        if clip.get('watermark_region') and not audio_only:
+            repair.extend(watermark.region_filters(clip['watermark_region'], metadata))
         preparation = _with_grading(repair, framing, clip, scratch, f'cg{index}_')
         picture = [f"[{video_input}:{picture_index}]{preparation}", "setsar=1", "format=yuv420p",
                    f"setpts=(PTS-STARTPTS)/{_fmt(speed)}", f"tpad=stop_mode=clone:stop_duration={_fmt(remaining)}",
@@ -1405,7 +1407,7 @@ def render_track_sample(item, output, with_effects=True, audible_length=None, se
         except FileNotFoundError:pass
 
 
-def thumbnail(path, output, at=0, width=320, height=180):
+def thumbnail(path, output, at=0, width=320, height=180, watermark_region=None):
     """Write a thumbnail inside the requested bounds, without padding.
 
     Its real aspect ratio lets the UI apply the same fit/crop as the renderer.
@@ -1414,6 +1416,7 @@ def thumbnail(path, output, at=0, width=320, height=180):
     meta = probe(path)
     if not meta["has_video"]:
         raise RenderError("This file has no video thumbnail.")
+    repair = watermark.region_filters(watermark_region, meta) if watermark_region else []
     at = max(0, min(float(at), max(0, meta["duration"] - 0.08)))
     output = Path(output).expanduser().resolve()
     source = Path(path).expanduser().resolve()
@@ -1423,7 +1426,7 @@ def thumbnail(path, output, at=0, width=320, height=180):
     try:
         result = subprocess.run([binary, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "1",
                                  "-ss", _fmt(at), "-i", str(Path(path).resolve()), "-map", f"0:{meta['video_index']}",
-                                 "-frames:v", "1", "-vf", f"scale=trunc(iw*sar/2)*2:ih,setsar=1,scale={int(width)}:{int(height)}:force_original_aspect_ratio=decrease,setsar=1",
+                                 "-frames:v", "1", "-vf", ",".join(repair + [f"scale=trunc(iw*sar/2)*2:ih,setsar=1,scale={int(width)}:{int(height)}:force_original_aspect_ratio=decrease,setsar=1"]),
                                  "-threads", "1", "-update", "1", str(output)],
                                 capture_output=True, text=True, env=env, timeout=30)
         if result.returncode or not output.is_file():

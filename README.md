@@ -1,4 +1,4 @@
-# ClipCanvas 0.23.0
+# ClipCanvas 0.24.0
 
 A fast, offline desktop video editor for Ubuntu. Pick a canvas, arrange clips, add transitions, captions, color grades, and audio layers, and export—with no account, cloud upload, subscription, or watermark.
 
@@ -10,12 +10,12 @@ A fast, offline desktop video editor for Ubuntu. Pick a canvas, arrange clips, a
 
 ## Install on Ubuntu
 
-1. Download [`clipcanvas_0.23.0_all.deb`](installers/ubuntu/clipcanvas_0.23.0_all.deb) ([SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt)). On GitHub, use **Download raw file**.
+1. Download [`clipcanvas_0.24.0_all.deb`](installers/ubuntu/clipcanvas_0.24.0_all.deb) ([SHA-256 checksum](installers/ubuntu/SHA256SUMS.txt)). On GitHub, use **Download raw file**.
    *(Recent CI builds are also available under [GitHub Actions artifacts](https://github.com/lixonic/clipcanvas/actions) for 14 days.)*
 2. Double-click the `.deb` file in your software installer, or run:
 
    ```sh
-   sudo apt install ./clipcanvas_0.23.0_all.deb
+   sudo apt install ./clipcanvas_0.24.0_all.deb
    ```
 
 3. Launch **ClipCanvas** from the Ubuntu applications menu (or run `clipcanvas`).
@@ -30,6 +30,7 @@ To uninstall later, use Ubuntu's app manager or run `sudo apt remove clipcanvas`
 
 - **Flexible timeline & media library:** Landscape (`16:9`), portrait (`9:16`), and square (`1:1`) canvases with automatic source FPS. Mix videos, images (with optional slow zoom), and solid color cards; drag to reorder, trim edges, snap, split (`S`), and batch-edit multi-selected items.
 - **Picture, crop & color grading:** Click the preview to pan and zoom/crop (`100–400%`) directly with the mouse, rotate/flip, add picture fades, desaturate, or apply cinematic color presets and exposure/tone/saturation adjustments. Includes multi-pass visible Gemini sparkle watermark removal for 720p/1080p footage.
+- **Manual watermark repair:** Right-click a video clip and choose **Mark watermark region…**. Draw a box around a stationary mark, compare the repaired frame, then apply it to the clip. Split the clip first for a mark visible during only part of a shot.
 - **Transitions & visual layers:** 9 illustrated transitions (including **Apply to all clips**), plus text titles, logos/images, and video overlays with entry/exit animations, opacity, stacking controls, and attached sound cues.
 - **Multi-lane audio & voice effects:** Layer WAV (16/24-bit PCM, 32-bit float), MP3, and other audio across multiple lanes with draggable fades, group volume/mute, audio extraction, pitch-preserving speed (`0.25×–4×`), and built-in voice effects (Amplify, Tone/EQ, Echo, Compressor with A/B audition).
 - **Offline speech captions:** Generate word-timed captions locally with automatic language detection or a dedicated **Malayalam** model (with bundled *Noto Sans Malayalam*, *Manjari*, and *Anek Malayalam* fonts). Includes spoken-word yellow highlights, reusable cross-project style presets, and SRT import/export.
